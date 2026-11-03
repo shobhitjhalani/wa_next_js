@@ -1,0 +1,74 @@
+[
+  {
+    "users": [
+      {
+        "id": 1,
+        "name": "Lisa Parker",
+        "status": "online",
+        "nickname": "LP",
+        "profile": ""
+      },
+      {
+        "id": 2,
+        "name": "Frank Thomas",
+        "status": "online",
+        "profile": "",
+        "nickname": "FT",
+        "messagecount" : 8
+      },
+      {
+        "id": 3,
+        "name": "Clifford Taylor",
+        "status": "away",
+        "nickname": "CT",
+        "profile": ""
+      },
+      {
+        "id": 4,
+        "name": "Janette Caster",
+        "status": "online",
+        "nickname": "JC",
+        "profile": ""
+      },
+      {
+        "id": 5,
+        "name": "Sarah Beattie",
+        "status": "online",
+        "profile": "",
+        "nickname": "SB",
+        "messagecount" : 5
+      },
+      {
+        "id": 6,
+        "name": "Nellie Cornett",
+        "status": "away",
+        "profile": "",
+        "nickname": "NC",
+        "messagecount" : 2
+      },
+      {
+        "id": 7,
+        "name": "Chris Kiernan",
+        "status": "online",
+        "nickname": "CK",
+        "profile": ""
+      },
+      {
+        "id": 8,
+        "name": "Edith Evans",
+        "status": "away",
+        "nickname": "EE",
+        "profile": ""
+      },
+      {
+        "id": 9,
+        "name": "Joseph Siegel",
+        "status": "away",
+        "nickname": "JS",
+        "profile": ""
+      }
+    ],
+    "channels": [{}
+    ]
+  }
+]

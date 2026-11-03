@@ -1,0 +1,30 @@
+-- MySQL -> PostgreSQL migration for wa_official (target schema: public)
+-- Usage: pgloader scripts/migrate/wa_official.load
+--   with MYSQL_URL / PG_URL env vars set (see README).
+LOAD DATABASE
+  FROM {{MYSQL_URL}}/wa_official
+  INTO {{PG_URL}}
+
+WITH {{MODE}}include no drop, create tables, create indexes, reset sequences,
+     foreign keys, downcase identifiers, workers = 4, concurrency = 1, prefetch rows = 2000, batch rows = 2000
+
+SET PostgreSQL PARAMETERS maintenance_work_mem to '512MB', work_mem to '64MB'
+
+-- Long-running streams of big tables (js_message) otherwise get reset by MySQL.
+SET MySQL PARAMETERS net_read_timeout = '3600', net_write_timeout = '3600'
+
+-- Columns are latin1 in MySQL but hold raw UTF-8 bytes (emoji, Hindi): decode them as UTF-8.
+DECODING TABLE NAMES MATCHING ~/./ AS utf-8
+
+-- Keep tinyint flags (1/2 style, not booleans) as small integers.
+CAST type tinyint to smallint drop typemod,
+     type int with extra auto_increment to serial drop typemod,
+     type bigint with extra auto_increment to bigserial drop typemod,
+     type int to integer drop typemod,
+     type bigint to bigint drop typemod,
+     type datetime to timestamptz using zero-dates-to-null,
+     type timestamp to timestamptz using zero-dates-to-null
+
+ALTER SCHEMA 'wa_official' RENAME TO 'public'
+
+BEFORE LOAD DO $$ CREATE SCHEMA IF NOT EXISTS public; $$;

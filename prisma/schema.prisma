@@ -1,0 +1,1004 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+  schemas  = ["log", "public"]
+}
+
+/// This model or at least one of its fields has comments in the database, and requires an additional setup for migrations: Read more: https://pris.ly/d/database-comments
+model log_js_api_data_log {
+  adl_id        Int      @id @default(autoincrement())
+  adl_source    Int      @default(2) @db.SmallInt
+  adl_url       String?  @db.VarChar(255)
+  adl_value     String?
+  adl_user_id   Int?     @default(0)
+  adl_api_key   String?  @db.VarChar(100)
+  adl_device_id String?  @db.VarChar(255)
+  adl_time      DateTime @default(now()) @db.Timestamptz(6)
+
+  @@index([adl_user_id], map: "js_api_data_log_adl_user_id")
+  @@map("js_api_data_log")
+  @@schema("log")
+}
+
+model log_js_data_log {
+  log_id        Int      @id @default(autoincrement())
+  log_time      Int
+  log_s_time    DateTime @default(now()) @db.Timestamptz(6)
+  log_user_id   Int
+  log_table     String   @db.VarChar(255)
+  log_type      String   @db.VarChar(10)
+  log_values    String
+  log_data_id   String   @db.VarChar(255)
+  log_device_id String   @db.VarChar(50)
+
+  @@map("js_data_log")
+  @@schema("log")
+}
+
+model log_js_employee_login_log {
+  ll_id         BigInt  @id @default(autoincrement())
+  ll_sid        BigInt  @default(0)
+  ll_stype      Int     @default(1) @db.SmallInt
+  ll_s_user     String? @db.VarChar(255)
+  ll_s_time     Int     @default(0)
+  ll_e_time     Int     @default(0)
+  ll_session_id String? @db.VarChar(255)
+  ll_ip         String? @db.VarChar(100)
+
+  @@map("js_employee_login_log")
+  @@schema("log")
+}
+
+/// The underlying table does not contain a valid unique identifier and can therefore currently not be handled by Prisma Client.
+model log_js_incoming_log {
+  il_id              Int
+  il_user_id         Int     @default(0)
+  il_rec_phone_no    String? @db.VarChar(25)
+  il_sender_phone_no String? @db.VarChar(25)
+  il_response        String?
+
+  @@map("js_incoming_log")
+  @@ignore
+  @@schema("log")
+}
+
+model log_js_login_log {
+  ll_id          BigInt   @id @default(autoincrement())
+  ll_sid         BigInt
+  ll_s_user      String   @db.VarChar(255)
+  ll_s_time      Int
+  ll_e_time      Int
+  ll_session_id  String   @db.VarChar(255)
+  ll_last_update DateTime @default(now()) @db.Timestamptz(6)
+  ll_ip          String   @db.VarChar(100)
+
+  @@map("js_login_log")
+  @@schema("log")
+}
+
+/// This model or at least one of its fields has comments in the database, and requires an additional setup for migrations: Read more: https://pris.ly/d/database-comments
+model log_js_message {
+  m_id                 BigInt   @id @default(autoincrement())
+  m_unique_id          String?  @db.Char(36)
+  m_user_id            Int      @default(0)
+  m_contact_id         Int      @default(0)
+  m_campaign_id        Int      @default(0)
+  m_reply_template     Int?     @default(0)
+  m_is_incoming        Int?     @default(2) @db.SmallInt
+  m_msg_lite           Int      @default(2) @db.SmallInt
+  m_mobile_no          String?  @db.VarChar(255)
+  m_active_prompt      Int      @default(0)
+  m_source             Int      @default(1) @db.SmallInt
+  m_msg_type           String?  @db.VarChar(255)
+  m_msg_template_name  String?  @db.VarChar(255)
+  m_msg_template_para  String?
+  m_sender_name        String?  @db.VarChar(255)
+  m_title              String?  @db.VarChar(255)
+  m_msg_title          String?  @db.VarChar(255)
+  m_msg_values         String?  @db.VarChar(255)
+  m_content            String?
+  m_buttons            String?  @db.VarChar(255)
+  m_button_url         String?
+  m_button_call        String?  @db.VarChar(255)
+  m_image              String?
+  m_base_file          String?  @db.VarChar(255)
+  m_sheet_id           String?  @db.VarChar(255)
+  m_message_id         String?  @db.VarChar(255)
+  m_reply_message_id   String?  @db.VarChar(255)
+  m_is_read            Int      @default(2) @db.SmallInt
+  m_created_on         Int      @default(0)
+  m_created_date       Int      @default(0)
+  m_system_time        DateTime @default(now()) @db.Timestamptz(6)
+  m_status             Int      @default(1) @db.SmallInt
+  m_delivery_status    String?  @db.VarChar(25)
+  m_response_file_name String?  @db.VarChar(255)
+  m_updated_on         Int      @default(0)
+  m_in_process_on      Int      @default(0)
+  m_error_codes        String?  @db.VarChar(255)
+  m_msg_id_count       Int      @default(0)
+  m_status_response    String?  @db.VarChar(255)
+  m_dstatus            Int      @default(0) @db.SmallInt
+
+  @@index([m_contact_id], map: "js_message_m_contact_id")
+  @@index([m_created_date], map: "js_message_m_created_date")
+  @@index([m_created_on], map: "js_message_m_created_on")
+  @@index([m_dstatus], map: "js_message_m_dstatus")
+  @@index([m_id], map: "js_message_m_id")
+  @@index([m_in_process_on], map: "js_message_m_in_process_on")
+  @@index([m_message_id], map: "js_message_m_message_id")
+  @@index([m_mobile_no], map: "js_message_m_mobile_no")
+  @@index([m_msg_template_name], map: "js_message_m_msg_template_name")
+  @@index([m_msg_type], map: "js_message_m_msg_type")
+  @@index([m_reply_message_id], map: "js_message_m_reply_message_id")
+  @@index([m_sender_name], map: "js_message_m_sender_name")
+  @@index([m_status], map: "js_message_m_status")
+  @@index([m_updated_on], map: "js_message_m_updated_on")
+  @@index([m_user_id], map: "js_message_m_user_id")
+  @@map("js_message")
+  @@schema("log")
+}
+
+model log_js_message_log {
+  ml_id         Int      @id @default(autoincrement())
+  ml_m_id       BigInt
+  ml_user_id    Int      @default(0)
+  ml_wa_id      String?  @db.VarChar(255)
+  ml_wa_status  String?  @db.VarChar(25)
+  ml_charges    String?  @db.VarChar(50)
+  ml_created_at DateTime @default(now()) @db.Timestamptz(6)
+  ml_count      Int      @default(0)
+
+  @@index([ml_m_id], map: "js_message_log_ml_m_id")
+  @@index([ml_user_id], map: "js_message_log_ml_user_id")
+  @@index([ml_wa_id], map: "js_message_log_ml_wa_id")
+  @@map("js_message_log")
+  @@schema("log")
+}
+
+/// This model or at least one of its fields has comments in the database, and requires an additional setup for migrations: Read more: https://pris.ly/d/database-comments
+model log_js_payment_log {
+  p_id             Int      @id @default(autoincrement())
+  p_gateway        Int      @default(1) @db.SmallInt
+  p_payment_type   Int      @default(1) @db.SmallInt
+  p_no             String   @db.VarChar(255)
+  p_partner_id     Int?     @default(0)
+  p_user_id        Int      @default(0)
+  p_user_name      String?  @db.VarChar(255)
+  p_user_mobile    String?  @db.VarChar(10)
+  p_user_email     String?  @db.VarChar(255)
+  p_order_no       String   @db.VarChar(255)
+  p_amount         Int      @default(0)
+  p_status         Int      @default(1) @db.SmallInt
+  p_reference_no   String?  @db.VarChar(255)
+  p_payment_mode   String?  @db.VarChar(100)
+  p_payment_option String?  @db.VarChar(100)
+  p_payment_id     String?  @db.VarChar(100)
+  p_payment_method Int      @default(1)
+  p_created_on     DateTime @default(now()) @db.Timestamptz(6)
+  p_ip_address     String?  @db.VarChar(25)
+
+  @@index([p_user_id], map: "js_payment_log_js_payment_log_ibfk_1")
+  @@map("js_payment_log")
+  @@schema("log")
+}
+
+model log_js_query_error {
+  qe_id        Int      @id @default(autoincrement())
+  qe_query     String
+  qe_error     String   @db.VarChar(255)
+  qe_user_id   Int
+  qe_time      DateTime @default(now()) @db.Timestamptz(6)
+  qe_url       String   @db.VarChar(255)
+  qe_device_id String   @db.VarChar(50)
+
+  @@map("js_query_error")
+  @@schema("log")
+}
+
+model log_js_user_login_log {
+  ll_id         BigInt  @id @default(autoincrement())
+  ll_sid        BigInt?
+  ll_s_user     String? @db.VarChar(255)
+  ll_s_time     Int?
+  ll_e_time     Int?
+  ll_session_id String? @db.VarChar(255)
+  ll_ip         String? @db.VarChar(100)
+
+  @@map("js_user_login_log")
+  @@schema("log")
+}
+
+model log_js_wa_session_check {
+  wsc_id           Int      @id @default(autoincrement())
+  wsc_created_on   Int      @default(0)
+  wsc_response     String?
+  wsc_total_users  Int      @default(0)
+  wsc_active_count Int      @default(0)
+  wsc_active_users String?
+  wsc_system_time  DateTime @default(now()) @db.Timestamptz(6)
+
+  @@map("js_wa_session_check")
+  @@schema("log")
+}
+
+model log_js_webhook_que {
+  id         Int      @id @default(autoincrement())
+  value      String?
+  msg_id     String?  @db.VarChar(255)
+  status     String?  @db.VarChar(100)
+  error      String?
+  moved      Int      @default(1) @db.SmallInt
+  systemtime DateTime @default(now()) @db.Timestamptz(6)
+
+  @@map("js_webhook_que")
+  @@schema("log")
+}
+
+/// This model or at least one of its fields has comments in the database, and requires an additional setup for migrations: Read more: https://pris.ly/d/database-comments
+model js_ai_do_dont {
+  ai_dd_id      Int       @id @default(autoincrement())
+  ai_user_id    Int
+  ai_dd_type    Int       @default(1) @db.SmallInt
+  ai_content    String?
+  ai_updated_on DateTime? @db.Timestamptz(6)
+
+  @@index([ai_dd_type], map: "js_ai_do_dont_ai_dd_type")
+  @@index([ai_user_id], map: "js_ai_do_dont_ai_user_id")
+  @@schema("public")
+}
+
+model js_ai_knowledge_base {
+  kb_id         Int       @id @default(autoincrement())
+  kb_user_id    Int
+  kb_title      String    @db.VarChar(255)
+  kb_keywords   String    @db.VarChar(255)
+  kb_content    String?
+  kb_status     Int       @default(1) @db.SmallInt
+  kb_dstatus    Int       @default(0) @db.SmallInt
+  kb_created_on DateTime  @default(now()) @db.Timestamptz(6)
+  kb_updated_on DateTime? @db.Timestamptz(6)
+
+  @@index([kb_title], map: "js_ai_knowledge_base_kb_title")
+  @@index([kb_user_id], map: "js_ai_knowledge_base_kb_user_id")
+  @@schema("public")
+}
+
+model js_ai_prompt {
+  ai_p_id       Int       @id @default(autoincrement())
+  ai_user_id    Int
+  ai_title      String?   @db.VarChar(255)
+  ai_keywords   String?   @db.VarChar(255)
+  ai_content    String?
+  ai_updated_on DateTime? @db.Timestamptz(6)
+
+  @@index([ai_keywords], map: "js_ai_prompt_ai_keywords")
+  @@index([ai_title], map: "js_ai_prompt_ai_title")
+  @@index([ai_user_id], map: "js_ai_prompt_ai_user_id")
+  @@schema("public")
+}
+
+/// This model or at least one of its fields has comments in the database, and requires an additional setup for migrations: Read more: https://pris.ly/d/database-comments
+model js_api_data_log {
+  adl_id        Int      @id @default(autoincrement())
+  adl_source    Int      @default(2) @db.SmallInt
+  adl_url       String?  @db.VarChar(255)
+  adl_value     String?
+  adl_header    String?
+  adl_user_id   String?  @db.VarChar(255)
+  adl_api_key   String?  @db.VarChar(100)
+  adl_device_id String?  @db.VarChar(255)
+  adl_imei_no   String?  @db.VarChar(25)
+  adl_longitude String?  @db.VarChar(25)
+  adl_latitude  String?  @db.VarChar(25)
+  adl_time      DateTime @default(now()) @db.Timestamptz(6)
+  adl_result    String?
+
+  @@schema("public")
+}
+
+/// This model or at least one of its fields has comments in the database, and requires an additional setup for migrations: Read more: https://pris.ly/d/database-comments
+model js_banners {
+  b_id                                                      Int             @id @default(autoincrement())
+  b_title                                                   String?         @db.VarChar(200)
+  b_sub_title                                               String?         @db.VarChar(255)
+  b_url                                                     String?         @db.VarChar(255)
+  b_position                                                BigInt          @default(0)
+  b_order                                                   Int             @default(0) @db.SmallInt
+  b_category_id                                             BigInt          @default(0)
+  b_link_type                                               Int             @db.SmallInt
+  b_status                                                  Int             @default(1) @db.SmallInt
+  b_dstatus                                                 Int             @default(0) @db.SmallInt
+  js_master_value_js_banners_b_category_idTojs_master_value js_master_value @relation("js_banners_b_category_idTojs_master_value", fields: [b_category_id], references: [mv_id], onDelete: NoAction, onUpdate: NoAction, map: "js_banners_js_banners_ibfk_1_fkey")
+  js_master_value_js_banners_b_positionTojs_master_value    js_master_value @relation("js_banners_b_positionTojs_master_value", fields: [b_position], references: [mv_id], onDelete: NoAction, onUpdate: NoAction, map: "js_banners_js_banners_ibfk_2_fkey")
+
+  @@index([b_category_id], map: "js_banners_b_category_id")
+  @@index([b_position], map: "js_banners_b_position")
+  @@schema("public")
+}
+
+model js_company {
+  cy_id           Int     @id @default(autoincrement())
+  cy_company      String  @db.VarChar(255)
+  cy_address      String? @db.VarChar(255)
+  cy_city         String? @db.VarChar(255)
+  cy_state        String? @db.VarChar(255)
+  cy_pincode      String? @db.VarChar(255)
+  cy_contact      String? @db.VarChar(255)
+  cy_mobile       String? @db.VarChar(255)
+  cy_fax          String? @db.VarChar(255)
+  cy_email        String? @db.VarChar(255)
+  cy_website      String? @db.VarChar(255)
+  cy_cin          String? @db.VarChar(100)
+  cy_gst          String? @db.VarChar(100)
+  cy_logo         String? @db.VarChar(255)
+  cy_icon         String? @db.VarChar(255)
+  cy_social_media String?
+  cy_dstatus      Int     @default(0) @db.SmallInt
+
+  @@schema("public")
+}
+
+model js_core_config {
+  cc_id    Int     @id @default(autoincrement())
+  cc_name  String  @db.VarChar(255)
+  cc_code  String? @db.VarChar(255)
+  cc_code2 String? @db.VarChar(255)
+  cc_code3 String?
+
+  @@schema("public")
+}
+
+model js_documents {
+  doc_id         Int     @id @default(autoincrement())
+  doc_user_id    Int     @default(0)
+  doc_title      String? @db.VarChar(255)
+  doc_file_path  String? @db.VarChar(255)
+  doc_created_on Int     @default(0)
+  doc_created_by Int     @default(0)
+  doc_dstatus    Int     @default(0) @db.SmallInt
+
+  @@schema("public")
+}
+
+model js_employee {
+  emp_id            Int                @id @default(autoincrement())
+  emp_m_type        Int                @default(1) @db.SmallInt
+  emp_code          String?            @unique(map: "js_employee_emp_code") @db.VarChar(50)
+  emp_name          String?            @db.VarChar(100)
+  emp_fh_name       String?            @db.VarChar(255)
+  emp_gender        Int                @default(1) @db.SmallInt
+  emp_dob           Int?               @default(0)
+  emp_md            Int?               @default(0)
+  emp_mobile        String?            @db.VarChar(100)
+  emp_email_id      String?            @db.VarChar(255)
+  emp_right_id      Int?               @default(0) @db.SmallInt
+  emp_r_person      Int                @default(0)
+  emp_username      String?            @db.VarChar(100)
+  emp_password      String?            @db.VarChar(255)
+  emp_state         Int                @default(5)
+  emp_city          Int                @default(6)
+  emp_alt_no        String?            @db.VarChar(255)
+  emp_address       String?            @db.VarChar(255)
+  emp_pincode       String?            @db.VarChar(10)
+  emp_image         String?            @db.VarChar(255)
+  emp_document      String?            @db.VarChar(255)
+  emp_system_access Int                @default(1) @db.SmallInt
+  emp_reset         String             @default("0") @db.VarChar(30)
+  emp_cookies       String             @default("0") @db.VarChar(30)
+  emp_status        Int                @default(1) @db.SmallInt
+  emp_is_left       Int                @default(0) @db.SmallInt
+  emp_dol           Int?               @default(0)
+  emp_remark        String?            @db.VarChar(255)
+  emp_created_on    Int?               @default(0)
+  emp_updated_on    Int                @default(0)
+  emp_is_login      Int                @default(0) @db.SmallInt
+  emp_is_locked     Int                @default(0) @db.SmallInt
+  emp_last_active   Int                @default(0)
+  emp_entry_code    String?            @db.VarChar(100)
+  emp_dstatus       Int                @default(0) @db.SmallInt
+  js_employee_data  js_employee_data[]
+
+  @@schema("public")
+}
+
+model js_employee_data {
+  empd_id          Int         @id @default(autoincrement())
+  empd_employee_id Int
+  empd_key         String      @db.VarChar(50)
+  empd_value       String?     @db.VarChar(255)
+  empd_value_id    Int?
+  empd_is_array    Int         @default(0) @db.SmallInt
+  empd_dstatus     Int         @default(0) @db.SmallInt
+  js_employee      js_employee @relation(fields: [empd_employee_id], references: [emp_id], onDelete: Cascade, onUpdate: NoAction, map: "js_employee_data_js_employee_data_ibfk_1_fkey")
+
+  @@index([empd_employee_id], map: "js_employee_data_vd_voucher_id")
+  @@schema("public")
+}
+
+/// This model or at least one of its fields has comments in the database, and requires an additional setup for migrations: Read more: https://pris.ly/d/database-comments
+model js_employee_pin {
+  ep_id         Int @id @default(autoincrement())
+  ep_emp_id     Int
+  ep_entry_id   Int
+  ep_entry_type Int @db.SmallInt
+
+  @@index([ep_emp_id], map: "js_employee_pin_ep_emp_id")
+  @@schema("public")
+}
+
+model js_employee_rights {
+  er_id          Int    @id @default(autoincrement())
+  er_emp_id      Int
+  er_page_action String @db.VarChar(50)
+  er_created_on  Int
+  er_created_by  Int
+  er_dstatus     Int    @default(0) @db.SmallInt
+
+  @@index([er_emp_id], map: "js_employee_rights_lm_employee_rights_ibfk_1")
+  @@schema("public")
+}
+
+model js_flow {
+  id                 Int       @id @default(autoincrement())
+  f_user_id          Int
+  f_prev_template_id Int
+  f_keyword          String?   @db.VarChar(255)
+  f_template_id      Int
+  f_response         Int
+  f_updated_on       DateTime? @db.Timestamptz(6)
+
+  @@index([f_prev_template_id], map: "js_flow_f_prev_template_id")
+  @@index([f_response], map: "js_flow_f_response")
+  @@index([f_template_id], map: "js_flow_f_template_id")
+  @@index([f_user_id], map: "js_flow_f_user_id")
+  @@schema("public")
+}
+
+model js_flow_templates {
+  id          Int       @id @default(autoincrement())
+  user_id     Int
+  template_no Int
+  message     String?
+  attachment  String?
+  buttons     String?   @db.VarChar(255)
+  updated_on  DateTime? @db.Timestamptz(6)
+
+  @@index([template_no], map: "js_flow_templates_template_no")
+  @@index([user_id], map: "js_flow_templates_user_id")
+  @@schema("public")
+}
+
+model js_incoming_log {
+  il_id              Int     @id @default(autoincrement())
+  il_type            String? @db.VarChar(15)
+  il_user_id         Int     @default(0)
+  il_rec_phone_no    String? @db.VarChar(25)
+  il_sender_phone_no String? @db.VarChar(25)
+  il_response        String?
+  post_url           String? @db.VarChar(255)
+
+  @@schema("public")
+}
+
+model js_m_actions {
+  ma_id   Int    @id @default(autoincrement())
+  ma_name String @db.VarChar(255)
+  ma_desc String @db.VarChar(255)
+
+  @@schema("public")
+}
+
+/// This model or at least one of its fields has comments in the database, and requires an additional setup for migrations: Read more: https://pris.ly/d/database-comments
+model js_master_value {
+  mv_id                                                BigInt       @id @default(autoincrement())
+  mv_type                                              Int
+  mv_name                                              String?      @db.VarChar(255)
+  mv_code                                              String?      @db.VarChar(255)
+  mv_url_slug                                          String?      @db.VarChar(255)
+  mv_desc                                              String?
+  mv_display_order                                     Int          @default(1)
+  mv_status                                            Int          @default(1) @db.SmallInt
+  mv_value                                             String
+  mv_value1                                            String?      @db.VarChar(255)
+  mv_value2                                            String?      @db.VarChar(255)
+  mv_value3                                            String?      @db.VarChar(255)
+  mv_value4                                            String?      @db.VarChar(255)
+  mv_value5                                            String?      @db.VarChar(50)
+  mv_value6                                            String?      @db.VarChar(100)
+  mv_value7                                            String?      @db.VarChar(100)
+  mv_value8                                            String?      @db.VarChar(100)
+  mv_value9                                            String?      @db.VarChar(100)
+  mv_value10                                           String?      @db.VarChar(255)
+  mv_image                                             String?      @db.VarChar(255)
+  mv_image1                                            String?      @db.VarChar(255)
+  mv_image2                                            String?      @db.VarChar(255)
+  mv_image3                                            String?      @db.VarChar(255)
+  mv_image4                                            String?      @db.VarChar(255)
+  mv_image5                                            String?      @db.VarChar(255)
+  mv_records                                           Int          @default(0)
+  mv_value_decimal                                     Decimal      @default(0.00) @db.Decimal(10, 2)
+  mv_updated_on                                        Int          @default(0)
+  mv_dstatus                                           Int          @default(0) @db.SmallInt
+  js_banners_js_banners_b_category_idTojs_master_value js_banners[] @relation("js_banners_b_category_idTojs_master_value")
+  js_banners_js_banners_b_positionTojs_master_value    js_banners[] @relation("js_banners_b_positionTojs_master_value")
+
+  @@index([mv_type], map: "js_master_value_mv_type")
+  @@schema("public")
+}
+
+model js_master_value_title {
+  mvt_id      Int     @id @default(autoincrement())
+  mvt_mvid    BigInt  @default(0)
+  mvt_title   String? @db.VarChar(255)
+  mvt_value1  String? @db.VarChar(255)
+  mvt_value2  String? @db.VarChar(255)
+  mvt_group   Int     @default(0)
+  mvt_order   Int     @default(0)
+  mvt_dstatus Int?    @default(0) @db.SmallInt
+
+  @@index([mvt_mvid], map: "js_master_value_title_mvt_mvid")
+  @@schema("public")
+}
+
+/// This model or at least one of its fields has comments in the database, and requires an additional setup for migrations: Read more: https://pris.ly/d/database-comments
+model js_message {
+  m_id                 BigInt   @id @default(autoincrement())
+  m_user_id            Int      @default(0)
+  m_contact_id         Int      @default(0)
+  m_reply_template     Int?     @default(0)
+  m_is_incoming        Int?     @default(2) @db.SmallInt
+  m_msg_lite           Int      @default(2) @db.SmallInt
+  m_mobile_no          String?  @db.VarChar(255)
+  m_active_prompt      Int      @default(0)
+  m_source             Int      @default(1) @db.SmallInt
+  m_msg_type           String?  @db.VarChar(255)
+  m_msg_template_name  String?  @db.VarChar(255)
+  m_msg_template_para  String?  @db.VarChar(255)
+  m_sender_name        String?  @db.VarChar(255)
+  m_title              String?  @db.VarChar(255)
+  m_msg_title          String?  @db.VarChar(255)
+  m_msg_values         String?  @db.VarChar(255)
+  m_content            String?
+  m_buttons            String?  @db.VarChar(255)
+  m_image              String?
+  m_base_file          String?  @db.VarChar(255)
+  m_sheet_id           String?  @db.VarChar(255)
+  m_message_id         String?  @db.VarChar(255)
+  m_is_read            Int      @default(2) @db.SmallInt
+  m_created_on         Int      @default(0)
+  m_created_date       Int      @default(0)
+  m_system_time        DateTime @default(now()) @db.Timestamptz(6)
+  m_status             Int      @default(1) @db.SmallInt
+  m_delivery_status    String?  @db.VarChar(25)
+  m_response_file_name String?  @db.VarChar(255)
+  m_updated_on         Int      @default(0)
+  m_in_process_on      Int      @default(0)
+  m_error_codes        String?  @db.VarChar(255)
+  m_msg_id_count       Int      @default(0)
+  m_status_response    String?  @db.VarChar(255)
+  m_dstatus            Int      @default(0) @db.SmallInt
+  m_button_url         String?
+  m_unique_id          String?  @db.Char(36)
+  m_reply_message_id   String?  @db.VarChar(255)
+  m_campaign_id        Int      @default(0)
+  js_user              js_user  @relation(fields: [m_user_id], references: [u_id], onDelete: Cascade, onUpdate: NoAction, map: "js_message_js_message_ibfk_1_fkey")
+
+  @@index([m_contact_id], map: "js_message_m_contact_id")
+  @@index([m_created_date], map: "js_message_m_created_date")
+  @@index([m_created_on], map: "js_message_m_created_on")
+  @@index([m_delivery_status], map: "js_message_m_delivery_status")
+  @@index([m_in_process_on], map: "js_message_m_in_process_on")
+  @@index([m_is_incoming], map: "js_message_m_is_incoming")
+  @@index([m_message_id], map: "js_message_m_message_id")
+  @@index([m_mobile_no], map: "js_message_m_mobile_no")
+  @@index([m_msg_template_name], map: "js_message_m_msg_template_name")
+  @@index([m_msg_type], map: "js_message_m_msg_type")
+  @@index([m_msg_type], map: "js_message_m_msg_type_2")
+  @@index([m_reply_template], map: "js_message_m_reply_template")
+  @@index([m_sender_name], map: "js_message_m_sender_name")
+  @@index([m_status], map: "js_message_m_status")
+  @@index([m_updated_on], map: "js_message_m_updated_on")
+  @@index([m_user_id], map: "js_message_m_user_id")
+  @@index([m_unique_id], map: "js_message_m_unique_id")
+  @@schema("public")
+}
+
+model js_modules {
+  mo_id      Int    @id @default(autoincrement())
+  mo_name    String @db.VarChar(255)
+  mo_code    String @db.VarChar(10)
+  mo_page    String @db.VarChar(30)
+  mo_action  String @db.VarChar(255)
+  mo_group   Int    @db.SmallInt
+  mo_display Int    @default(1) @db.SmallInt
+  mo_status  Int    @default(1) @db.SmallInt
+
+  @@schema("public")
+}
+
+model js_modules_group {
+  mg_id   Int    @id @default(autoincrement())
+  mg_name String @db.VarChar(255)
+
+  @@schema("public")
+}
+
+model js_pages {
+  p_id               Int     @id @default(autoincrement())
+  p_title            String? @db.VarChar(255)
+  p_sub_title        String? @db.VarChar(255)
+  p_position         Int?    @default(0)
+  p_image            String? @db.VarChar(255)
+  p_content          String?
+  p_meta_title       String? @db.VarChar(255)
+  p_meta_keyword     String? @db.VarChar(255)
+  p_meta_description String? @db.VarChar(255)
+  p_type             Int     @default(1) @db.SmallInt
+  p_last_update      Int
+  p_status           Int     @default(1) @db.SmallInt
+  p_dstatus          Int     @default(0) @db.SmallInt
+
+  @@schema("public")
+}
+
+/// This model or at least one of its fields has comments in the database, and requires an additional setup for migrations: Read more: https://pris.ly/d/database-comments
+model js_payment_log {
+  p_id             BigInt   @id @default(autoincrement())
+  p_gateway        Int      @default(1407)
+  p_payment_type   Int      @default(1) @db.SmallInt
+  p_no             String   @db.VarChar(255)
+  p_user_id        Int
+  p_plan_id        BigInt   @default(0)
+  p_amount         Decimal  @default(0.00) @db.Decimal(10, 2)
+  p_status         Int      @default(1) @db.SmallInt
+  p_reference_no   String   @db.VarChar(255)
+  p_payment_mode   String   @db.VarChar(100)
+  p_payment_option String   @db.VarChar(100)
+  p_payment_id     String   @db.VarChar(100)
+  p_payment_method Int
+  p_created_on     DateTime @default(now()) @db.Timestamptz(6)
+  p_created_by     Int      @default(0)
+  p_created_from   Int      @default(1)
+  p_ip_address     String   @db.VarChar(25)
+
+  @@schema("public")
+}
+
+/// This model or at least one of its fields has comments in the database, and requires an additional setup for migrations: Read more: https://pris.ly/d/database-comments
+model js_user {
+  u_id                         Int                    @id @default(autoincrement())
+  u_code                       String?                @unique(map: "js_user_u_code") @db.VarChar(255)
+  u_access_code                String?                @unique(map: "js_user_u_access_code") @db.VarChar(255)
+  u_parent_id                  Int                    @default(0)
+  u_own_account                Int?                   @default(2) @db.SmallInt
+  u_type                       BigInt                 @default(1)
+  u_name                       String?                @db.VarChar(200)
+  u_tag                        String?                @db.VarChar(255)
+  u_company_name               String?                @db.VarChar(255)
+  u_company_gst_no             String?                @db.VarChar(50)
+  u_mobile_no                  String?                @db.VarChar(25)
+  u_email_id                   String?                @db.VarChar(255)
+  u_billing_email_id           String?                @db.VarChar(255)
+  u_total_no_of_sheets_allowed Int                    @default(10)
+  u_total_no_of_sheets_used    Int                    @default(0)
+  u_username                   String?                @db.VarChar(255)
+  u_password                   String?                @db.VarChar(255)
+  u_google_sheet               Int                    @default(2) @db.SmallInt
+  u_google_sheet_email         String?                @unique(map: "js_user_u_google_sheet_email") @db.VarChar(255)
+  u_status                     Int                    @default(1) @db.SmallInt
+  u_has_wa                     Int                    @default(1) @db.SmallInt
+  u_wa_status                  Int                    @default(1) @db.SmallInt
+  u_wa_recheck                 Int                    @default(2) @db.SmallInt
+  u_wa_no                      String?                @db.VarChar(200)
+  u_wa_phone_id                String?                @db.VarChar(255)
+  u_wa_b_id                    String?                @db.VarChar(255)
+  u_business_id                String?                @db.VarChar(50)
+  u_wa_key                     String?
+  u_wa_enable_incoming         Int                    @default(2) @db.SmallInt
+  u_wa_incoming_url            String?                @db.VarChar(255)
+  u_last_wa_send               Int                    @default(0)
+  u_wa_enable_catalogue        Int                    @default(2) @db.SmallInt
+  u_wa_catalogue_url           String?                @db.VarChar(255)
+  u_wa_form_url                String?                @db.VarChar(255)
+  u_wa_app_url                 String?                @db.VarChar(255)
+  u_last_wa_check              Int                    @default(0)
+  u_daily_limit                Int                    @default(0)
+  u_msg_limit                  Int?                   @default(0)
+  u_is_new_no                  Int                    @default(2) @db.SmallInt
+  u_enable_ai                  Int                    @default(2) @db.SmallInt
+  u_ai_key                     String?                @db.VarChar(255)
+  u_start_time                 Int                    @default(0) @db.SmallInt
+  u_end_time                   Int                    @default(0) @db.SmallInt
+  u_send_wa                    Int                    @default(1) @db.SmallInt
+  u_active_session             String?                @db.VarChar(255)
+  u_active_plan                Int                    @default(0)
+  u_wa_plan_status             Int                    @default(1) @db.SmallInt
+  u_valid_till                 Int                    @default(0)
+  u_incoming_valid_till        Int                    @default(0)
+  u_country                    Int?                   @default(4)
+  u_state                      Int                    @default(0)
+  u_last_recharge              Int                    @default(0)
+  u_balance                    Int                    @default(0)
+  u_api_url                    String?                @db.VarChar(255)
+  u_last_active                Int                    @default(0)
+  u_assign_to                  Int                    @default(0)
+  u_created_on                 Int                    @default(0)
+  u_created_by                 Int                    @default(0)
+  u_updated_by                 Int                    @default(0)
+  u_system_time                DateTime               @default(now()) @db.Timestamptz(6)
+  u_updated_on                 Int                    @default(0)
+  u_dstatus                    Int                    @default(0) @db.SmallInt
+  u_entry_code                 String?                @db.VarChar(255)
+  u_send_app                   Int                    @default(2) @db.SmallInt
+  js_message                   js_message[]
+  js_user_contact_list         js_user_contact_list[]
+
+  @@index([u_type], map: "js_user_u_type")
+  @@schema("public")
+}
+
+/// This model or at least one of its fields has comments in the database, and requires an additional setup for migrations: Read more: https://pris.ly/d/database-comments
+model js_user_active_sheets {
+  us_id            Int     @id @default(autoincrement())
+  us_user_id       Int     @default(0)
+  us_user_email_id Int     @default(0)
+  us_sheet_type    Int     @default(0)
+  us_sheet_id      String? @db.VarChar(255)
+  us_created_on    Int     @default(0)
+  us_valid_till    Int     @default(0)
+  us_status        Int     @default(1) @db.SmallInt
+  us_updated_on    Int     @default(0)
+  us_dstatus       Int     @default(0) @db.SmallInt
+
+  @@index([us_user_id], map: "js_user_active_sheets_js_user_active_sheets_ibfk_1")
+  @@index([us_user_email_id], map: "js_user_active_sheets_us_user_email_id")
+  @@schema("public")
+}
+
+/// This model or at least one of its fields has comments in the database, and requires an additional setup for migrations: Read more: https://pris.ly/d/database-comments
+model js_user_block_list {
+  ubl_id              Int      @id @default(autoincrement())
+  ubl_user_id         Int      @default(0)
+  ubl_primary_user_id Int      @default(0)
+  ubl_name            String?  @db.VarChar(100)
+  ubl_mobile_no       String?  @db.VarChar(255)
+  ubl_created_on      DateTime @default(now()) @db.Timestamptz(6)
+  ubl_sheet_id        String?  @db.VarChar(255)
+  ubl_souce           Int?     @default(2) @db.SmallInt
+  ubl_dstatus         Int      @default(0) @db.SmallInt
+
+  @@index([ubl_user_id], map: "js_user_block_list_ubl_user_id")
+  @@schema("public")
+}
+
+model js_user_catalogue {
+  c_id           Int       @id @default(autoincrement())
+  c_user_id      Int
+  c_catalogue_id String    @db.VarChar(255)
+  c_item_id      String    @db.VarChar(255)
+  c_model        String?   @db.VarChar(255)
+  c_title        String?   @db.VarChar(255)
+  c_keyword      String?   @db.VarChar(255)
+  c_updated_on   DateTime? @db.Timestamptz(6)
+
+  @@index([c_keyword], map: "js_user_catalogue_c_keyword")
+  @@index([c_user_id], map: "js_user_catalogue_c_user_id")
+  @@schema("public")
+}
+
+model js_user_contact_list {
+  cl_id            Int       @id @default(autoincrement())
+  cl_user_id       Int
+  cl_name          String?   @db.VarChar(255)
+  cl_mobile_no     String?   @db.VarChar(15)
+  cl_opt_out       Int       @default(2) @db.SmallInt
+  cl_enable_ai     Int       @default(2) @db.SmallInt
+  cl_active_prompt Int       @default(0)
+  cl_created_on    DateTime  @default(now()) @db.Timestamptz(6)
+  cl_updated_on    DateTime? @db.Timestamptz(6)
+  cl_last_msg      DateTime? @db.Timestamptz(6)
+  js_user          js_user   @relation(fields: [cl_user_id], references: [u_id], onDelete: Cascade, onUpdate: NoAction, map: "js_user_contact_list_js_user_contact_list_ibfk_1_fkey")
+
+  @@unique([cl_mobile_no, cl_user_id], map: "js_user_contact_list_unique_details")
+  @@index([cl_mobile_no], map: "js_user_contact_list_cl_mobile_no")
+  @@index([cl_mobile_no], map: "js_user_contact_list_cl_mobile_no_2")
+  @@index([cl_user_id], map: "js_user_contact_list_cl_user_id")
+  @@index([cl_user_id], map: "js_user_contact_list_cl_user_id_2")
+  @@schema("public")
+}
+
+/// This model or at least one of its fields has comments in the database, and requires an additional setup for migrations: Read more: https://pris.ly/d/database-comments
+model js_user_data {
+  ud_id         Int     @id @default(autoincrement())
+  ud_user_id    Int
+  ud_mvid       Int     @default(0)
+  ud_key        String? @db.VarChar(255)
+  ud_value      String? @db.VarChar(255)
+  ud_value_id   Int     @default(0)
+  ud_value_type Int     @default(1) @db.SmallInt
+  ud_dstatus    Int     @default(0) @db.SmallInt
+  ud_time       Int     @default(0)
+
+  @@index([ud_user_id], map: "js_user_data_ud_user_id")
+  @@schema("public")
+}
+
+model js_user_data_extractor_keys {
+  dek_id           Int      @id @default(autoincrement())
+  dek_user_id      Int      @default(0)
+  dek_key          String?  @unique(map: "js_user_data_extractor_keys_dek_key") @db.VarChar(255)
+  dek_valid_till   Int?
+  dek_is_login     Int      @default(0) @db.SmallInt
+  dek_last_login   Int?
+  dek_login_counts Int      @default(0)
+  dek_status       Int      @default(1) @db.SmallInt
+  dek_created_on   Int      @default(0)
+  dek_created_by   Int?     @default(0)
+  dek_system_time  DateTime @default(now()) @db.Timestamptz(6)
+  dek_dstatus      Int      @default(0) @db.SmallInt
+
+  @@index([dek_user_id], map: "js_user_data_extractor_keys_dek_user_id")
+  @@schema("public")
+}
+
+model js_user_emails {
+  ue_id          Int     @id @default(autoincrement())
+  ue_user_id     Int     @default(0)
+  ue_email_id    String? @unique(map: "js_user_emails_ue_email_id") @db.VarChar(255)
+  ue_sheet_limit Int     @default(0)
+  ue_created_on  Int     @default(0)
+  ue_created_by  Int     @default(0)
+  ue_updated_on  Int     @default(0)
+  ue_updated_by  Int     @default(0)
+  ue_status      Int     @default(1) @db.SmallInt
+  ue_dstatus     Int     @default(0) @db.SmallInt
+
+  @@index([ue_user_id], map: "js_user_emails_ue_user_id")
+  @@schema("public")
+}
+
+model js_user_groups {
+  ug_id         Int      @id @default(autoincrement())
+  ug_user_id    Int      @default(0)
+  up_group_name String?  @db.VarChar(255)
+  ug_created_on DateTime @default(now()) @db.Timestamptz(6)
+  ug_updated_on Int      @default(0)
+  ug_dstatus    Int      @default(0) @db.SmallInt
+
+  @@unique([up_group_name, ug_user_id], map: "js_user_groups_up_group_name_2")
+  @@index([ug_user_id], map: "js_user_groups_ug_user_id")
+  @@index([up_group_name], map: "js_user_groups_up_group_name")
+  @@schema("public")
+}
+
+model js_user_groups_contact {
+  id         Int       @id @default(autoincrement())
+  contact_id Int
+  group_id   Int
+  created_on DateTime  @default(now()) @db.Timestamptz(6)
+  updated_on DateTime? @db.Timestamptz(6)
+
+  @@index([contact_id], map: "js_user_groups_contact_contact_id")
+  @@schema("public")
+}
+
+/// This model or at least one of its fields has comments in the database, and requires an additional setup for migrations: Read more: https://pris.ly/d/database-comments
+model js_user_recharge {
+  ur_id               Int     @id @default(autoincrement())
+  ur_year             String  @default("23-24") @db.VarChar(7)
+  ur_recharge_type    Int     @default(1) @db.SmallInt
+  ur_user_id          Int     @default(0)
+  ur_plan_id          Int     @default(0)
+  ur_valid_till       Int     @default(0)
+  ur_amount           Decimal @default(0.00) @db.Decimal(10, 2)
+  ur_gst_amount       Decimal @default(0.00) @db.Decimal(10, 2)
+  ur_received_amount  Decimal @default(0.00) @db.Decimal(10, 2)
+  ur_generate_invoice Int     @default(1) @db.SmallInt
+  ur_invoice_no       String? @unique(map: "js_user_recharge_ur_invoice_no") @db.VarChar(100)
+  ur_payment_log_id   BigInt  @default(0)
+  ur_payment_source   Int?    @default(0)
+  ur_payment_ref_no   String? @db.VarChar(255)
+  ur_remark           String? @db.VarChar(255)
+  ur_status           Int     @default(1) @db.SmallInt
+  ur_created_on       Int
+  ur_created_by       Int
+  ur_created_from     Int     @default(1) @db.SmallInt
+  ur_dstatus          Int     @default(0) @db.SmallInt
+
+  @@index([ur_payment_log_id], map: "js_user_recharge_ur_payment_log_id")
+  @@index([ur_user_id], map: "js_user_recharge_ur_user_id")
+  @@schema("public")
+}
+
+/// This model or at least one of its fields has comments in the database, and requires an additional setup for migrations: Read more: https://pris.ly/d/database-comments
+model js_user_templates {
+  ut_id                Int     @id @default(autoincrement())
+  ut_template_type     String  @default("template") @db.VarChar(25)
+  ut_template_category String? @db.VarChar(50)
+  ut_user_id           Int
+  ut_language          String? @db.VarChar(50)
+  ut_name              String  @db.VarChar(255)
+  ut_header_type       String? @db.VarChar(15)
+  ut_header            String?
+  ut_message           String?
+  ut_footer            String? @db.VarChar(255)
+  ut_buttons           String?
+  ut_file              String? @db.VarChar(255)
+  ut_created_on        Int
+  ut_status            Int     @default(1) @db.SmallInt
+  ut_dstatus           Int     @default(0) @db.SmallInt
+  ut_parameters        String?
+
+  @@index([ut_name], map: "js_user_templates_ut_name")
+  @@index([ut_user_id], map: "js_user_templates_ut_user_id")
+  @@schema("public")
+}
+
+model role_has_permissions {
+  permission_id BigInt
+  role_id       BigInt
+  roles         roles  @relation(fields: [role_id], references: [id], onDelete: Cascade, onUpdate: NoAction, map: "role_has_permissions_role_has_permissions_role_id_foreign_fkey")
+
+  @@id([permission_id, role_id])
+  @@index([role_id], map: "role_has_permissions_role_has_permissions_role_id_foreign")
+  @@schema("public")
+}
+
+model roles {
+  id                   BigInt                 @id @default(autoincrement())
+  name                 String                 @db.VarChar(191)
+  guard_name           String                 @db.VarChar(191)
+  created_at           DateTime?              @db.Timestamptz(6)
+  updated_at           DateTime?              @db.Timestamptz(6)
+  role_has_permissions role_has_permissions[]
+
+  @@unique([name, guard_name], map: "roles_roles_name_guard_name_unique")
+  @@schema("public")
+}
+
+model sessions {
+  id            String  @id @db.VarChar(191)
+  user_id       BigInt?
+  ip_address    String? @db.VarChar(45)
+  user_agent    String?
+  payload       String
+  last_activity Int
+
+  @@index([last_activity], map: "sessions_sessions_last_activity_index")
+  @@index([user_id], map: "sessions_sessions_user_id_index")
+  @@schema("public")
+}
+
+model users {
+  id                BigInt    @id @default(autoincrement())
+  created_by        BigInt?
+  updated_by        BigInt?
+  name              String    @db.VarChar(191)
+  email             String    @unique(map: "users_users_email_unique") @db.VarChar(191)
+  dob               DateTime? @db.Date
+  phone             String?   @db.VarChar(15)
+  mobile            String    @db.VarChar(50)
+  status            Int       @default(1) @db.SmallInt
+  email_verified_at DateTime? @db.Timestamptz(6)
+  password          String    @db.VarChar(191)
+  remember_token    String?   @db.VarChar(100)
+  created_at        DateTime? @db.Timestamptz(6)
+  updated_at        DateTime? @db.Timestamptz(6)
+
+  @@schema("public")
+}
+
+model js_user_campaign {
+  uc_id             Int      @id @default(autoincrement())
+  uc_unique_code    String   @unique @db.VarChar(255)
+  uc_template       String?  @db.VarChar(255)
+  uc_user_id        Int      @default(0)
+  uc_total_contacts Int      @default(0)
+  uc_created_on     DateTime @default(now()) @db.Timestamptz(6)
+
+  @@schema("public")
+}

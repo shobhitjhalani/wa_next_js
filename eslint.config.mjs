@@ -18,7 +18,17 @@ const eslintConfig = [
       "out/**",
       "build/**",
       "next-env.d.ts",
+      // Vendored Velzon theme libraries copied from the PHP app.
+      "public/**",
     ],
+  },
+  {
+    // Test/maintenance scripts and the CommonJS PM2 config.
+    files: ["scripts/**", "*.cjs"],
+    rules: {
+      "@typescript-eslint/no-explicit-any": "off",
+      "@typescript-eslint/no-require-imports": "off",
+    },
   },
 ];
 

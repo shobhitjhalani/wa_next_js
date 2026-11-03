@@ -39,3 +39,11 @@ yarn-error.log*
 # typescript
 *.tsbuildinfo
 next-env.d.ts
+!.env.example
+!deploy/.env.production.example
+
+# uploaded media (local dev symlink to the PHP app; DigitalOcean Spaces in production)
+/public/media
+
+# API attachments (base64File) read by the sender; WAAPI_MEDIA_ROOT in production
+/storage

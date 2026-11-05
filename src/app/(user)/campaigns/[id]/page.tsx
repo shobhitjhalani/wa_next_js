@@ -1,3 +1,4 @@
+import type { Metadata } from 'next';
 import Link from 'next/link';
 import { notFound } from 'next/navigation';
 import { PageTitle } from '@/components/PageTitle';
@@ -14,6 +15,8 @@ import type { CampaignRow, MessageRow } from '@/lib/types';
 import { barSegments, DeliveryBar, errorText, pct, recipientStatus, recipientWhere, StatusBadge } from '../shared';
 import { cancelCampaignAction } from './actions';
 import { AutoReload } from './AutoReload';
+
+export const metadata: Metadata = { title: 'Campaign' };
 
 type Params = Promise<Record<string, string | string[] | undefined>>;
 

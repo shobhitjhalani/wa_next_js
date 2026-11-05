@@ -1,3 +1,4 @@
+import type { Metadata } from 'next';
 import Link from 'next/link';
 import { PageTitle } from '@/components/PageTitle';
 import { Pagination, pageParam } from '@/components/Pagination';
@@ -11,6 +12,8 @@ import { numberFormat } from '@/lib/text';
 import { addDays, now, parseDateRange, phpDate } from '@/lib/time';
 import { CAMPAIGN, type CampaignRow, type CampaignStats } from '@/lib/types';
 import { DeliveryBar, pct, StatusBadge } from './shared';
+
+export const metadata: Metadata = { title: 'Campaigns' };
 
 type Params = Promise<Record<string, string | string[] | undefined>>;
 

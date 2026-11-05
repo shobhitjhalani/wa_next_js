@@ -1,3 +1,4 @@
+import type { Metadata } from 'next';
 import Link from 'next/link';
 import { cookies } from 'next/headers';
 import { crc32 } from 'node:zlib';
@@ -12,6 +13,8 @@ import { shortTime, timestampToUnix } from '@/lib/time';
 import { bulkContacts, storeContact, updateContact } from './actions';
 import { BulkForm, ContactModal, ImportSummary, type EditableContact, type ImportSummaryData } from './ContactsClient';
 import { filterQuery, filterWhere, readFilter } from './filter';
+
+export const metadata: Metadata = { title: 'Contacts' };
 
 type Params = Promise<Record<string, string | string[] | undefined>>;
 

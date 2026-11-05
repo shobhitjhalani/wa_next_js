@@ -1,8 +1,11 @@
+import type { Metadata } from 'next';
 import { requireUser } from '@/lib/auth';
 import { sp } from '@/lib/http';
 import { PageTitle } from '@/components/PageTitle';
 import { ChatInbox } from './ChatInbox';
 import { cleanMobile, unreadTotal } from './inbox';
+
+export const metadata: Metadata = { title: 'Inbox' };
 
 /** WhatsApp inbox (User\ChatController::index); ?mb= opens that conversation. */
 export default async function ChatPage({ searchParams }: { searchParams: Promise<Record<string, string | string[] | undefined>> }) {

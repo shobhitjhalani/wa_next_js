@@ -1,3 +1,4 @@
+import type { Metadata } from 'next';
 import { PageTitle } from '@/components/PageTitle';
 import { requireUser } from '@/lib/auth';
 import { config } from '@/lib/config';
@@ -5,6 +6,8 @@ import { query } from '@/lib/db';
 import { sp } from '@/lib/http';
 import { uploadContacts } from './actions';
 import { UploadForm } from './UploadForm';
+
+export const metadata: Metadata = { title: 'Upload Contacts' };
 
 type Params = Promise<Record<string, string | string[] | undefined>>;
 

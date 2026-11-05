@@ -85,6 +85,25 @@ uploads up to 110 MB (`client_max_body_size 110m`). Point the Meta app webhook a
 Jobs take a PostgreSQL advisory lock, so a second worker instance (or a manual run) never runs the same job twice
 at the same time; last runs are recorded in `wa_job_runs`.
 
+## Production server (DigitalOcean)
+
+Layout on the droplet (`ssh wa-do`, user `deploy`):
+
+```
+/var/www/wa/current   → releases/<timestamp>   (live; pm2 + Nginx point here)
+/var/www/wa/releases/                          (last 5 builds)
+/var/www/wa/shared/.env, shared/storage/       (linked into every release)
+```
+
+Deploy (builds in a new folder while the live site keeps serving, then switches over; a failed build leaves the site untouched):
+
+```bash
+ssh wa-do 'bash /var/www/wa/current/scripts/deploy.sh'              # branch nextjs-port-v2
+ssh wa-do 'bash /var/www/wa/current/scripts/deploy.sh --rollback'   # back to the previous release
+```
+
+pm2 and Nginx configs are in `deploy/` (`ecosystem.config.cjs`, `nginx.conf`).
+
 ## Development
 
 ```bash

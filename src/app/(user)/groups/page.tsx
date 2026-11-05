@@ -1,3 +1,4 @@
+import type { Metadata } from 'next';
 import Link from 'next/link';
 import { PageTitle } from '@/components/PageTitle';
 import { ConfirmButton } from '@/components/ui';
@@ -8,6 +9,8 @@ import { numberFormat } from '@/lib/text';
 import { phpDate, timestampToUnix } from '@/lib/time';
 import { createGroup, deleteGroup, renameGroup } from './actions';
 import { CreateGroupForm, RenameGroupModal } from './GroupForms';
+
+export const metadata: Metadata = { title: 'Contact Groups' };
 
 type Params = Promise<Record<string, string | string[] | undefined>>;
 

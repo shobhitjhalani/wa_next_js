@@ -15,7 +15,7 @@ import { sendMail } from '@/lib/services/mailer';
 import { expirePlans as expireUserPlans } from '@/lib/services/plans';
 import { adminReportHtml, userReportHtml } from '@/lib/services/report-mail';
 import { adminSummary, userTemplateReport } from '@/lib/services/reports';
-import { claimAndSend, inSendWindow, mapLimit } from '@/lib/services/sender';
+import { claimAndSend, expiryCutoff, inSendWindow, mapLimit } from '@/lib/services/sender';
 import { processStatusQueue } from '@/lib/services/webhook';
 
 export type Log = (msg: string) => void;
@@ -26,7 +26,8 @@ export async function sendQueue(opts: { user?: number; force?: boolean } = {}, l
     log('Outside sending window.');
     return 0;
   }
-  const queFrom = dayStart() - config.queTime;
+  // Never older than WA_MSG_EXPIRY (24h): expired messages are not sent
+  const queFrom = Math.max(dayStart() - config.queTime, expiryCutoff());
   // Only users that actually have queued messages (partial index on the queue)
   const users = await query<{ u_id: number }>(
     `SELECT u.u_id FROM js_user u
@@ -65,6 +66,17 @@ export async function processWebhooks(log: Log = console.log): Promise<void> {
 /** wa:expire-plans — mark expired WhatsApp plans. */
 export async function expirePlans(log: Log = console.log): Promise<void> {
   log(`${await expireUserPlans()} user(s) expired.`);
+}
+
+/** wa:expire-messages — queued / processing messages older than WA_MSG_EXPIRY (24h) are system-cancelled (status 5), never sent. */
+export async function expireMessages(log: Log = console.log): Promise<number> {
+  const expired = await exec(
+    `UPDATE js_message SET m_status = 5, m_updated_on = $2
+      WHERE m_is_incoming = 2 AND m_dstatus = 0 AND m_status IN (1, 2, 6) AND m_created_on < $1`,
+    [expiryCutoff(), now()],
+  );
+  log(`${expired} message(s) expired (older than ${Math.round(config.messageExpiry / 3600)}h).`);
+  return expired;
 }
 
 /** wa:cleanup — cancel stale queued messages, purge temporary media. */

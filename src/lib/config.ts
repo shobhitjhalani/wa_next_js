@@ -51,6 +51,8 @@ export const config = {
   sendConcurrency: Math.max(1, int('WA_SEND_CONCURRENCY', 8)),
   // Messages older than this (seconds) are no longer considered "in queue" (legacy QUE_TIME)
   queTime: int('WA_QUE_TIME', 259200),
+  // Outgoing messages older than this (seconds, by m_created_on) are never sent; they expire (status 5)
+  messageExpiry: int('WA_MSG_EXPIRY', 86400),
   // Queued messages older than this many days are system-cancelled
   cancelAfterDays: 10,
 

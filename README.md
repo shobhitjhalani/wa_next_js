@@ -74,6 +74,7 @@ uploads up to 110 MB (`client_max_body_size 110m`). Point the Meta app webhook a
 | Job | Schedule | Run once | Legacy |
 |---|---|---|---|
 | dispatch-campaigns | every minute | `npm run wa -- dispatch-campaigns` | — |
+| expire-messages | every 5 min | `npm run wa -- expire-messages` | — (queued/processing messages older than `WA_MSG_EXPIRY`, default 24h, → status 5; they are never sent) |
 | send-queue | every 2 min, 07:00–23:00 | `npm run wa -- send-queue [--user=74] [--force]` | `cron/wa_cron.php` |
 | process-webhooks | every minute | `npm run wa -- process-webhooks` | `cron/webhook_que.php` |
 | expire-plans | hourly | `npm run wa -- expire-plans` | `cron/user_status.php` |

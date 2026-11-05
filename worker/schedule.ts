@@ -10,7 +10,7 @@
 import { createHash } from 'node:crypto';
 import { config } from '@/lib/config';
 import { pool } from '@/lib/db';
-import { cleanup, dispatchCampaigns, emailReports, expirePlans, processWebhooks, sendQueue } from './jobs';
+import { cleanup, dispatchCampaigns, emailReports, expireMessages, expirePlans, processWebhooks, sendQueue } from './jobs';
 
 type Schedule = { everySeconds: number } | { hourly: true } | { dailyAt: string };
 
@@ -23,6 +23,8 @@ export interface Job {
 export const JOBS: Job[] = [
   // Scheduled campaigns whose time has come → queue their messages; then send-queue sends them
   { name: 'dispatch-campaigns', schedule: { everySeconds: 60 }, run: (log) => dispatchCampaigns(log) },
+  // Messages older than WA_MSG_EXPIRY (24h) are never sent — cancel them before send-queue looks
+  { name: 'expire-messages', schedule: { everySeconds: 300 }, run: (log) => expireMessages(log) },
   { name: 'send-queue', schedule: { everySeconds: 120 }, run: (log) => sendQueue({}, log) },
   { name: 'process-webhooks', schedule: { everySeconds: 60 }, run: (log) => processWebhooks(log) },
   { name: 'expire-plans', schedule: { hourly: true }, run: (log) => expirePlans(log) },

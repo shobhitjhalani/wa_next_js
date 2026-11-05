@@ -73,17 +73,23 @@ export async function mapLimit<T, R>(items: T[], max: number, fn: (item: T) => P
   return out;
 }
 
+/** Unix time before which an outgoing message has expired and must never be sent (WA_MSG_EXPIRY). */
+export function expiryCutoff(): number {
+  return Math.floor(Date.now() / 1000) - config.messageExpiry;
+}
+
 const PENDING_SQL = `
   SELECT m.* FROM js_message m JOIN js_user u ON u.u_id = m.m_user_id
-   WHERE m.m_is_incoming = 2 AND m.m_status = 6 AND m.m_dstatus = 0
+   WHERE m.m_is_incoming = 2 AND m.m_status = 6 AND m.m_dstatus = 0 AND m.m_created_on >= $1
      AND u.u_wa_plan_status = 1 AND u.u_status = 1 AND u.u_dstatus = 0`;
 
 /**
  * Send messages already marked "processing" (status 6). Pass a message id to
  * send just that one (API / chat / webhook replies). Returns how many were processed.
+ * Messages older than WA_MSG_EXPIRY are never sent (expire-messages cancels them).
  */
 export async function sendPending(messageId?: number, userId?: number): Promise<number> {
-  const params: unknown[] = [];
+  const params: unknown[] = [expiryCutoff()];
   let sql = PENDING_SQL;
   if (messageId) { params.push(messageId); sql += ` AND m.m_id = $${params.length}`; }
   if (userId) { params.push(userId); sql += ` AND m.m_user_id = $${params.length}`; }
@@ -109,7 +115,11 @@ export function sendWindowLabel(): string {
 
 /** Move a message to "processing" and send it straight away (report re-send). */
 export async function sendNow(messageId: number): Promise<boolean> {
-  await exec('UPDATE js_message SET m_status = 6, m_in_process_on = $2 WHERE m_id = $1', [messageId, Math.floor(Date.now() / 1000)]);
+  const claimed = await exec(
+    'UPDATE js_message SET m_status = 6, m_in_process_on = $2 WHERE m_id = $1 AND m_created_on >= $3',
+    [messageId, Math.floor(Date.now() / 1000), expiryCutoff()],
+  );
+  if (!claimed) return false; // expired — never re-sent
   return (await sendPending(messageId)) > 0;
 }
 
@@ -125,7 +135,7 @@ export async function claimAndSend(userId: number, since: number, batch: number)
          WHERE m_user_id = $1 AND m_is_incoming = 2 AND m_status = 1 AND m_dstatus = 0 AND m_created_on >= $2
          ORDER BY m_id LIMIT $4 FOR UPDATE SKIP LOCKED)
       RETURNING *`,
-    [userId, since, Math.floor(Date.now() / 1000), batch],
+    [userId, Math.max(since, expiryCutoff()), Math.floor(Date.now() / 1000), batch],
   );
   rows.sort((a, b) => a.m_id - b.m_id);
   return sendRows(rows);

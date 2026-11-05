@@ -1,5 +1,4 @@
 import type { Metadata, Viewport } from 'next';
-import Script from 'next/script';
 import 'flatpickr/dist/flatpickr.min.css';
 import { config } from '@/lib/config';
 
@@ -39,11 +38,12 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
         <link href="/assets/css/app.min.css" rel="stylesheet" type="text/css" />
         <link href="/assets/css/custom.min.css" rel="stylesheet" type="text/css" />
         <link href="/css/wa.css" rel="stylesheet" type="text/css" />
+        {/* Plain deferred tag, not next/script: it must run as soon as the HTML is parsed (not after the
+            Next runtime loads), or sidebar submenus / dropdowns (data-bs-toggle) ignore early clicks. */}
+        <script src="/assets/libs/bootstrap/js/bootstrap.bundle.min.js" defer />
       </head>
       <body suppressHydrationWarning>
         {children}
-        {/* Before hydration: sidebar submenus / dropdowns (data-bs-toggle) must work as soon as the page shows */}
-        <Script src="/assets/libs/bootstrap/js/bootstrap.bundle.min.js" strategy="beforeInteractive" />
       </body>
     </html>
   );

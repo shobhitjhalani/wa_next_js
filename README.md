@@ -102,7 +102,7 @@ ssh wa-do 'bash /var/www/wa/current/scripts/deploy.sh'              # branch nex
 ssh wa-do 'bash /var/www/wa/current/scripts/deploy.sh --rollback'   # back to the previous release
 ```
 
-pm2 and Nginx configs are in `deploy/` (`ecosystem.config.cjs`, `nginx.conf`).
+pm2 (2 app instances, reloaded one at a time) and Nginx configs are in `deploy/`. Build files of every release are kept in `shared/web/_next/static` so pages opened before a deploy keep working.
 
 ## Development
 

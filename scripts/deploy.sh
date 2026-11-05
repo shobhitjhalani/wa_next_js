@@ -5,7 +5,7 @@
 #   ssh wa-do 'bash /var/www/wa/current/scripts/deploy.sh --rollback'
 #
 # Each deploy is built in its own folder under releases/ while the live one keeps serving;
-# only after a successful build does `current` switch over and pm2 restart (about a second).
+# only after a successful build does `current` switch over; pm2 reloads the 2 app instances one at a time.
 # .env and storage/ live in shared/ and are linked into every release.
 set -euo pipefail
 BASE=/var/www/wa
@@ -18,7 +18,7 @@ if [ "${1:-}" = "--rollback" ]; then
   prev=$(ls -1d releases/* | awk -v c="$cur" '$0 < c' | tail -1)   # newest release older than the live one
   [ -n "$prev" ] || { echo "No previous release"; exit 1; }
   ln -sfn "$BASE/$prev" current.tmp && mv -Tf current.tmp current
-  pm2 restart wa-app wa-worker --update-env >/dev/null
+  pm2 reload wa-app --update-env >/dev/null && pm2 restart wa-worker --update-env >/dev/null
   echo "Rolled back to $prev"; exit 0
 fi
 
@@ -34,10 +34,16 @@ npm run -s db:migrate
 NODE_OPTIONS=--max-old-space-size=1536 npm run -s build > "$BASE/shared/storage/logs/build.log" 2>&1 \
   || { tail -30 "$BASE/shared/storage/logs/build.log"; echo "Build failed — live site unchanged"; rm -rf "$REL"; exit 1; }
 
+# Old + new build files side by side (Nginx serves /_next/static from here)
+mkdir -p "$BASE/shared/web/_next/static" && cp -a "$REL/.next/static/." "$BASE/shared/web/_next/static/"
+
 cd "$BASE"
 ln -sfn "$REL" current.tmp && mv -Tf current.tmp current
-pm2 restart wa-app wa-worker --update-env >/dev/null
+pm2 reload wa-app --update-env >/dev/null      # one instance at a time — no downtime
+pm2 restart wa-worker --update-env >/dev/null  # finishes running jobs first (kill_timeout)
 echo "✓ live: $(git -C "$REL" log --oneline -1)"
 
 # keep the newest $KEEP releases (never the live one)
+# build files older than 30 days are no longer needed by any open page
+find "$BASE/shared/web/_next/static" -type f -mtime +30 -delete 2>/dev/null || true
 ls -1d releases/* | sort -r | tail -n +$((KEEP + 1)) | grep -vx "releases/$(basename "$REL")" | xargs -r rm -rf

@@ -42,7 +42,8 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
       </head>
       <body suppressHydrationWarning>
         {children}
-        <Script src="/assets/libs/bootstrap/js/bootstrap.bundle.min.js" strategy="afterInteractive" />
+        {/* Before hydration: sidebar submenus / dropdowns (data-bs-toggle) must work as soon as the page shows */}
+        <Script src="/assets/libs/bootstrap/js/bootstrap.bundle.min.js" strategy="beforeInteractive" />
       </body>
     </html>
   );

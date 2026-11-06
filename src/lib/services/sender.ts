@@ -10,6 +10,7 @@ import { templateCards } from '../format';
 import type { MessageRow, UserRow } from '../types';
 import { sendMarketingMessage, sendMessage, type MetaResponse } from './meta';
 import { safeFileName, storeBytes } from './media';
+import { isLimitedType, LIMIT_REACHED, releaseTemplateSend, reserveTemplateSend } from './template-limit';
 
 /**
  * Sends queued messages through the Cloud API and records the outcome.
@@ -182,15 +183,30 @@ async function send(message: MessageRow, cache: RunCache): Promise<boolean> {
   const to = internationalise(mobile);
   const media = await collectMedia(message, user);
 
+  // Template messages count against the account's limit; a reserved slot is given back if WhatsApp rejects the send
+  const limited = isLimitedType(message.m_msg_type);
+  if (limited && !(await reserveTemplateSend(user.u_id))) {
+    await exec(
+      'UPDATE js_message SET m_status = 3, m_in_process_on = $2, m_updated_on = $2, m_message_id = $3, m_msg_id_count = 0, m_status_response = $4 WHERE m_id = $1',
+      [message.m_id, t, '', JSON.stringify([{ error: { message: LIMIT_REACHED, code: null } }])],
+    );
+    return true;
+  }
+
   let responses: MetaResponse[];
-  switch (message.m_msg_type) {
-    case 'template': responses = [await sendTemplate(user, message, to, media, cache)]; break;
-    case 'flow': responses = [await sendFlow(user, message, to, media, cache)]; break;
-    case 'carousel': responses = [await sendCarousel(user, message, to, cache)]; break;
-    case 'Authentication': responses = [await sendAuthentication(user, message, to, cache)]; break;
-    case 'catalogue':
-    case 'product_list': responses = [await sendProductList(user, message, to)]; break;
-    default: responses = await sendText(user, message, to, media);
+  try {
+    switch (message.m_msg_type) {
+      case 'template': responses = [await sendTemplate(user, message, to, media, cache)]; break;
+      case 'flow': responses = [await sendFlow(user, message, to, media, cache)]; break;
+      case 'carousel': responses = [await sendCarousel(user, message, to, cache)]; break;
+      case 'Authentication': responses = [await sendAuthentication(user, message, to, cache)]; break;
+      case 'catalogue':
+      case 'product_list': responses = [await sendProductList(user, message, to)]; break;
+      default: responses = await sendText(user, message, to, media);
+    }
+  } catch (e) {
+    if (limited) await releaseTemplateSend(user.u_id);
+    throw e;
   }
 
   const ids: string[] = [];
@@ -213,6 +229,7 @@ async function send(message: MessageRow, cache: RunCache): Promise<boolean> {
     [message.m_id, done, waIds, ids.length, limit(media.map((x) => x.link).join(','), 250, ''), ids.length ? 'sent' : null, statusResponse ?? null],
   );
   if (ids.length) await exec('UPDATE js_user SET u_last_wa_send = $2 WHERE u_id = $1', [user.u_id, done]);
+  else if (limited) await releaseTemplateSend(user.u_id);
   await exec(
     `INSERT INTO js_message_log (ml_m_id, ml_wa_id, ml_count, ml_user_id)
      VALUES ($1, $2, (SELECT COUNT(*) FROM js_message_log WHERE ml_m_id = $1), $3)`,

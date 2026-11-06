@@ -107,11 +107,19 @@ export async function saveUser(id: number, _prev: ActionResult | null, fd: FormD
   // Only fields present in the form are validated and saved (like $request->validate()).
   const errors: Record<string, string> = {};
   const data: Record<string, string | null> = {};
+  // Template message limit: "Unlimited" is stored as 0; "Limited" needs at least 1
+  const limitType = fStr(fd, 'msg_limit_type');
+  if (limitType === 'unlimited') fd.set('msg_limit', '0');
+  else if (limitType === 'limited') {
+    const raw = fStr(fd, 'msg_limit');
+    if (raw === '') errors.msg_limit = 'Enter how many template messages this user may send.';
+    else if (/^\d+$/.test(raw) && parseInt(raw, 10) < 1) errors.msg_limit = 'The template message limit must be at least 1.';
+  }
   for (const [key, rule] of Object.entries(USER_RULES)) {
     if (!fd.has(key) && !rule.required) continue;
     const v = fStr(fd, key);
     const msg = check(key, v, rule);
-    if (msg) errors[key] = msg;
+    if (msg) errors[key] ??= msg;
     data[key] = v === '' ? null : v;
   }
   const password = fRaw(fd, 'password');
@@ -141,6 +149,7 @@ export async function saveUser(id: number, _prev: ActionResult | null, fd: FormD
   for (const [col, def] of Object.entries(defaults)) values[col] ??= def;
   if (values.u_status !== null) values.u_status = Number(values.u_status);
   if (password.trim() !== '') values.u_password = await hashPassword(password);
+  if (existing && fBool(fd, 'msg_used_reset')) values.u_msg_used = 0;
   values.u_updated_on = now();
   values.u_updated_by = me.emp_id;
 

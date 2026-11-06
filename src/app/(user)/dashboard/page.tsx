@@ -53,16 +53,8 @@ export default async function DashboardPage({ searchParams }: { searchParams: Pa
         WHERE m_user_id = $1 AND m_is_incoming = 1 AND m_dstatus = 0 AND m_created_on BETWEEN $2 AND $3`,
       [user.u_id, from, to],
     ),
-    // All-time count is only needed (and only paid for) when the account has a message cap
-    msgLimit > 0
-      ? value<number>(
-        `SELECT COUNT(*)::int FROM js_message
-          WHERE m_user_id = $1 AND m_is_incoming = 2 AND m_status = 3 AND m_dstatus = 0 AND m_message_id <> ''
-            AND m_msg_type = ANY($2::text[])
-            AND (m_delivery_status IS NULL OR m_delivery_status NOT IN ('failed', 'error'))`,
-        [user.u_id, TEMPLATE_TYPES],
-      )
-      : Promise.resolve(null),
+    // Template messages used so far (kept up to date by the sender, see services/template-limit.ts)
+    Promise.resolve(msgLimit > 0 ? Number(user.u_msg_used ?? 0) : null),
   ]);
 
   let sentInRange = 0;

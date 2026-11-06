@@ -5,6 +5,7 @@ import { fromWaId } from '../phone';
 import { dayStart, now } from '../time';
 import type { UserRow } from '../types';
 import { insertMessage, storeIncoming } from './messages';
+import { LIMITED_TYPES } from './template-limit';
 import { sendPending } from './sender';
 
 /**
@@ -209,9 +210,20 @@ export async function processStatusQueue(batch = 2000, maxBatches = 50): Promise
          ), logs AS (
            UPDATE js_message_log l SET ml_wa_status = latest.status FROM latest WHERE l.ml_wa_id = latest.msg_id RETURNING 1
          ), msgs AS (
+           -- p is the row before this update (same snapshot), so a change into / out of "failed" is visible
            UPDATE js_message m SET m_updated_on = EXTRACT(EPOCH FROM latest."systemTime")::int,
                   m_delivery_status = latest.status, m_status_response = latest.error
-             FROM latest WHERE m.m_message_id = latest.msg_id RETURNING latest.msg_id
+             FROM latest JOIN js_message p ON p.m_message_id = latest.msg_id
+            WHERE m.m_message_id = latest.msg_id AND m.m_id = p.m_id
+           RETURNING latest.msg_id, m.m_user_id, m.m_msg_type,
+                     COALESCE(p.m_delivery_status, '') IN ('failed', 'error') AS was_failed,
+                     COALESCE(latest.status, '') IN ('failed', 'error') AS is_failed
+         ), quota AS (
+           -- Failed template messages don't count against the template limit (services/template-limit.ts)
+           UPDATE js_user u SET u_msg_used = GREATEST(u.u_msg_used + d.delta, 0)
+             FROM (SELECT m_user_id, SUM(CASE WHEN is_failed AND NOT was_failed THEN -1 WHEN was_failed AND NOT is_failed THEN 1 ELSE 0 END)::int AS delta
+                     FROM msgs WHERE m_msg_type = ANY($3::text[]) GROUP BY m_user_id) d
+            WHERE u.u_id = d.m_user_id AND d.delta <> 0 RETURNING 1
          ), del AS (
            DELETE FROM js_webhook_que q USING batch
             WHERE q.id = batch.id AND batch.msg_id IN (SELECT msg_id FROM msgs) RETURNING q.id
@@ -223,7 +235,7 @@ export async function processStatusQueue(batch = 2000, maxBatches = 50): Promise
          SELECT (SELECT COUNT(*) FROM del)::int AS moved, (SELECT COUNT(*) FROM park)::int AS parked,
                 (SELECT COUNT(*) FROM batch)::int AS picked, (SELECT MAX(id) FROM batch) AS last_id,
                 (SELECT COUNT(*) FROM logs)::int AS logs`,
-        [batch, afterId],
+        [batch, afterId, LIMITED_TYPES],
       );
       await client.query('COMMIT');
       r = res.rows[0];

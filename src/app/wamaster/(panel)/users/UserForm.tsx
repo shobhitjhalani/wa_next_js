@@ -6,6 +6,7 @@ import { USER_TYPE, type UserRow } from '@/lib/types';
 import { ActionForm, SubmitButton } from '@/components/ActionForm';
 import { saveUser } from './actions';
 import { FLAGS } from './flags';
+import { TemplateLimitField } from './TemplateLimitField';
 
 
 const FLAG_LABELS: Record<(typeof FLAGS)[number], string> = {
@@ -98,13 +99,13 @@ export async function UserForm({ user, type }: { user: UserRow | null; type: num
             <div className="col-md-3"><label className="form-label" htmlFor="wa_phone_id">WA Phone ID</label><input className="form-control" id="wa_phone_id" name="wa_phone_id" defaultValue={v('wa_phone_id')} /></div>
             <div className="col-md-3"><label className="form-label" htmlFor="wa_b_id">WABA ID</label><input className="form-control" id="wa_b_id" name="wa_b_id" defaultValue={v('wa_b_id')} /></div>
             <div className="col-md-3"><label className="form-label" htmlFor="business_id">Business ID</label><input className="form-control" id="business_id" name="business_id" defaultValue={v('business_id')} /></div>
-            <div className="col-md-3"><label className="form-label" htmlFor="msg_limit">Total Limit (0 = unlimited)</label><input type="number" min="0" className="form-control" id="msg_limit" name="msg_limit" defaultValue={v('msg_limit')} /></div>
             <div className="col-md-3"><label className="form-label" htmlFor="daily_limit">Daily Limit</label><input type="number" min="0" className="form-control" id="daily_limit" name="daily_limit" defaultValue={v('daily_limit')} /></div>
             <div className="col-md-6"><label className="form-label" htmlFor="wa_incoming_url">Incoming URL (forward replies)</label><input type="url" className="form-control" id="wa_incoming_url" name="wa_incoming_url" defaultValue={v('wa_incoming_url')} /></div>
             <div className="col-md-6"><label className="form-label" htmlFor="wa_catalogue_url">Catalogue Order URL</label><input type="url" className="form-control" id="wa_catalogue_url" name="wa_catalogue_url" defaultValue={v('wa_catalogue_url')} /></div>
             <div className="col-md-6"><label className="form-label" htmlFor="wa_form_url">Flow Response URL</label><input type="url" className="form-control" id="wa_form_url" name="wa_form_url" defaultValue={v('wa_form_url')} /></div>
             <div className="col-md-6"><label className="form-label" htmlFor="wa_app_url">App URL (raw webhook forward)</label><input type="url" className="form-control" id="wa_app_url" name="wa_app_url" defaultValue={v('wa_app_url')} /></div>
             <div className="col-md-6"><label className="form-label" htmlFor="ai_key">AI API Key</label><input className="form-control" id="ai_key" name="ai_key" defaultValue={v('ai_key')} autoComplete="off" /></div>
+            <TemplateLimitField limit={Number(u.u_msg_limit ?? 0)} used={Number(u.u_msg_used ?? 0)} exists={exists} />
           </div>
         </div>
       )}

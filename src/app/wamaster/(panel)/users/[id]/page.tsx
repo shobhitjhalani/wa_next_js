@@ -168,7 +168,13 @@ export default async function UserShowPage({ params }: { params: Promise<{ id: s
                     <dt className="col-5">WABA ID</dt><dd className="col-7">{user.u_wa_b_id}</dd>
                     <dt className="col-5">Business ID</dt><dd className="col-7">{user.u_business_id}</dd>
                     <dt className="col-5">API Access Key</dt><dd className="col-7"><code>{user.u_access_code}</code></dd>
-                    <dt className="col-5">Limit total/daily</dt><dd className="col-7">{user.u_msg_limit} / {user.u_daily_limit}</dd>
+                    <dt className="col-5">Template Limit</dt>
+                    <dd className="col-7">
+                      {Number(user.u_msg_limit ?? 0) > 0
+                        ? <>{numberFormat(Number(user.u_msg_used ?? 0))} / {numberFormat(Number(user.u_msg_limit))} used
+                          {Number(user.u_msg_used ?? 0) >= Number(user.u_msg_limit) && <span className="badge bg-danger-subtle text-danger ms-1">Limit reached</span>}</>
+                        : <>Unlimited <span className="text-muted">({numberFormat(Number(user.u_msg_used ?? 0))} used)</span></>}
+                    </dd>
                     <dt className="col-5">MM Lite</dt><dd className="col-7">{yes(user.u_is_new_no)}</dd>
                     <dt className="col-5">Catalogue</dt><dd className="col-7">{yes(user.u_wa_enable_catalogue)}</dd>
                     <dt className="col-5">AI</dt><dd className="col-7">{yes(user.u_enable_ai)}</dd>

@@ -43,6 +43,7 @@ export interface UserRow {
   u_last_wa_check: number;
   u_daily_limit: number;
   u_msg_limit: number | null;
+  u_msg_used: number;
   u_is_new_no: number;
   u_enable_ai: number;
   u_enable_calling: number;

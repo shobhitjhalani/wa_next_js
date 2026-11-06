@@ -689,3 +689,25 @@ CREATE TABLE IF NOT EXISTS wa_job_runs (
   last_run_at timestamptz NOT NULL,
   last_result text
 );
+
+-- ------------------------------------------------------------ template message limit
+
+-- js_user.u_msg_limit: template messages the account may send in total (0 = unlimited).
+-- u_msg_used counts template messages WhatsApp accepted and did not report as failed:
+-- the sender reserves a slot before each send and the status queue refunds failures
+-- (src/lib/services/template-limit.ts). Added once, with a backfill from the message
+-- history so existing limits keep their meaning.
+DO $$
+BEGIN
+  IF NOT EXISTS (SELECT 1 FROM information_schema.columns
+                  WHERE table_schema = current_schema() AND table_name = 'js_user' AND column_name = 'u_msg_used') THEN
+    ALTER TABLE js_user ADD COLUMN u_msg_used integer NOT NULL DEFAULT 0;
+    UPDATE js_user u SET u_msg_used = s.n
+      FROM (SELECT m_user_id, COUNT(*)::int AS n FROM js_message
+             WHERE m_is_incoming = 2 AND m_status = 3 AND m_dstatus = 0 AND COALESCE(m_message_id, '') <> ''
+               AND m_msg_type IN ('template', 'flow', 'carousel', 'Authentication')
+               AND COALESCE(m_delivery_status, '') NOT IN ('failed', 'error')
+             GROUP BY m_user_id) s
+     WHERE u.u_id = s.m_user_id;
+  END IF;
+END $$;

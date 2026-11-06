@@ -5,6 +5,7 @@ import { normalizePhone, parsePhoneList } from '../phone';
 import { now, phpDate } from '../time';
 import { CAMPAIGN, type CampaignRow, type CampaignStats, type TemplateRow, type UserRow } from '../types';
 import { queueMessages, templateFields, UserError, type CardInput } from './messages';
+import { templateQuota } from './template-limit';
 
 /**
  * Campaigns: create (now or scheduled), dispatch to groups + pasted numbers
@@ -38,6 +39,9 @@ export async function createCampaign(
   }
   const [numbers] = parsePhoneList(data.numbers);
   if (!numbers.length && !data.groupIds.length) throw new UserError('Choose at least one group or enter mobile numbers.');
+  if ((await templateQuota(user.u_id)).remaining === 0) {
+    throw new UserError('Your template message limit has been reached. Please contact support to increase it.');
+  }
   const [type, fields] = await templateFields(template, data.parameters, headerFiles, data.cards, cardFiles);
 
   const campaign = await insert<CampaignRow>('js_user_campaign', {

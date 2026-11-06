@@ -11,6 +11,7 @@ import { limit, randomString } from './text';
 import { dayStart, now, phpDate } from './time';
 import { USER_TYPE, type UserRow } from './types';
 import { insertMessage, messageFromApi } from './services/messages';
+import { isLimitedType, templateQuota } from './services/template-limit';
 import { sendPending } from './services/sender';
 import { handleWebhook } from './services/webhook';
 
@@ -114,6 +115,11 @@ async function createMessage(data: Record<string, any>, defaultType: string, tem
   }
 
   const type = data.message_type ? String(data.message_type) : defaultType;
+  // The final type can still change inside messageFromApi (opt / type fields); the sender enforces the limit either way
+  const finalType = templateEndpoint ? type : (data.type ? String(data.type) : String(data.opt ?? '') === '1' ? 'Authentication' : type);
+  if (isLimitedType(finalType) && (await templateQuota(user.u_id)).remaining === 0) {
+    return reply('208', '208 : Template Message Limit Reached', { id: '0', status: 'Template Message Limit Reached' });
+  }
   const message = await messageFromApi(user, type, data, baseFile, templateEndpoint);
   if (Number(message.m_status) === 6) after(() => sendPending(message.m_id).catch((e) => console.error('[api] send failed', e)));
 

@@ -2,7 +2,7 @@ import 'server-only';
 import { exec, insert, one, query, tx, value } from '../db';
 import { campaignGroupIds, campaignIsTracked } from '../format';
 import { normalizePhone, parsePhoneList } from '../phone';
-import { now, phpDate } from '../time';
+import { dayStart, now, phpDate } from '../time';
 import { CAMPAIGN, type CampaignRow, type CampaignStats, type TemplateRow, type UserRow } from '../types';
 import { queueMessages, templateFields, UserError, type CardInput } from './messages';
 import { templateQuota } from './template-limit';
@@ -89,6 +89,41 @@ export async function dispatchCampaign(campaignId: number): Promise<number> {
   });
 }
 
+/** Failed recipients of a campaign: API error, or WhatsApp reported the delivery as failed. */
+export const FAILED_SQL = "m_status = 3 AND (COALESCE(m_message_id, '') = '' OR m_delivery_status = 'failed')";
+
+/** Columns a resent copy keeps from the failed message. */
+const COPY_COLUMNS = [
+  'm_user_id', 'm_contact_id', 'm_campaign_id', 'm_reply_template', 'm_is_incoming', 'm_msg_lite', 'm_mobile_no', 'm_active_prompt',
+  'm_source', 'm_msg_type', 'm_msg_template_name', 'm_msg_template_para', 'm_title', 'm_msg_title', 'm_msg_values', 'm_content',
+  'm_buttons', 'm_button_url', 'm_image', 'm_carousel', 'm_base_file', 'm_sheet_id',
+].join(', ');
+
+/**
+ * Queue the campaign's failed messages again. Each failed row is marked Re-Send (8)
+ * and replaced by a fresh queued copy (status 1, created now, so the 24-hour
+ * expiry runs from the resend), all in one statement: a second click finds
+ * nothing left to resend. Returns the number queued.
+ */
+export async function resendFailed(campaignId: number, userId: number): Promise<number> {
+  const t = now();
+  return tx(async (db) => {
+    const res = await db.query(
+      `WITH old AS (
+         UPDATE js_message SET m_status = 8, m_updated_on = $3
+          WHERE m_campaign_id = $1 AND m_user_id = $2 AND m_is_incoming = 2 AND m_dstatus = 0 AND ${FAILED_SQL}
+         RETURNING *
+       )
+       INSERT INTO js_message (${COPY_COLUMNS}, m_unique_id, m_status, m_created_on, m_created_date)
+       SELECT ${COPY_COLUMNS}, gen_random_uuid()::text, 1, $3, $4 FROM old ORDER BY m_id`,
+      [campaignId, userId, t, dayStart(t)],
+    );
+    const queued = res.rowCount ?? 0;
+    if (queued) await exec('UPDATE js_user_campaign SET uc_resent_at = $2, uc_stats_at = 0 WHERE uc_id = $1', [campaignId, t], db);
+    return queued;
+  });
+}
+
 /** Scheduled campaigns whose time has come. Returns [campaigns, messages]. */
 export async function dispatchDueCampaigns(): Promise<[number, number]> {
   const due = await query<{ uc_id: number }>(
@@ -153,8 +188,10 @@ export async function campaignStats(campaigns: CampaignRow[], withReplies = fals
       stats[c.uc_id] = null;
       continue;
     }
-    const settled = c.uc_started_at < t - SETTLE_SECONDS && (c.uc_stats?.pending ?? 1) === 0;
-    const fresh = !!c.uc_stats && (c.uc_stats_at > t - 30 || (settled && c.uc_stats_at > c.uc_started_at + SETTLE_SECONDS));
+    // A resend restarts the settling period
+    const since = Math.max(Number(c.uc_started_at), Number(c.uc_resent_at ?? 0));
+    const settled = since < t - SETTLE_SECONDS && (c.uc_stats?.pending ?? 1) === 0;
+    const fresh = !!c.uc_stats && (c.uc_stats_at > t - 30 || (settled && c.uc_stats_at > since + SETTLE_SECONDS));
     if (fresh && (!withReplies || c.uc_stats?.replied !== undefined)) stats[c.uc_id] = c.uc_stats;
     else refresh.push(c);
   }
@@ -162,7 +199,7 @@ export async function campaignStats(campaigns: CampaignRow[], withReplies = fals
 
   const rows = await query<CampaignStats & { m_campaign_id: number }>(
     `SELECT m_campaign_id,
-            COUNT(*)::int AS total,
+            COUNT(*) FILTER (WHERE m_status <> 8)::int AS total,
             COUNT(*) FILTER (WHERE m_status IN (1, 6))::int AS pending,
             COUNT(*) FILTER (WHERE m_status = 3 AND COALESCE(m_message_id, '') <> '')::int AS sent,
             COUNT(*) FILTER (WHERE m_status = 3 AND COALESCE(m_message_id, '') <> '' AND m_delivery_status IN ('delivered', 'read'))::int AS delivered,

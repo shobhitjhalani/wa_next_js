@@ -481,6 +481,8 @@ CREATE TABLE IF NOT EXISTS js_user_campaign (
   uc_stats_at integer NOT NULL DEFAULT 0
 );
 CREATE INDEX IF NOT EXISTS js_user_campaign_code_idx ON js_user_campaign (uc_unique_code);
+-- Last "Resend failed" (stats keep refreshing for a few days after it)
+ALTER TABLE js_user_campaign ADD COLUMN IF NOT EXISTS uc_resent_at integer NOT NULL DEFAULT 0;
 CREATE INDEX IF NOT EXISTS js_user_campaign_user_idx ON js_user_campaign (uc_user_id, uc_created_on DESC);
 CREATE INDEX IF NOT EXISTS js_user_campaign_due_idx ON js_user_campaign (uc_scheduled_at) WHERE uc_status = 1;
 

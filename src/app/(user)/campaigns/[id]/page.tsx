@@ -13,7 +13,7 @@ import { limit, numberFormat } from '@/lib/text';
 import { phpDate } from '@/lib/time';
 import type { CampaignRow, MessageRow } from '@/lib/types';
 import { barSegments, DeliveryBar, errorText, pct, recipientStatus, recipientWhere, StatusBadge } from '../shared';
-import { cancelCampaignAction } from './actions';
+import { cancelCampaignAction, resendFailedAction } from './actions';
 import { AutoReload } from './AutoReload';
 
 export const metadata: Metadata = { title: 'Campaign' };
@@ -69,6 +69,7 @@ export default async function CampaignPage({ params, searchParams }: { params: P
 
   const status = campaignStatusLabel(campaign, stats);
   const canCancel = status === 'Scheduled' || (status === 'Sending' && (stats?.pending ?? 0) > 0);
+  const canResend = tracked && (status === 'Sending' || status === 'Completed') && (stats?.failed ?? 0) > 0;
   const pastedNumbers = campaign.uc_payload?.numbers?.length ?? 0;
 
   const again = new URLSearchParams();
@@ -106,6 +107,7 @@ export default async function CampaignPage({ params, searchParams }: { params: P
               </span>
               {groupNames.length > 0 && <span><i className="ri-group-line" /> {groupNames.map((g) => g.up_group_name).join(', ')}</span>}
               {pastedNumbers > 0 && <span><i className="ri-phone-line" /> {numberFormat(pastedNumbers)} pasted number(s)</span>}
+              {Number(campaign.uc_resent_at) > 0 && <span><i className="ri-restart-line" /> Failed messages resent {phpDate('d M Y, H:i', Number(campaign.uc_resent_at))}</span>}
             </div>
           </div>
           <div className="d-flex flex-wrap gap-2">
@@ -113,6 +115,16 @@ export default async function CampaignPage({ params, searchParams }: { params: P
               <a href={`/campaigns/${campaign.uc_id}/export`} className="btn btn-soft-info"><i className="ri-download-2-line" /> Export</a>
             )}
             <Link href={`/compose${againQs ? '?' + againQs : ''}`} className="btn btn-soft-primary"><i className="ri-repeat-line" /> Send Again</Link>
+            {canResend && (
+              <form action={resendFailedAction.bind(null, campaign.uc_id)}>
+                <ConfirmButton
+                  message={`Send the ${numberFormat(stats?.failed ?? 0)} failed message(s) again? They are queued as new messages and count towards your template messages.`}
+                  className="btn btn-soft-warning"
+                >
+                  <i className="ri-restart-line" /> Resend Failed ({numberFormat(stats?.failed ?? 0)})
+                </ConfirmButton>
+              </form>
+            )}
             {canCancel && (
               <form action={cancelCampaignAction.bind(null, campaign.uc_id)}>
                 <ConfirmButton message={status === 'Scheduled' ? 'Cancel this scheduled campaign?' : 'Cancel the messages that have not been sent yet?'} className="btn btn-soft-danger">
@@ -125,7 +137,7 @@ export default async function CampaignPage({ params, searchParams }: { params: P
       </div>
 
       {!tracked ? (
-        <div className="alert alert-light border">This campaign was sent before per-message tracking was added, so only its recipient count ({numberFormat(campaign.uc_total_contacts)}) is known. Use <Link href="/reports_templates">Templates Reports</Link> for its delivery figures.</div>
+        <div className="alert alert-light border">This campaign was sent before per-message tracking was added, so only its recipient count ({numberFormat(campaign.uc_total_contacts)}) is known. Use <Link href="/reports">Reports</Link> for its messages and delivery status.</div>
       ) : status === 'Scheduled' ? (
         <div className="alert alert-info">Messages are created when the campaign starts, from the groups&apos; members at that moment. Opted-out contacts are skipped.</div>
       ) : stats ? (

@@ -208,6 +208,7 @@ export interface CampaignRow {
   uc_status: number; // 1 scheduled, 2 dispatched, 4 cancelled
   uc_scheduled_at: number;
   uc_started_at: number;
+  uc_resent_at: number;
   uc_skipped: number;
   uc_created_on: string;
   uc_payload: CampaignPayload | null;

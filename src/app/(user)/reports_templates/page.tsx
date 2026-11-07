@@ -1,103 +1,87 @@
 import type { Metadata } from 'next';
+import Link from 'next/link';
 import { PageTitle } from '@/components/PageTitle';
-import { StatusMatrix } from '@/components/StatusMatrix';
 import { DateRangeInput } from '@/components/ui';
 import { requireUser } from '@/lib/auth';
-import { config } from '@/lib/config';
-import { query } from '@/lib/db';
-import { sp } from '@/lib/http';
-import { buildMatrix, TEMPLATE_TYPES } from '@/lib/services/reports';
-import { dayStart, parseDateRange } from '@/lib/time';
-import { dateInput, reportQuery, templateNames } from '../reports/query';
+import { numberFormat } from '@/lib/text';
+import { phpDate } from '@/lib/time';
+import { campaignSummary, readSummaryFilter, STATUS_COLUMNS } from './summary';
 
-export const metadata: Metadata = { title: 'Templates Reports' };
+export const metadata: Metadata = { title: 'Campaign Summary' };
 
-const SUCCESS = 'Send / Delivered / Read';
+const TONE: Record<string, string> = { failed: 'text-danger', error: 'text-danger', queue: 'text-warning' };
 
-/** Template × delivery status counts (User\ReportController::templates). */
-export default async function TemplatesReportPage({ searchParams }: { searchParams: Promise<Record<string, string | string[] | undefined>> }) {
+/** Campaign Summary report: messages of each campaign by status (replaces the template × status report). */
+export default async function CampaignSummaryPage({ searchParams }: { searchParams: Promise<Record<string, string | string[] | undefined>> }) {
   const user = await requireUser();
   const params = await searchParams;
-  const dtInput = dateInput(params);
-  const range = parseDateRange(dtInput);
-  const queFrom = dayStart() - config.queTime;
-
-  // Sent and API-error rows (status 3) in one grouped pass over (m_user_id, 2, 3, m_created_on)
-  const args: unknown[] = [user.u_id, TEMPLATE_TYPES];
-  const where = [`m_user_id = $1`, `m_is_incoming = 2`, `m_status = 3`, `m_dstatus = 0`, `m_msg_type = ANY($2::text[])`];
-  const add = (sql: string, ...v: unknown[]) => {
-    let s = sql;
-    for (const x of v) { args.push(x); s = s.replace('?', `$${args.length}`); }
-    where.push(s);
-  };
-  if (range) add('m_created_on BETWEEN ? AND ?', range[0], range[1]);
-  if (sp(params, 'mobile_no')) add('m_mobile_no = ?', sp(params, 'mobile_no'));
-  if (sp(params, 'template')) add('m_msg_template_name = ?', sp(params, 'template'));
-  if (sp(params, 'status')) add('m_delivery_status = ?', sp(params, 'status'));
-
-  const [sent, que, names] = await Promise.all([
-    // Laravel: m_message_id != '' → by delivery status; m_message_id = '' → Error (NULL ids are in neither)
-    // (reportQuery: bitmap scan of js_message_user_dir_status_idx, see reports/query.ts)
-    reportQuery<{ name: string | null; err: boolean; ds: string | null; n: number }>(
-      `SELECT m_msg_template_name AS name, m_message_id = '' AS err,
-              CASE WHEN m_message_id = '' THEN NULL ELSE m_delivery_status END AS ds, COUNT(*)::int AS n
-         FROM js_message
-        WHERE ${where.join(' AND ')} AND m_message_id IS NOT NULL
-        GROUP BY 1, 2, 3`,
-      args,
-    ),
-    // Live queue (js_message_queue_idx), no filters as in Laravel
-    query<{ name: string | null; n: number }>(
-      `SELECT m_msg_template_name AS name, COUNT(*)::int AS n
-         FROM js_message
-        WHERE m_user_id = $1 AND m_status = 1 AND m_is_incoming = 2 AND m_dstatus = 0 AND m_created_on >= $2
-        GROUP BY 1`,
-      [user.u_id, queFrom],
-    ),
-    templateNames(user.u_id),
-  ]);
-
-  const rows = new Map<string, Record<string, number>>();
-  const row = (name: string | null) => {
-    const key = name ?? '';
-    if (!rows.has(key)) rows.set(key, {});
-    return rows.get(key)!;
-  };
-  for (const r of sent) {
-    if (r.err) continue;
-    const col = r.ds === null || ['', 'sent', 'delivered', 'read'].includes(r.ds) ? SUCCESS : r.ds;
-    const target = row(r.name);
-    target[col] = (target[col] ?? 0) + r.n;
-  }
-  for (const r of que) row(r.name).Que = r.n;
-  for (const r of sent) if (r.err) row(r.name).Error = r.n;
-  const matrix = buildMatrix(rows, ['Que', 'Error']);
+  const filter = readSummaryFilter(params);
+  const { rows, totals, untracked } = await campaignSummary(user.u_id, filter);
+  const qs = new URLSearchParams({ wa_date: filter.date, ...(filter.q ? { q: filter.q } : {}) }).toString();
 
   return (
     <>
-      <PageTitle title="Templates Reports" home="/dashboard" />
+      <PageTitle title="Campaign Summary" home="/dashboard" />
       <div className="card">
         <div className="card-header">
           <form method="get" className="row g-2 align-items-center filter-bar">
-            <div className="col-md-3"><DateRangeInput name="wa_date" defaultValue={dtInput} placeholder="Date range" /></div>
-            <div className="col-md-3">
-              <select className="form-select" name="template" aria-label="Template" defaultValue={sp(params, 'template')}>
-                <option value="">All templates</option>
-                {names.map((name, i) => <option key={i} value={name}>{name}</option>)}
-              </select>
-            </div>
-            <div className="col-md-2">
-              <select className="form-select" name="status" aria-label="Delivery status" defaultValue={sp(params, 'status')}>
-                <option value="">All statuses</option>
-                {Object.entries(config.deliveryStatus).map(([k, v]) => <option key={k} value={k}>{v}</option>)}
-              </select>
-            </div>
-            <div className="col-md-2"><input type="text" className="form-control" name="mobile_no" defaultValue={sp(params, 'mobile_no')} placeholder="Mobile No" aria-label="Mobile number" /></div>
+            <div className="col-md-3"><DateRangeInput name="wa_date" defaultValue={filter.date} placeholder="Date range" /></div>
+            <div className="col-md-3"><input type="text" className="form-control" name="q" defaultValue={filter.q} placeholder="Campaign or template name" aria-label="Campaign or template name" /></div>
             <div className="col-auto"><button type="submit" className="btn btn-secondary">Search</button></div>
+            <div className="col-auto ms-auto">
+              <a href={`/reports_templates/export?${qs}`} className="btn btn-soft-info"><i className="ri-download-2-line" /> Export</a>
+            </div>
           </form>
         </div>
         <div className="card-body">
-          <StatusMatrix matrix={matrix} firstCol="Template Name" />
+          {!rows.length ? <p className="text-muted mb-0">No campaigns for this period.</p> : (
+            <div className="table-responsive">
+              <table className="table table-sm align-middle table-nowrap table-striped table-report mb-0">
+                <thead className="table-light">
+                  <tr>
+                    <th>#</th>
+                    <th>Date</th>
+                    <th>Campaign Name</th>
+                    {STATUS_COLUMNS.map(([key, label]) => <th key={key} className="num">{label}</th>)}
+                    <th className="num" title="Send + Delivered + Read">Total</th>
+                    <th className="num" title="All messages of the campaign">Total Data</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {rows.map((r, i) => (
+                    <tr key={r.id}>
+                      <td>{i + 1}</td>
+                      <td>{phpDate('d-m-Y H:i', r.date)}</td>
+                      <td>
+                        <Link href={`/campaigns/${r.id}`}>{r.name}</Link>
+                        {r.template && r.template !== r.name && <div className="small text-muted">{r.template}</div>}
+                      </td>
+                      {STATUS_COLUMNS.map(([key]) => (
+                        <td key={key} className={`num ${r.counts && r.counts[key] ? TONE[key] ?? '' : ''}`}>{r.counts ? numberFormat(r.counts[key]) : '—'}</td>
+                      ))}
+                      <th className="num">{r.counts ? numberFormat(r.counts.total) : '—'}</th>
+                      <th className="num">
+                        {r.counts ? numberFormat(r.counts.all) : <span title="Recipients; status not tracked for this campaign">{numberFormat(r.recipients)}*</span>}
+                      </th>
+                    </tr>
+                  ))}
+                </tbody>
+                <tfoot className="table-light">
+                  <tr>
+                    <th colSpan={3}>Total ({numberFormat(rows.length)} campaign{rows.length === 1 ? '' : 's'})</th>
+                    {STATUS_COLUMNS.map(([key]) => <th key={key} className="num">{numberFormat(totals[key])}</th>)}
+                    <th className="num">{numberFormat(totals.total)}</th>
+                    <th className="num">{numberFormat(totals.all)}</th>
+                  </tr>
+                </tfoot>
+              </table>
+            </div>
+          )}
+          {untracked > 0 && (
+            <p className="small text-muted mt-3 mb-0">
+              * {numberFormat(untracked)} campaign(s) were sent before messages were linked to their campaign, so only their recipient count is known.
+            </p>
+          )}
         </div>
       </div>
     </>

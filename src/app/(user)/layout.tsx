@@ -45,7 +45,7 @@ export default async function UserLayout({ children }: { children: React.ReactNo
         { label: 'Reports', href: '/reports' },
         { label: 'Reports Failed', href: '/reports_failed' },
         { label: 'Reports Error', href: '/reports_error' },
-        { label: 'Templates Reports', href: '/reports_templates' },
+        { label: 'Campaign Summary', href: '/reports_templates' },
       ],
     },
     {

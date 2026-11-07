@@ -47,8 +47,8 @@ export const config = {
   // Queue sender only runs between these hours (legacy cron: 7–23)
   sendStartHour: int('WA_SEND_START_HOUR', 7),
   sendEndHour: int('WA_SEND_END_HOUR', 23),
-  sendBatch: int('WA_SEND_BATCH', 100),
-  sendConcurrency: Math.max(1, int('WA_SEND_CONCURRENCY', 8)),
+  sendBatch: int('WA_SEND_BATCH', 1000),
+  sendConcurrency: Math.max(1, int('WA_SEND_CONCURRENCY', 16)),
   // Messages older than this (seconds) are no longer considered "in queue" (legacy QUE_TIME)
   queTime: int('WA_QUE_TIME', 259200),
   // Outgoing messages older than this (seconds, by m_created_on) are never sent; they expire (status 5)

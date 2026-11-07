@@ -25,7 +25,7 @@ export const JOBS: Job[] = [
   { name: 'dispatch-campaigns', schedule: { everySeconds: 60 }, run: (log) => dispatchCampaigns(log) },
   // Messages older than WA_MSG_EXPIRY (24h) are never sent — cancel them before send-queue looks
   { name: 'expire-messages', schedule: { everySeconds: 300 }, run: (log) => expireMessages(log) },
-  { name: 'send-queue', schedule: { everySeconds: 120 }, run: (log) => sendQueue({}, log) },
+  { name: 'send-queue', schedule: { everySeconds: 60 }, run: (log) => sendQueue({}, log) },
   { name: 'process-webhooks', schedule: { everySeconds: 60 }, run: (log) => processWebhooks(log) },
   { name: 'expire-plans', schedule: { hourly: true }, run: (log) => expirePlans(log) },
   { name: 'cleanup', schedule: { dailyAt: '02:30' }, run: (log) => cleanup(log) },

@@ -75,7 +75,7 @@ uploads up to 110 MB (`client_max_body_size 110m`). Point the Meta app webhook a
 |---|---|---|---|
 | dispatch-campaigns | every minute | `npm run wa -- dispatch-campaigns` | — |
 | expire-messages | every 5 min | `npm run wa -- expire-messages` | — (queued/processing messages older than `WA_MSG_EXPIRY`, default 24h, → status 5; they are never sent) |
-| send-queue | every 2 min, 07:00–23:00 | `npm run wa -- send-queue [--user=74] [--force]` | `cron/wa_cron.php` |
+| send-queue | every minute, 07:00–23:00 (up to `WA_SEND_BATCH` = 1000 per account) | `npm run wa -- send-queue [--user=74] [--force]` | `cron/wa_cron.php` |
 | process-webhooks | every minute | `npm run wa -- process-webhooks` | `cron/webhook_que.php` |
 | expire-plans | hourly | `npm run wa -- expire-plans` | `cron/user_status.php` |
 | cleanup | daily 02:30 | `npm run wa -- cleanup` | `cron/msg_delete.php`, `delete_folders.php` |
@@ -128,7 +128,7 @@ Behaviour, URLs, forms and screens are the same. Under the hood:
   messages by send time, unread incoming, inbox threads). `js_message` takes 2.0 GB instead of 3.6 GB.
   Usernames, emails and group names are `citext`, so lookups stay case-insensitive as they were under MySQL collation.
 - **Queue sender** — messages are claimed in one `UPDATE … FOR UPDATE SKIP LOCKED` statement (no double sends from
-  overlapping runs), accounts are processed in parallel and recipients concurrently (`WA_SEND_CONCURRENCY`, default 8)
+  overlapping runs), accounts are processed in parallel and recipients concurrently (`WA_SEND_CONCURRENCY`, default 16)
   while each recipient's messages stay in order; user / template / block-list lookups are cached per run.
 - **Webhook statuses** — applied set-based (one statement per 2 000 statuses instead of three queries per status).
 - **Webhook / API / Shopify responses** return immediately; forwarding to client URLs, catalogue auto-replies and

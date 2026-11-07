@@ -16,8 +16,10 @@ const FILE_HINTS: Record<string, [string, string]> = {
   VIDEO: ['video/mp4', 'MP4, up to 16 MB'],
   DOCUMENT: ['application/pdf', 'PDF, up to 100 MB'],
 };
-const ICONS: Record<string, string> = { QUICK_REPLY: 'ri-reply-line', URL: 'ri-external-link-line', PHONE_NUMBER: 'ri-phone-line' };
+const ICONS: Record<string, string> = { QUICK_REPLY: 'ri-reply-line', URL: 'ri-external-link-line', PHONE_NUMBER: 'ri-phone-line', FLOW: 'ri-survey-line' };
 const BUTTON_TYPES: [string, string][] = [['QUICK_REPLY', 'Quick reply'], ['URL', 'Visit website'], ['PHONE_NUMBER', 'Call phone']];
+/** Standard templates can also open a WhatsApp Flow (one per template). */
+const STANDARD_BUTTON_TYPES: [string, string][] = [...BUTTON_TYPES, ['FLOW', 'Open flow (form)']];
 const HEADER_TYPES: [string, string][] = [['NONE', 'None'], ['TEXT', 'Text'], ['IMAGE', 'Image'], ['VIDEO', 'Video'], ['DOCUMENT', 'Document']];
 const OPEN = '{{', CLOSE = '}}';
 
@@ -30,7 +32,8 @@ function fill(text: string, samples: Record<number, string>): string {
   return (text || '').replace(/\{\{\s*(\d+)\s*\}\}/g, (all, n) => samples[+n] || all);
 }
 
-interface Btn { key: number; type: string; text: string; url: string; phone: string; example: string }
+interface Btn { key: number; type: string; text: string; url: string; phone: string; example: string; flowId: string; screen: string }
+export interface FlowOption { id: string; name: string; status: string }
 interface SlotBtn { text: string; url: string; phone: string; example: string }
 interface Card { key: number; body: string; examples: Record<number, string>; buttons: [SlotBtn, SlotBtn]; file: File | null }
 
@@ -39,7 +42,11 @@ const newCard = (key: number): Card => ({ key, body: '', examples: {}, buttons: 
 
 type Action = (prev: ActionResult | null, fd: FormData) => Promise<ActionResult>;
 
-export function TemplateForm({ action, languages, initialKind }: { action: Action; languages: Record<string, string>; initialKind: 'STANDARD' | 'CAROUSEL' }) {
+export function TemplateForm({ action, languages, initialKind, flows }: {
+  action: Action; languages: Record<string, string>; initialKind: 'STANDARD' | 'CAROUSEL';
+  /** The account's WhatsApp Flows; null when they couldn't be loaded (the Flow ID is typed instead). */
+  flows: FlowOption[] | null;
+}) {
   const [kind, setKind] = useState(initialKind);
   const carousel = kind === 'CAROUSEL';
   const [name, setName] = useState('');
@@ -180,7 +187,7 @@ export function TemplateForm({ action, languages, initialKind }: { action: Actio
                   type="button" className="btn btn-sm btn-soft-primary" id="add_button"
                   onClick={() => {
                     if (buttons.length >= 10) return;
-                    setButtons((list) => [...list, { key: nextKey.current.button++, type: 'QUICK_REPLY', text: '', url: '', phone: '', example: '' }]);
+                    setButtons((list) => [...list, { key: nextKey.current.button++, type: 'QUICK_REPLY', text: '', url: '', phone: '', example: '', flowId: '', screen: '' }]);
                   }}
                 >
                   <i className="ri-add-line" /> Add Button
@@ -195,7 +202,9 @@ export function TemplateForm({ action, languages, initialKind }: { action: Actio
                         <div className="col-md-3">
                           <label className="form-label small mb-1" htmlFor={`btn_type_${i}`}>Type</label>
                           <select className="form-select form-select-sm btn-type" name={`buttons[${i}][type]`} id={`btn_type_${i}`} value={b.type} onChange={(e) => updateButton(i, { type: e.target.value })}>
-                            {BUTTON_TYPES.map(([v, l]) => <option key={v} value={v}>{l}</option>)}
+                            {STANDARD_BUTTON_TYPES
+                              .filter(([v]) => v !== 'FLOW' || b.type === 'FLOW' || !buttons.some((x) => x.type === 'FLOW'))
+                              .map(([v, l]) => <option key={v} value={v}>{l}</option>)}
                           </select>
                         </div>
                         <div className="col-md-3">
@@ -210,11 +219,40 @@ export function TemplateForm({ action, languages, initialKind }: { action: Actio
                           <label className="form-label small mb-1" htmlFor={`btn_phone_${i}`}>Phone Number</label>
                           <input type="text" className="form-control form-control-sm btn-phone" name={`buttons[${i}][phone]`} id={`btn_phone_${i}`} value={b.phone} maxLength={20} placeholder="+919876543210" required={b.type === 'PHONE_NUMBER'} onChange={(e) => updateButton(i, { phone: e.target.value })} />
                         </div>
+                        {b.type === 'FLOW' && (
+                          <div className="col-md-5">
+                            <label className="form-label small mb-1" htmlFor={`btn_flow_${i}`}>WhatsApp Flow</label>
+                            {flows && flows.length > 0 ? (
+                              <select className="form-select form-select-sm" name={`buttons[${i}][flow_id]`} id={`btn_flow_${i}`} value={b.flowId} required onChange={(e) => updateButton(i, { flowId: e.target.value })}>
+                                <option value="">Choose a flow…</option>
+                                {flows.map((f) => <option key={f.id} value={f.id}>{f.name}{f.status && f.status !== 'PUBLISHED' ? ` (${f.status.toLowerCase()})` : ''}</option>)}
+                              </select>
+                            ) : (
+                              <input type="text" inputMode="numeric" className="form-control form-control-sm" name={`buttons[${i}][flow_id]`} id={`btn_flow_${i}`} value={b.flowId} placeholder="Flow ID, e.g. 1062416823205635" required onChange={(e) => updateButton(i, { flowId: e.target.value.trim() })} />
+                            )}
+                          </div>
+                        )}
                         <div className="col-md-1 text-end">
                           <button type="button" className="btn btn-sm btn-soft-danger btn-remove" title="Remove button" aria-label="Remove button" onClick={() => setButtons((list) => list.filter((x) => x.key !== i))}>
                             <i className="ri-delete-bin-line" />
                           </button>
                         </div>
+                        {b.type === 'FLOW' && (
+                          <div className="col-12">
+                            <div className="row g-2 align-items-end">
+                              <div className="col-md-4">
+                                <label className="form-label small mb-1" htmlFor={`btn_screen_${i}`}>First screen ID <span className="text-muted">(optional)</span></label>
+                                <input type="text" className="form-control form-control-sm" name={`buttons[${i}][navigate_screen]`} id={`btn_screen_${i}`} value={b.screen} maxLength={100} placeholder="e.g. QUESTION_ONE" onChange={(e) => updateButton(i, { screen: e.target.value.trim() })} />
+                              </div>
+                              <div className="col-md-8 form-text">
+                                {flows === null
+                                  ? 'Could not load your flows from WhatsApp; enter the Flow ID from WhatsApp Manager → Flows. '
+                                  : flows.length === 0 ? 'No flows found on this WhatsApp account. Create one in WhatsApp Manager → Flows first. ' : ''}
+                                Replies appear under Incoming → Flow Responses.
+                              </div>
+                            </div>
+                          </div>
+                        )}
                         <div className="col-12 btn-example-wrap" hidden={b.type !== 'URL' || !vars(b.url).length}>
                           <label className="form-label small mb-1" htmlFor={`btn_example_${i}`}>Sample full URL</label>
                           <input type="text" className="form-control form-control-sm" name={`buttons[${i}][example]`} id={`btn_example_${i}`} value={b.example} maxLength={2000} placeholder="https://example.com/order/12345" onChange={(e) => updateButton(i, { example: e.target.value })} />

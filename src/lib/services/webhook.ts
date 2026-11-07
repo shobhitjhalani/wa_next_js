@@ -1,9 +1,9 @@
 import 'server-only';
-import { insert, one, pool, value } from '../db';
+import { exec, insert, one, pool, value } from '../db';
 import { contactId, recordMessage } from '../models';
 import { fromWaId } from '../phone';
 import { dayStart, now } from '../time';
-import type { UserRow } from '../types';
+import type { MessageRow, UserRow } from '../types';
 import { insertMessage, storeIncoming } from './messages';
 import { LIMITED_TYPES } from './template-limit';
 import { sendPending } from './sender';
@@ -135,6 +135,7 @@ async function incomingMessage(user: HookUser, msg: Record<string, any>, contact
       defer(() => forward(target, data));
     }
     await logIncoming(user, mobile, data, 'flow', user.u_wa_form_url);
+    await storeFlowResponse(user, message, response, formJson, msg.context?.id);
   }
 
   await catalogueAutoReply(user, mobile, content, defer);
@@ -164,6 +165,20 @@ async function catalogueAutoReply(user: HookUser, mobile: string, content: strin
   });
   await recordMessage(reply);
   defer(() => sendPending(reply.m_id));
+}
+
+/** Keep the submission for the Flow Responses page; the reply's context points at the template that opened the flow. */
+async function storeFlowResponse(user: HookUser, message: MessageRow, response: unknown, raw: string | null, contextId: unknown): Promise<void> {
+  const template = typeof contextId === 'string' && contextId !== ''
+    ? await value<string>('SELECT m_msg_template_name FROM js_message WHERE m_message_id = $1 AND m_is_incoming = 2 LIMIT 1', [contextId])
+    : null;
+  const answers = response && typeof response === 'object' && !Array.isArray(response) ? response : { _raw: raw ?? '' };
+  await exec(
+    `INSERT INTO js_flow_responses (fr_user_id, fr_m_id, fr_wa_id, fr_mobile_no, fr_sender_name, fr_template_name, fr_response, fr_created_on)
+     VALUES ($1, $2, $3, $4, $5, $6, $7::jsonb, $8)
+     ON CONFLICT (fr_wa_id) WHERE fr_wa_id IS NOT NULL DO NOTHING`,
+    [user.u_id, message.m_id, message.m_message_id, message.m_mobile_no, message.m_sender_name, template, JSON.stringify(answers), Number(message.m_created_on) || now()],
+  );
 }
 
 async function logIncoming(user: HookUser, sender: string, data: unknown, type: string, postUrl: string | null): Promise<void> {

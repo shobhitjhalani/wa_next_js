@@ -18,6 +18,8 @@ const FILE_RULES: Record<string, { ext: string[]; max: number }> = {
   DOCUMENT: { ext: ['pdf'], max: 102400 },
 };
 const BUTTON_TYPES = ['QUICK_REPLY', 'URL', 'PHONE_NUMBER'];
+/** Standard templates may also have one Flow button (carousel cards can't). */
+const STANDARD_BUTTON_TYPES = [...BUTTON_TYPES, 'FLOW'];
 const PHONE = /^\+?\d{8,15}$/;
 
 /** Laravel's displayable attribute name: "header_text" → "header text". */
@@ -196,7 +198,7 @@ export async function storeTemplate(_prev: ActionResult | null, fd: FormData): P
   const buttons: ButtonInput[] = rawButtons.map((b, i) => {
     const f = `buttons.${i}`;
     const type = nStr(b, 'type');
-    if (e.required(`${f}.type`, type)) e.in(`${f}.type`, type, BUTTON_TYPES);
+    if (e.required(`${f}.type`, type)) e.in(`${f}.type`, type, STANDARD_BUTTON_TYPES);
     const text = nStr(b, 'text');
     if (e.required(`${f}.text`, text)) e.max(`${f}.text`, text, 25);
     const url = nStr(b, 'url');
@@ -209,8 +211,20 @@ export async function storeTemplate(_prev: ActionResult | null, fd: FormData): P
     e.regex(`${f}.phone`, phone, PHONE, 'Phone number must include the country code, e.g. +919876543210.');
     const example = nStr(b, 'example');
     e.max(`${f}.example`, example, 2000);
-    return { type, text, url: url || undefined, phone: phone || undefined, example: example || undefined };
+    const flowId = nStr(b, 'flow_id');
+    const screen = nStr(b, 'navigate_screen');
+    if (type === 'FLOW') {
+      if (!flowId) e.add(`${f}.flow_id`, 'Choose the WhatsApp Flow this button opens.');
+      e.regex(`${f}.flow_id`, flowId, /^\d{5,25}$/, 'The Flow ID is the number shown for the flow in WhatsApp Manager.');
+      e.max(`${f}.navigate_screen`, screen, 100);
+      e.regex(`${f}.navigate_screen`, screen, /^[A-Za-z0-9_]+$/, 'The screen ID may only contain letters, numbers and underscores, e.g. QUESTION_ONE.');
+    }
+    return {
+      type, text, url: url || undefined, phone: phone || undefined, example: example || undefined,
+      flow_id: type === 'FLOW' ? flowId : undefined, navigate_screen: type === 'FLOW' && screen ? screen : undefined,
+    };
   });
+  if (buttons.filter((b) => b.type === 'FLOW').length > 1) e.add('buttons', 'A template can have only one Flow button.');
   if (e.any) return invalid(e.list);
 
   checkBody(body, bodyExample, 'body', 'body_example', e);

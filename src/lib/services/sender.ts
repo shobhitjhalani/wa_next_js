@@ -6,7 +6,7 @@ import { exec, one, query, value } from '../db';
 import { internationalise } from '../phone';
 import { decodeEntities, jsonParse, limit } from '../text';
 import { phpDate, withinHours } from '../time';
-import { templateCards } from '../format';
+import { templateButtons, templateCards } from '../format';
 import type { MessageRow, UserRow } from '../types';
 import { sendMarketingMessage, sendMessage, type MetaResponse } from './meta';
 import { safeFileName, storeBytes } from './media';
@@ -36,7 +36,7 @@ type Payload = Record<string, any>;
 class RunCache {
   users = new Map<number, Promise<SendUser | null>>();
   blocked = new Map<number, Promise<Set<string>>>();
-  templates = new Map<string, Promise<{ ut_language: string | null; ut_cards: string | null } | null>>();
+  templates = new Map<string, Promise<{ ut_language: string | null; ut_cards: string | null; ut_buttons: string | null } | null>>();
 
   user(id: number) {
     if (!this.users.has(id)) this.users.set(id, one<SendUser>('SELECT u_id, u_code, u_wa_phone_id, u_wa_b_id FROM js_user WHERE u_id = $1', [id]));
@@ -54,7 +54,7 @@ class RunCache {
   template(userId: number, name: string) {
     const key = `${userId}:${name}`;
     if (!this.templates.has(key)) {
-      this.templates.set(key, one('SELECT ut_language, ut_cards FROM js_user_templates WHERE ut_user_id = $1 AND ut_name = $2 ORDER BY ut_status, ut_id DESC LIMIT 1', [userId, name]));
+      this.templates.set(key, one('SELECT ut_language, ut_cards, ut_buttons FROM js_user_templates WHERE ut_user_id = $1 AND ut_name = $2 ORDER BY ut_status, ut_id DESC LIMIT 1', [userId, name]));
     }
     return this.templates.get(key)!;
   }
@@ -249,7 +249,10 @@ async function sendTemplate(user: SendUser, m: MessageRow, to: string, media: Me
 
 async function sendFlow(user: SendUser, m: MessageRow, to: string, media: Media[], cache: RunCache) {
   const components = templateComponents(m, media);
-  components.push({ type: 'button', sub_type: 'flow', index: '0' });
+  // The Flow button can sit after other buttons (e.g. a quick reply first)
+  const template = await cache.template(user.u_id, String(m.m_msg_template_name ?? ''));
+  const index = template ? templateButtons(template).findIndex((b) => b.type === 'FLOW') : -1;
+  components.push({ type: 'button', sub_type: 'flow', index: String(Math.max(index, 0)) });
   return sendMessage(user, await templatePayload(user, m, to, components, cache));
 }
 

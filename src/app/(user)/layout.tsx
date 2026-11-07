@@ -26,6 +26,7 @@ export default async function UserLayout({ children }: { children: React.ReactNo
       label: 'Incoming', icon: 'ri-chat-3-line', children: [
         { label: 'Inbox', href: '/chat' },
         { label: 'Incoming', href: '/incoming' },
+        { label: 'Flow Responses', href: '/flow_responses' },
         { label: 'Attachments', href: '/incoming_attachment' },
       ],
     },

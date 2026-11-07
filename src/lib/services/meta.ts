@@ -88,6 +88,17 @@ export async function fetchTemplates(user: WaUser): Promise<Record<string, any>[
   return all;
 }
 
+export interface WaFlow { id: string; name: string; status: string }
+
+/** WhatsApp Flows of the WABA (for Flow buttons on new templates). Null when WhatsApp can't be reached. */
+export async function listFlows(user: WaUser): Promise<WaFlow[] | null> {
+  const res = await call('GET', `${user.u_wa_b_id}/flows`, { fields: 'id,name,status', limit: 200 }, 8_000);
+  if (res.error || !Array.isArray(res.data)) return null;
+  return res.data
+    .filter((f: any) => f?.id && f.status !== 'DEPRECATED')
+    .map((f: any) => ({ id: String(f.id), name: String(f.name ?? f.id), status: String(f.status ?? '') }));
+}
+
 /** Submit a new template for Meta review. */
 export function createTemplate(user: WaUser, payload: Record<string, unknown>): Promise<MetaResponse> {
   return metaPost(`${user.u_wa_b_id}/message_templates`, payload);

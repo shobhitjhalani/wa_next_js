@@ -109,11 +109,13 @@ function card(c: Record<string, any>): TemplateCard {
 // ------------------------------------------------------------------ create
 
 export interface ButtonInput {
-  type: 'QUICK_REPLY' | 'URL' | 'PHONE_NUMBER' | string;
+  type: 'QUICK_REPLY' | 'URL' | 'PHONE_NUMBER' | 'FLOW' | string;
   text: string;
   url?: string;
   example?: string;
   phone?: string;
+  flow_id?: string;           // FLOW: WhatsApp Flow to open
+  navigate_screen?: string;   // FLOW: first screen (optional; the flow's entry screen by default)
 }
 
 export interface TemplateInput {
@@ -160,6 +162,10 @@ function buttons(list: ButtonInput[]): Record<string, unknown> {
         if (templateVariables(b.url).length) button.example = [b.example];
       } else if (b.type === 'PHONE_NUMBER') {
         button.phone_number = b.phone;
+      } else if (b.type === 'FLOW') {
+        button.flow_id = b.flow_id;
+        button.flow_action = 'navigate';
+        if (b.navigate_screen) button.navigate_screen = b.navigate_screen;
       }
       return button;
     }),

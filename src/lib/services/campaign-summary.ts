@@ -1,12 +1,13 @@
 import 'server-only';
-import { like, query } from '@/lib/db';
-import { campaignIsTracked, campaignSendAt, campaignTitle } from '@/lib/format';
-import { sp } from '@/lib/http';
-import { monthStart, now, parseDateRange, phpDate } from '@/lib/time';
-import { CAMPAIGN, type CampaignRow } from '@/lib/types';
+import { like, query } from '../db';
+import { campaignIsTracked, campaignSendAt, campaignTitle } from '../format';
+import { sp } from '../http';
+import { monthStart, now, parseDateRange, phpDate } from '../time';
+import { CAMPAIGN, type CampaignRow } from '../types';
 
 /**
- * Campaign Summary report: one row per campaign with its messages by status.
+ * Campaign Summary report (user /reports_templates and admin /wamaster/reports/templates):
+ * one row per campaign with its messages by status.
  *
  *   Send       accepted by WhatsApp, no delivery receipt yet
  *   Delivered  delivered, not read
@@ -29,6 +30,8 @@ export type Counts = Record<StatusKey, number> & { total: number; all: number };
 
 export interface SummaryRow {
   id: number;
+  userId: number;
+  username: string;
   date: number;
   name: string;
   template: string;
@@ -47,11 +50,17 @@ export function readSummaryFilter(params: Record<string, string | string[] | und
 
 const empty = (): Counts => ({ sent: 0, delivered: 0, read: 0, failed: 0, error: 0, queue: 0, total: 0, all: 0 });
 
-export async function campaignSummary(userId: number, f: SummaryFilter): Promise<{ rows: SummaryRow[]; totals: Counts; untracked: number }> {
-  const args: unknown[] = [userId, CAMPAIGN.SCHEDULED];
-  let where = 'uc_user_id = $1 AND uc_status <> $2';
-  if (f.q !== '') { args.push('%' + like(f.q) + '%'); where += ` AND (uc_name ILIKE $${args.length} OR uc_template ILIKE $${args.length})`; }
-  const campaigns = await query<CampaignRow>(`SELECT * FROM js_user_campaign WHERE ${where} ORDER BY uc_id DESC`, args);
+/** Whose campaigns: one user (user panel), or for admins optionally a user and / or a corporate account's users. */
+export interface SummaryScope { userId?: number | null; parentId?: number | null }
+
+export async function campaignSummary(scope: SummaryScope, f: SummaryFilter): Promise<{ rows: SummaryRow[]; totals: Counts; untracked: number }> {
+  const args: unknown[] = [CAMPAIGN.SCHEDULED];
+  let where = 'c.uc_status <> $1';
+  if (scope.userId) { args.push(scope.userId); where += ` AND c.uc_user_id = $${args.length}`; }
+  if (scope.parentId) { args.push(scope.parentId); where += ` AND u.u_parent_id = $${args.length}`; }
+  if (f.q !== '') { args.push('%' + like(f.q) + '%'); where += ` AND (c.uc_name ILIKE $${args.length} OR c.uc_template ILIKE $${args.length})`; }
+  const campaigns = await query<CampaignRow & { u_username: string | null }>(
+    `SELECT c.*, u.u_username FROM js_user_campaign c JOIN js_user u ON u.u_id = c.uc_user_id WHERE ${where} ORDER BY c.uc_id DESC`, args);
 
   // The send date of old campaigns is their creation time (a local timestamp), so the range is applied here
   const range = parseDateRange(f.date);
@@ -70,9 +79,9 @@ export async function campaignSummary(userId: number, f: SummaryFilter): Promise
               COUNT(*) FILTER (WHERE m_status = 3 AND COALESCE(m_message_id, '') <> '' AND m_delivery_status = 'failed')::int AS failed,
               COUNT(*) FILTER (WHERE m_status = 3 AND COALESCE(m_message_id, '') = '')::int AS error,
               COUNT(*) FILTER (WHERE m_status IN (1, 6))::int AS queue
-         FROM js_message WHERE m_campaign_id = ANY($1::int[]) AND m_user_id = $2 AND m_dstatus = 0
+         FROM js_message WHERE m_campaign_id = ANY($1::int[]) AND m_dstatus = 0
         GROUP BY m_campaign_id`,
-      [tracked, userId],
+      [tracked],
     )
     : [];
   const byId = new Map(stats.map((s) => [s.id, s]));
@@ -81,10 +90,11 @@ export async function campaignSummary(userId: number, f: SummaryFilter): Promise
   let untracked = 0;
   const rows = inRange.map(({ c, date }): SummaryRow => {
     const recipients = Number(c.uc_total_contacts) || 0;
+    const who = { userId: c.uc_user_id, username: String(c.u_username ?? c.uc_user_id) };
     if (!campaignIsTracked(c)) {
       untracked++;
       totals.all += recipients;
-      return { id: c.uc_id, date, name: campaignTitle(c), template: c.uc_template ?? '', counts: null, recipients };
+      return { id: c.uc_id, ...who, date, name: campaignTitle(c), template: c.uc_template ?? '', counts: null, recipients };
     }
     const s = byId.get(c.uc_id);
     const counts = empty();
@@ -92,7 +102,7 @@ export async function campaignSummary(userId: number, f: SummaryFilter): Promise
     counts.total = counts.sent + counts.delivered + counts.read;
     counts.all = counts.total + counts.failed + counts.error + counts.queue;
     for (const k of Object.keys(totals) as (keyof Counts)[]) totals[k] += counts[k];
-    return { id: c.uc_id, date, name: campaignTitle(c), template: c.uc_template ?? '', counts, recipients };
+    return { id: c.uc_id, ...who, date, name: campaignTitle(c), template: c.uc_template ?? '', counts, recipients };
   });
   return { rows, totals, untracked };
 }

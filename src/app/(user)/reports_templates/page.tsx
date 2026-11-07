@@ -5,7 +5,7 @@ import { DateRangeInput } from '@/components/ui';
 import { requireUser } from '@/lib/auth';
 import { numberFormat } from '@/lib/text';
 import { phpDate } from '@/lib/time';
-import { campaignSummary, readSummaryFilter, STATUS_COLUMNS } from './summary';
+import { campaignSummary, readSummaryFilter, STATUS_COLUMNS } from '@/lib/services/campaign-summary';
 
 export const metadata: Metadata = { title: 'Campaign Summary' };
 
@@ -16,7 +16,7 @@ export default async function CampaignSummaryPage({ searchParams }: { searchPara
   const user = await requireUser();
   const params = await searchParams;
   const filter = readSummaryFilter(params);
-  const { rows, totals, untracked } = await campaignSummary(user.u_id, filter);
+  const { rows, totals, untracked } = await campaignSummary({ userId: user.u_id }, filter);
   const qs = new URLSearchParams({ wa_date: filter.date, ...(filter.q ? { q: filter.q } : {}) }).toString();
 
   return (

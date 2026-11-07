@@ -18,7 +18,7 @@ export default async function AdminDashboardPage() {
   prev.setMonth(prev.getMonth() - 1);
   const lastMonthStart = monthStart(Math.floor(prev.getTime() / 1000));
 
-  const [summaryRows, sentToday, lastSentAt, inProcess, connectedUsers, revenue, expiredUsers] = await Promise.all([
+  const [summaryRows, sentToday, lastSentAt, inProcess, connectedUsers, revenue, expiredUsers, limitedUsers] = await Promise.all([
     // Per-user "Today Summary" in one pass: today's sent (by delivery status), API errors and incoming,
     // plus everything still queued / processing inside the queue window.
     query<{ uid: number; col: string; n: number }>(
@@ -66,6 +66,13 @@ export default async function AdminDashboardPage() {
       `SELECT u_id, u_username, u_valid_till FROM js_user
         WHERE u_dstatus = 0 AND u_type = $1 AND u_status = 1 AND u_wa_plan_status = 2 AND u_valid_till > 0
         ORDER BY u_valid_till`,
+      [USER_TYPE.WHATSAPP],
+    ),
+    // Users with a template message limit (0 = unlimited), fewest messages left first
+    query<{ u_id: number; u_username: string | null; u_company_name: string | null; u_status: number; u_msg_limit: number; u_msg_used: number }>(
+      `SELECT u_id, u_username, u_company_name, u_status, u_msg_limit, u_msg_used FROM js_user
+        WHERE u_dstatus = 0 AND u_type = $1 AND u_msg_limit > 0
+        ORDER BY GREATEST(u_msg_limit - u_msg_used, 0), u_msg_used::float / u_msg_limit DESC, u_username`,
       [USER_TYPE.WHATSAPP],
     ),
   ]);
@@ -203,6 +210,63 @@ export default async function AdminDashboardPage() {
               </ul>
             </div>
           </div>
+        </div>
+      </div>
+
+      <div className="card">
+        <div className="card-header d-flex align-items-center">
+          <h4 className="card-title mb-0 me-auto">Template Message Limits</h4>
+          <span className="text-muted small">Users without a limit can send unlimited template messages</span>
+        </div>
+        <div className="card-body">
+          {limitedUsers.length === 0 ? (
+            <p className="text-muted mb-0">No user has a template message limit set.</p>
+          ) : (
+            <div className="table-responsive">
+              <table className="table table-sm table-striped align-middle table-report mb-0">
+                <thead className="table-light">
+                  <tr>
+                    <th>User</th>
+                    <th className="num">Limit</th>
+                    <th className="num">Used</th>
+                    <th className="num">Remaining</th>
+                    <th style={{ minWidth: 160 }}>Usage</th>
+                    <th />
+                  </tr>
+                </thead>
+                <tbody>
+                  {limitedUsers.map((u) => {
+                    const limit = Number(u.u_msg_limit);
+                    const used = Number(u.u_msg_used);
+                    const left = Math.max(0, limit - used);
+                    const pct = Math.min(100, Math.round((used * 100) / limit));
+                    const tone = left === 0 ? 'danger' : pct >= 90 ? 'warning' : 'success';
+                    return (
+                      <tr key={u.u_id}>
+                        <td>
+                          <Link href={`/wamaster/users/${u.u_id}`}>{u.u_username ?? u.u_id}</Link>
+                          {u.u_company_name && <span className="text-muted small"> · {u.u_company_name}</span>}
+                          {Number(u.u_status) !== 1 && <span className="badge bg-light text-body ms-1">Inactive</span>}
+                        </td>
+                        <td className="num">{numberFormat(limit)}</td>
+                        <td className="num">{numberFormat(used)}</td>
+                        <td className={`num fw-semibold text-${tone}`}>{left === 0 ? 'Limit reached' : numberFormat(left)}</td>
+                        <td>
+                          <div className="d-flex align-items-center gap-2">
+                            <div className="progress flex-grow-1" style={{ height: 6 }} role="progressbar" aria-label={`${pct}% used`} aria-valuenow={pct} aria-valuemin={0} aria-valuemax={100}>
+                              <div className={`progress-bar bg-${tone}`} style={{ width: `${pct}%` }} />
+                            </div>
+                            <span className="small text-muted" style={{ width: 36 }}>{pct}%</span>
+                          </div>
+                        </td>
+                        <td className="text-end"><Link href={`/wamaster/users/${u.u_id}/edit`} className="btn btn-sm btn-soft-primary">Change</Link></td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+            </div>
+          )}
         </div>
       </div>
     </>

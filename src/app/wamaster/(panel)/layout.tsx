@@ -36,7 +36,7 @@ export default async function AdminLayout({ children }: { children: React.ReactN
       label: 'Reports', icon: 'ri-file-chart-line', children: [
         { label: 'WA Send', href: '/wamaster/reports/messages/send' },
         { label: 'WA Que', href: '/wamaster/reports/messages/que' },
-        { label: 'Templates', href: '/wamaster/reports/templates' },
+        { label: 'Campaign Summary', href: '/wamaster/reports/templates' },
         { label: 'Recharges', href: '/wamaster/reports/recharges' },
         { label: 'Pending Recharges', href: '/wamaster/reports/recharges_pending' },
         { label: 'Summary', href: '/wamaster/reports/summary' },

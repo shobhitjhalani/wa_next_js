@@ -102,6 +102,7 @@ async function incomingMessage(user: HookUser, msg: Record<string, any>, contact
 
   const message = await storeIncoming(user, {
     m_message_id: waMessageId,
+    m_context_id: typeof msg.context?.id === 'string' ? msg.context.id : null,
     m_sender_name: contact.profile?.name ?? null,
     m_mobile_no: mobile,
     m_msg_type: type,
@@ -206,6 +207,14 @@ async function forward(target: string, data: unknown): Promise<void> {
  * the message; matched queue rows are deleted, rows still unmatched after 15
  * minutes are parked (moved = 2). Returns [moved, parked].
  */
+/**
+ * How far a WhatsApp status has progressed. Meta often delivers statuses out of
+ * order (a late "delivered" after "read"); a message never moves back to a lower
+ * one, so the inbox ticks only go sent → delivered → read (blue).
+ */
+const statusRank = (col: string) =>
+  `CASE ${col} WHEN 'read' THEN 4 WHEN 'played' THEN 4 WHEN 'delivered' THEN 3 WHEN 'failed' THEN 2 WHEN 'error' THEN 2 WHEN 'sent' THEN 1 ELSE 0 END`;
+
 export async function processStatusQueue(batch = 2000, maxBatches = 50): Promise<[number, number]> {
   let moved = 0;
   let parked = 0;
@@ -221,15 +230,20 @@ export async function processStatusQueue(batch = 2000, maxBatches = 50): Promise
             WHERE moved = 1 AND msg_id IS NOT NULL AND msg_id <> '' AND id > $2
             ORDER BY id LIMIT $1 FOR UPDATE SKIP LOCKED
          ), latest AS (
-           SELECT DISTINCT ON (msg_id) msg_id, status, error, "systemTime" FROM batch ORDER BY msg_id, id DESC
+           SELECT DISTINCT ON (msg_id) msg_id, status, error, "systemTime" FROM batch ORDER BY msg_id, ${statusRank('status')} DESC, id DESC
+         ), found AS (
+           SELECT DISTINCT m_message_id AS msg_id FROM js_message WHERE m_message_id IN (SELECT msg_id FROM latest)
          ), logs AS (
-           UPDATE js_message_log l SET ml_wa_status = latest.status FROM latest WHERE l.ml_wa_id = latest.msg_id RETURNING 1
+           UPDATE js_message_log l SET ml_wa_status = latest.status FROM latest
+            WHERE l.ml_wa_id = latest.msg_id AND ${statusRank('latest.status')} >= ${statusRank('l.ml_wa_status')} RETURNING 1
          ), msgs AS (
-           -- p is the row before this update (same snapshot), so a change into / out of "failed" is visible
-           UPDATE js_message m SET m_updated_on = EXTRACT(EPOCH FROM latest."systemTime")::int,
+           -- p is the row before this update (same snapshot), so a change into / out of "failed" is visible.
+           -- m_updated_on is when the status was applied, so the open inbox (polling by m_updated_on) sees it.
+           UPDATE js_message m SET m_updated_on = EXTRACT(EPOCH FROM now())::int,
                   m_delivery_status = latest.status, m_status_response = latest.error
              FROM latest JOIN js_message p ON p.m_message_id = latest.msg_id
             WHERE m.m_message_id = latest.msg_id AND m.m_id = p.m_id
+              AND ${statusRank('latest.status')} >= ${statusRank('p.m_delivery_status')}
            RETURNING latest.msg_id, m.m_user_id, m.m_msg_type,
                      COALESCE(p.m_delivery_status, '') IN ('failed', 'error') AS was_failed,
                      COALESCE(latest.status, '') IN ('failed', 'error') AS is_failed
@@ -241,10 +255,10 @@ export async function processStatusQueue(batch = 2000, maxBatches = 50): Promise
             WHERE u.u_id = d.m_user_id AND d.delta <> 0 RETURNING 1
          ), del AS (
            DELETE FROM js_webhook_que q USING batch
-            WHERE q.id = batch.id AND batch.msg_id IN (SELECT msg_id FROM msgs) RETURNING q.id
+            WHERE q.id = batch.id AND batch.msg_id IN (SELECT msg_id FROM found) RETURNING q.id
          ), park AS (
            UPDATE js_webhook_que q SET moved = 2 FROM batch
-            WHERE q.id = batch.id AND batch.msg_id NOT IN (SELECT msg_id FROM msgs)
+            WHERE q.id = batch.id AND batch.msg_id NOT IN (SELECT msg_id FROM found)
               AND batch."systemTime" < now() - interval '15 minutes' RETURNING q.id
          )
          SELECT (SELECT COUNT(*) FROM del)::int AS moved, (SELECT COUNT(*) FROM park)::int AS parked,

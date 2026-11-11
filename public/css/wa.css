@@ -146,3 +146,12 @@
 .search-select-list li.active { background: var(--bs-tertiary-bg, #f3f6f9); }
 .search-select-list li.selected { font-weight: 600; color: var(--bs-success, #0ab39c); }
 .search-select-list .search-select-empty { color: var(--bs-secondary-color, #878a99); cursor: default; }
+/* Reply quote: the message a customer replied to / the template whose button they tapped */
+.bubble-quote { display: block; width: 100%; text-align: left; border: 0; margin: -.1rem 0 .35rem; padding: .3rem .5rem; border-radius: .4rem; background: rgba(0, 0, 0, .05); border-left: 4px solid #06cf9c; font-size: .8rem; line-height: 1.3; cursor: pointer; }
+.bubble-quote.quote-in { border-left-color: #53bdeb; }
+.bubble-quote .quote-who { display: block; font-weight: 600; color: #06a37d; }
+.bubble-quote.quote-in .quote-who { color: #3a9fd1; }
+.bubble-quote .quote-text { display: -webkit-box; -webkit-line-clamp: 3; -webkit-box-orient: vertical; overflow: hidden; color: #54656f; }
+.quote-button-label { font-size: .7rem; color: #667781; margin-bottom: .1rem; }
+.chat-msg.flash .bubble { animation: msg-flash 1.2s ease-out; }
+@keyframes msg-flash { 0%, 40% { box-shadow: 0 0 0 3px rgba(6, 207, 156, .55); } 100% { box-shadow: 0 0 0 0 rgba(6, 207, 156, 0); } }

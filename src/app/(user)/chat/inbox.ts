@@ -4,11 +4,11 @@ import { config } from '@/lib/config';
 import { exec, like, one, query, value } from '@/lib/db';
 import { contactDisplayName, contactInitials, contactWindowLeft, isErrorMessage, mediaInfo, messageStatusLabel, templateButtons, templateCards, type TemplateButton } from '@/lib/format';
 import { templateParameters } from '@/lib/services/sender';
-import { decodeEntities, jsonParse, ucfirst } from '@/lib/text';
+import { decodeEntities, jsonParse, limit, ucfirst } from '@/lib/text';
 import { now, phpDate, shortTime, timestampToUnix } from '@/lib/time';
 import type { ContactRow, MessageRow, TemplateRow } from '@/lib/types';
 import { waToHtml } from '@/lib/whatsapp-text';
-import type { Bubble, BubbleMedia, ConvRow, RenderedTemplate, TemplateButtonView, TemplateHeader, ThreadHeader, Tick } from './types';
+import type { Bubble, BubbleMedia, BubbleQuote, ConvRow, RenderedTemplate, TemplateButtonView, TemplateHeader, ThreadHeader, Tick } from './types';
 
 /**
  * Data access for the WhatsApp inbox (port of User\ChatController's helpers):
@@ -22,12 +22,12 @@ export const THREAD_PAGE = 40;
 /** Columns a message bubble needs. */
 export const BUBBLE_COLUMNS =
   'm_id, m_is_incoming, m_content, m_msg_type, m_msg_template_name, m_msg_template_para, m_image, m_carousel, m_created_on, ' +
-  'm_delivery_status, m_status, m_message_id, m_status_response, m_is_read';
+  'm_delivery_status, m_status, m_message_id, m_status_response, m_is_read, m_context_id';
 
 const CONV_COLUMNS = 'cl_mobile_no, cl_name, cl_last_msg, cl_last_msg_id, cl_last_preview, cl_last_dir, cl_last_in, cl_unread';
 
 export type ConvSource = Pick<ContactRow, 'cl_mobile_no' | 'cl_name' | 'cl_last_msg' | 'cl_last_msg_id' | 'cl_last_preview' | 'cl_last_dir' | 'cl_last_in' | 'cl_unread'>;
-export type BubbleSource = Pick<MessageRow, 'm_id' | 'm_is_incoming' | 'm_content' | 'm_msg_type' | 'm_msg_template_name' | 'm_msg_template_para' | 'm_image' | 'm_created_on' | 'm_delivery_status' | 'm_status' | 'm_message_id' | 'm_status_response' | 'm_is_read'>
+export type BubbleSource = Pick<MessageRow, 'm_id' | 'm_is_incoming' | 'm_content' | 'm_msg_type' | 'm_msg_template_name' | 'm_msg_template_para' | 'm_image' | 'm_created_on' | 'm_delivery_status' | 'm_status' | 'm_message_id' | 'm_status_response' | 'm_is_read' | 'm_context_id'>
   & Partial<Pick<MessageRow, 'm_carousel'>>;
 
 type TemplateSource = Pick<TemplateRow, 'ut_name' | 'ut_template_type' | 'ut_header_type' | 'ut_header' | 'ut_message' | 'ut_footer' | 'ut_buttons' | 'ut_cards'>;
@@ -232,8 +232,44 @@ async function templatesFor(userId: number, rows: BubbleSource[]): Promise<Map<s
 
 /** Bubbles for a batch of rows, with sent templates rendered as the customer saw them. */
 export async function bubbles(userId: number, rows: BubbleSource[]): Promise<Bubble[]> {
-  const templates = await templatesFor(userId, rows);
-  return rows.map((m) => bubble(m, templates.get(String(m.m_msg_template_name ?? ''))));
+  const [templates, quotes] = await Promise.all([templatesFor(userId, rows), quotesFor(userId, rows)]);
+  return rows.map((m) => {
+    const b = bubble(m, templates.get(String(m.m_msg_template_name ?? '')));
+    const q = m.m_context_id ? quotes.get(m.m_context_id) : undefined;
+    if (q) b.quote = Number(m.m_is_incoming) === 1 && (m.m_msg_type === 'button' || m.m_msg_type === 'interactive') && q.out
+      ? { ...q, button: decodeEntities(m.m_content ?? '') }
+      : q;
+    return b;
+  });
+}
+
+/** Plain-text preview of the messages these rows reply to, keyed by WhatsApp id (one query + their templates). */
+async function quotesFor(userId: number, rows: BubbleSource[]): Promise<Map<string, BubbleQuote>> {
+  const ids = [...new Set(rows.map((m) => m.m_context_id).filter((v): v is string => !!v))];
+  if (!ids.length) return new Map();
+  const quoted = await query<BubbleSource>(
+    `SELECT DISTINCT ON (m_message_id) ${BUBBLE_COLUMNS} FROM js_message
+      WHERE m_message_id = ANY($2::text[]) AND m_user_id = $1 AND m_dstatus = 0 ORDER BY m_message_id, m_id`,
+    [userId, ids],
+  );
+  const templates = await templatesFor(userId, quoted);
+  return new Map(quoted.map((m) => [String(m.m_message_id), { id: Number(m.m_id), out: Number(m.m_is_incoming) === 2, text: quoteText(m, templates.get(String(m.m_msg_template_name ?? ''))) }]));
+}
+
+const QUOTE_LABELS: Record<string, string> = {
+  image: '📷 Photo', sticker: 'Sticker', video: '🎥 Video', audio: '🎤 Audio', document: '📄 Document', location: '📍 Location', contacts: '👤 Contact',
+};
+
+/** One-line preview: the template body as the customer saw it, the text / caption, or the media kind. */
+function quoteText(m: BubbleSource, tpl?: TemplateSource): string {
+  let text = decodeEntities(m.m_content ?? '');
+  if (text === 'File_Attachment') text = String(mediaInfo(m).caption ?? '');
+  if (text === '' && m.m_msg_template_name) {
+    text = tpl ? fillParams(decodeEntities(tpl.ut_message ?? ''), templateParameters(m.m_msg_template_para)) : String(m.m_msg_template_name);
+  }
+  if (text === '') text = QUOTE_LABELS[String(m.m_msg_type ?? '')] ?? 'Message';
+  // Plain text like WhatsApp's quote: formatting markers dropped
+  return limit(text.replace(/```/g, '').replace(/(^|\s)[*_~]+(?=\S)|(?<=\S)[*_~]+(?=$|[\s.,!?:;)])/g, '$1').replace(/\s+/g, ' ').trim(), 220);
 }
 
 /** Replace {{n}} with the n-th parameter; unknown placeholders are left as they are. */
@@ -375,5 +411,6 @@ export function bubble(m: BubbleSource, tpl?: TemplateSource): Bubble {
     rendered,
     html,
     placeholder,
+    quote: null,
   };
 }

@@ -386,7 +386,7 @@ export function ChatInbox({ selected, unreadTotal }: { selected: string; unreadT
       thread.push(<div key={'d' + item.day + (isPending(item) ? item.temp : item.id)} className="day-sep"><span>{dayLabel(item.day)}</span></div>);
     }
     prevDay = item.day;
-    thread.push(isPending(item) ? <PendingBubble key={item.temp} p={item} /> : <MessageBubble key={'m' + item.id} m={item} />);
+    thread.push(isPending(item) ? <PendingBubble key={item.temp} p={item} /> : <MessageBubble key={'m' + item.id} m={item} contact={head && typeof head === 'object' ? head.name : ''} />);
   }
 
   return (
@@ -623,11 +623,29 @@ function RenderedTemplateView({ t }: { t: RenderedTemplate }) {
   );
 }
 
-function MessageBubble({ m }: { m: Bubble }) {
+/** Scroll to the quoted message when it is loaded in the thread, and flash it. */
+function jumpTo(id: number) {
+  const el = document.querySelector<HTMLElement>(`.chat-msg[data-id="${id}"]`);
+  if (!el) return;
+  el.scrollIntoView({ behavior: 'smooth', block: 'center' });
+  el.classList.remove('flash');
+  void el.offsetWidth;
+  el.classList.add('flash');
+}
+
+function MessageBubble({ m, contact }: { m: Bubble; contact: string }) {
   const media = m.media;
+  const q = m.quote;
   return (
     <div className={`chat-msg ${m.out ? 'out' : 'in'}`} data-id={m.id} data-day={m.day}>
       <div className={`bubble ${m.failed ? 'failed' : ''}`}>
+        {q && (
+          <button type="button" className={`bubble-quote ${q.out ? 'quote-out' : 'quote-in'}`} onClick={() => jumpTo(q.id)} title="Show original message">
+            <span className="quote-who">{q.out ? 'You' : contact || 'Customer'}</span>
+            <span className="quote-text">{q.text}</span>
+          </button>
+        )}
+        {q?.button && <div className="quote-button-label"><i className="ri-reply-line" /> Tapped button</div>}
         {media?.kind === 'image' && <MediaImage href={media.href} type={media.type} />}
         {media?.kind === 'video' && (
           <>

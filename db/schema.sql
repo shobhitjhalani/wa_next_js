@@ -722,6 +722,12 @@ END $$;
 -- (src/lib/template-categories.ts).
 ALTER TABLE js_user ADD COLUMN IF NOT EXISTS u_template_categories text;
 
+-- ------------------------------------------------------------ reply context
+
+-- js_message.m_context_id: WhatsApp id of the message an incoming message replies to
+-- (a swiped reply, or a template quick-reply button); the inbox shows it quoted.
+ALTER TABLE js_message ADD COLUMN IF NOT EXISTS m_context_id text;
+
 -- ------------------------------------------------------------ flow (form) responses
 
 -- jsonb from legacy text that may hold raw newlines / unescaped quotes; NULL when it can't be read

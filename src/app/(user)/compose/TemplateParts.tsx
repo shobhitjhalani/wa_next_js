@@ -1,5 +1,6 @@
 import { countVariables, templateButtons, templateCards, templateParameterCount } from '@/lib/format';
 import { decodeEntities, limit } from '@/lib/text';
+import { waToHtml } from '@/lib/whatsapp-text';
 import type { TemplateRow } from '@/lib/types';
 
 /**
@@ -22,14 +23,14 @@ export function TemplatePreview({ template }: { template: ComposeTemplate }) {
   if (template.ut_template_type === 'carousel') {
     return (
       <>
-        <div className="wh-card mb-2"><div className="wh-msg">{message}</div></div>
+        <div className="wh-card mb-2"><div className="wh-msg" dangerouslySetInnerHTML={{ __html: waToHtml(message) }} /></div>
         <div className="wh-carousel">
           {templateCards(template).map((card, i) => (
             <div className="wh-card" key={i}>
               <div className="media-wrap">
                 {card.header_type === 'VIDEO' ? <video controls src={card.header} /> : <img src={card.header} alt="Card image" />}
               </div>
-              <div className="wh-msg">{card.body}</div>
+              <div className="wh-msg" dangerouslySetInnerHTML={{ __html: waToHtml(card.body ?? '') }} />
               {(card.buttons ?? []).map((b, j) => (
                 <div className="wh-action" key={j}><i className={BUTTON_ICONS[b.type ?? ''] ?? 'ri-reply-line'} /> {b.text ?? ''}</div>
               ))}
@@ -50,7 +51,7 @@ export function TemplatePreview({ template }: { template: ComposeTemplate }) {
                 : <strong>{decodeEntities(template.ut_header ?? '')}</strong>}
         </div>
       )}
-      <div className="wh-msg">{message}</div>
+      <div className="wh-msg" dangerouslySetInnerHTML={{ __html: waToHtml(message) }} />
       {template.ut_footer && <div className="wh-footer">{template.ut_footer}</div>}
       {templateButtons(template).map((b, i) => (
         <div className="wh-action" key={i}><i className="ri-reply-line" /> {b.text ?? ''}</div>

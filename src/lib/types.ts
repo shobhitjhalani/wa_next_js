@@ -125,6 +125,7 @@ export interface MessageRow {
   m_base_file: string | null;
   m_sheet_id: string | null;
   m_message_id: string | null;
+  m_context_id?: string | null;
   m_is_read: number; // 1 read, 2 unread
   m_created_on: number;
   m_created_date: number;

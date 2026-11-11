@@ -71,6 +71,15 @@ export interface Bubble {
   rendered: RenderedTemplate | null;
   html: string | null; // WhatsApp-formatted text, already escaped
   placeholder: string | null;
+  /** The message this one replies to (swiped reply / template button), shown quoted on top. */
+  quote: BubbleQuote | null;
+}
+
+export interface BubbleQuote {
+  id: number;      // js_message id of the quoted message (to jump to it when loaded)
+  out: boolean;    // quoted message was sent by the business ("You")
+  text: string;    // plain-text preview
+  button?: string; // template button the customer tapped
 }
 
 export interface ListResponse {

@@ -3,10 +3,11 @@ import { getAdmin } from '@/lib/auth';
 import { csvResponse, sp } from '@/lib/http';
 import { phpDate } from '@/lib/time';
 import { USER_TYPE } from '@/lib/types';
+import { redirectTo } from '@/lib/redirect';
 
 /** CSV of all users of a type (Admin\UserController::export). */
 export async function GET(req: NextRequest) {
-  if (!(await getAdmin())) return NextResponse.redirect(new URL('/wamaster', req.url));
+  if (!(await getAdmin())) return redirectTo('/wamaster');
   const utRaw = sp(req.nextUrl.searchParams, 'ut');
   const type = utRaw === '' ? USER_TYPE.WHATSAPP : parseInt(utRaw, 10) || 0;
   return csvResponse<Record<string, any>>(

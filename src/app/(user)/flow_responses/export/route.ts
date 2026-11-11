@@ -5,13 +5,14 @@ import { flowAnswers } from '@/lib/flow-response';
 import { csvFromRows } from '@/lib/http';
 import { phpDate } from '@/lib/time';
 import { filterWhere, readFilter } from '../filter';
+import { redirectTo } from '@/lib/redirect';
 
 const MAX_ROWS = 50_000;
 
 /** GET /flow_responses/export — filtered flow responses as CSV, one column per question. */
 export async function GET(req: NextRequest) {
   const user = await getUser();
-  if (!user) return NextResponse.redirect(new URL('/', req.url));
+  if (!user) return redirectTo('/');
 
   const args: unknown[] = [];
   const where = filterWhere(user.u_id, readFilter(req.nextUrl.searchParams), args);

@@ -1,10 +1,10 @@
-import { NextResponse, type NextRequest } from 'next/server';
 import { endAdminSession } from '@/lib/auth';
+import { redirectTo } from '@/lib/redirect';
 
 /** Admin sign-out (GET or POST, like the Laravel route). */
-async function logout(req: NextRequest) {
+async function logout() {
   await endAdminSession();
-  return NextResponse.redirect(new URL('/wamaster', req.url), 303);
+  return redirectTo('/wamaster', 303);
 }
 
 export { logout as GET, logout as POST };

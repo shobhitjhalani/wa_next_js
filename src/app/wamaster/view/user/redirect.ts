@@ -1,4 +1,5 @@
 import { NextResponse, type NextRequest } from 'next/server';
+import { redirectTo } from '@/lib/redirect';
 
 const PAGES = ['index', 'view', 'add', 'wa_view', 'gs_view'];
 
@@ -8,7 +9,7 @@ export function legacyUserRedirect(req: NextRequest, page: string): Response {
   const q = req.nextUrl.searchParams;
   const id = parseInt(q.get('id') ?? '', 10) || 0;
   const ut = q.get('ut') ?? '';
-  const to = (path: string) => NextResponse.redirect(new URL(path, req.url), 301);
+  const to = (path: string) => redirectTo(path, 301);
   if (id > 0 && page === 'add') return to(`/wamaster/users/${id}/edit`);
   if (id > 0) return to(`/wamaster/users/${id}`);
   if (page === 'add') return to(ut !== '' ? `/wamaster/users/create?ut=${encodeURIComponent(ut)}` : '/wamaster/users/create');

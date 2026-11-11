@@ -5,11 +5,12 @@ import { decodeEntities } from '@/lib/text';
 import { phpDate } from '@/lib/time';
 import type { MessageRow } from '@/lib/types';
 import { MESSAGE_REPORTS, messageOrder, messageWhere, type Params } from '../../../_lib';
+import { redirectTo } from '@/lib/redirect';
 
 /** CSV export of a message report (ReportController::export). */
 export async function GET(req: Request, ctx: { params: Promise<{ type: string }> }) {
   const admin = await getAdmin();
-  if (!admin) return Response.redirect(new URL('/wamaster', req.url), 302);
+  if (!admin) return redirectTo('/wamaster', 302);
   const { type } = await ctx.params;
   if (!MESSAGE_REPORTS[type]) return new Response('Not Found', { status: 404 });
 

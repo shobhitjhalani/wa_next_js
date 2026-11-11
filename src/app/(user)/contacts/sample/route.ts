@@ -1,9 +1,10 @@
 import { NextResponse, type NextRequest } from 'next/server';
 import { getUser } from '@/lib/auth';
+import { redirectTo } from '@/lib/redirect';
 
 /** GET /contacts/sample — sample file showing the expected columns (ContactController::sample). */
 export async function GET(req: NextRequest) {
-  if (!(await getUser())) return NextResponse.redirect(new URL('/', req.url));
+  if (!(await getUser())) return redirectTo('/');
   return new Response('Mobile,Name\n9876543210,Ravi Kumar\n919812345678,Priya Sharma\n+971501234567,Ahmed\n', {
     headers: {
       'Content-Type': 'text/csv',

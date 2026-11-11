@@ -1,4 +1,3 @@
-import { NextResponse } from 'next/server';
 import { getUser } from '@/lib/auth';
 import { messageStatusLabel } from '@/lib/format';
 import { csvResponse } from '@/lib/http';
@@ -6,6 +5,7 @@ import { decodeEntities } from '@/lib/text';
 import { phpDate } from '@/lib/time';
 import type { MessageRow } from '@/lib/types';
 import { reportFilter, type ReportType } from '../../query';
+import { redirectTo } from '@/lib/redirect';
 
 type Row = Pick<MessageRow, 'm_created_on' | 'm_sender_name' | 'm_mobile_no' | 'm_msg_template_name' | 'm_content' | 'm_sheet_id'
   | 'm_delivery_status' | 'm_updated_on' | 'm_status' | 'm_message_id' | 'm_status_response'>;
@@ -13,7 +13,7 @@ type Row = Pick<MessageRow, 'm_created_on' | 'm_sender_name' | 'm_mobile_no' | '
 /** CSV of a message report with the page's filters (GET /reports/export/{all|failed|error}). */
 export async function GET(req: Request, ctx: { params: Promise<{ type: string }> }) {
   const user = await getUser();
-  if (!user) return NextResponse.redirect(new URL('/', req.url));
+  if (!user) return redirectTo('/');
   const { type } = await ctx.params;
   if (!['all', 'failed', 'error'].includes(type)) return new Response('Not Found', { status: 404 });
 

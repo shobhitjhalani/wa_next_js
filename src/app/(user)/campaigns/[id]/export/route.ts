@@ -5,13 +5,14 @@ import { csvResponse, sp } from '@/lib/http';
 import { phpDate } from '@/lib/time';
 import type { MessageRow } from '@/lib/types';
 import { errorText, recipientStatus, recipientWhere } from '../../shared';
+import { redirectTo } from '@/lib/redirect';
 
 type Row = Pick<MessageRow, 'm_mobile_no' | 'm_status' | 'm_message_id' | 'm_delivery_status' | 'm_status_response' | 'm_in_process_on' | 'm_updated_on'>;
 
 /** GET /campaigns/{id}/export — recipients with status as CSV (CampaignController::export), streamed. */
 export async function GET(req: NextRequest, ctx: { params: Promise<{ id: string }> }) {
   const user = await getUser();
-  if (!user) return NextResponse.redirect(new URL('/', req.url));
+  if (!user) return redirectTo('/');
   const id = parseInt((await ctx.params).id, 10);
   if (!Number.isFinite(id) || !(await value('SELECT 1 FROM js_user_campaign WHERE uc_id = $1 AND uc_user_id = $2', [id, user.u_id]))) {
     return new NextResponse('Not Found', { status: 404 });

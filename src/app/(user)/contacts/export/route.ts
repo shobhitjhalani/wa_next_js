@@ -3,11 +3,12 @@ import { getUser } from '@/lib/auth';
 import { csvResponse } from '@/lib/http';
 import { phpDate } from '@/lib/time';
 import { filterWhere, readFilter } from '../filter';
+import { redirectTo } from '@/lib/redirect';
 
 /** GET /contacts/export — the filtered contact list as CSV (ContactController::export), streamed. */
 export async function GET(req: NextRequest) {
   const user = await getUser();
-  if (!user) return NextResponse.redirect(new URL('/', req.url));
+  if (!user) return redirectTo('/');
 
   const params: unknown[] = [];
   const where = filterWhere(user.u_id, readFilter(req.nextUrl.searchParams), params);

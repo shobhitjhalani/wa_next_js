@@ -4,10 +4,11 @@ import { csvFromRows } from '@/lib/http';
 import { campaignSummary, readSummaryFilter, STATUS_COLUMNS } from '@/lib/services/campaign-summary';
 import { int } from '@/lib/text';
 import { phpDate } from '@/lib/time';
+import { redirectTo } from '@/lib/redirect';
 
 /** GET /wamaster/reports/templates/export — the admin Campaign Summary as CSV. */
 export async function GET(req: NextRequest) {
-  if (!(await getAdmin())) return NextResponse.redirect(new URL('/wamaster', req.url));
+  if (!(await getAdmin())) return redirectTo('/wamaster');
 
   const q = req.nextUrl.searchParams;
   const scope = {

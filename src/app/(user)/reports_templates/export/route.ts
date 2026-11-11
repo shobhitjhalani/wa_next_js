@@ -3,11 +3,12 @@ import { getUser } from '@/lib/auth';
 import { csvFromRows } from '@/lib/http';
 import { phpDate } from '@/lib/time';
 import { campaignSummary, readSummaryFilter, STATUS_COLUMNS } from '@/lib/services/campaign-summary';
+import { redirectTo } from '@/lib/redirect';
 
 /** GET /reports_templates/export — the Campaign Summary as CSV. */
 export async function GET(req: NextRequest) {
   const user = await getUser();
-  if (!user) return NextResponse.redirect(new URL('/', req.url));
+  if (!user) return redirectTo('/');
 
   const { rows, totals } = await campaignSummary({ userId: user.u_id },readSummaryFilter(req.nextUrl.searchParams));
   const cell = (n: number | undefined) => (n === undefined ? '' : n);

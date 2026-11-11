@@ -6,6 +6,7 @@ import { fAll, flash, fRaw, fStr, invalid, isEmail, type ActionResult } from '@/
 import { requireAdminCan } from '@/lib/auth';
 import { exec, insert, insertMany, one, tx, update, value } from '@/lib/db';
 import { hashPassword } from '@/lib/password';
+import { config } from '@/lib/config';
 import { now } from '@/lib/time';
 import { SUPER_ADMIN } from '@/lib/types';
 
@@ -43,7 +44,12 @@ export async function saveMember(id: number | null, _prev: ActionResult | null, 
   if (password === '') {
     if (!member) errors.password = 'The password field is required.';
   } else if (len(password) < 6) errors.password = 'The password field must be at least 6 characters.';
-  if (rightId !== '' && !(/^[+-]?\d+$/.test(rightId) && Math.abs(Number(rightId)) <= 32767)) errors.right_id = 'The right id field must be an integer.';
+  if (rightId !== '') {
+    if (!/^\d+$/.test(rightId) || Number(rightId) > 2147483647) errors.right_id = 'The right id field must be an integer.';
+    else if (!(await value<boolean>('SELECT EXISTS (SELECT 1 FROM js_master_value WHERE mv_id = $1 AND mv_type = $2 AND mv_dstatus = 0)', [Number(rightId), config.masters.teamRole]))) {
+      errors.right_id = 'The selected role is invalid.';
+    }
+  }
   if (mType === '') errors.m_type = 'The m type field is required.';
   else if (!['1', '4'].includes(mType)) errors.m_type = 'The selected m type is invalid.';
   if (status === '') errors.status = 'The status field is required.';

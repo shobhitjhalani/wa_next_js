@@ -141,7 +141,7 @@ CREATE TABLE IF NOT EXISTS js_employee (
   emp_md integer DEFAULT 0,
   emp_mobile text,
   emp_email_id citext,
-  emp_right_id smallint DEFAULT 0,
+  emp_right_id integer DEFAULT 0,
   emp_r_person integer NOT NULL DEFAULT 0,
   emp_username citext,
   emp_password text,
@@ -713,6 +713,12 @@ BEGIN
      WHERE u.u_id = s.m_user_id;
   END IF;
 END $$;
+
+-- ------------------------------------------------------------ team roles
+
+-- js_employee.emp_right_id holds a Team Role master value id (e.g. 56086); it was a MySQL
+-- tinyint (smallint here), too small for those ids, so no role could be saved.
+ALTER TABLE js_employee ALTER COLUMN emp_right_id TYPE integer;
 
 -- ------------------------------------------------------------ allowed template categories
 

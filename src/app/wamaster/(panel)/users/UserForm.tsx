@@ -7,6 +7,8 @@ import { ActionForm, SubmitButton } from '@/components/ActionForm';
 import { saveUser } from './actions';
 import { FLAGS } from './flags';
 import { TemplateLimitField } from './TemplateLimitField';
+import { TemplateCategoriesField } from './TemplateCategoriesField';
+import { WaOptions } from './WaOptions';
 
 
 const FLAG_LABELS: Record<(typeof FLAGS)[number], string> = {
@@ -40,16 +42,20 @@ export async function UserForm({ user, type }: { user: UserRow | null; type: num
         <div className="card-header"><h5 className="card-title mb-0">Account</h5></div>
         <div className="card-body row g-3">
           <div className="col-md-4"><label className="form-label" htmlFor="name">Name *</label><input className="form-control" id="name" name="name" defaultValue={v('name')} required /></div>
-          <div className="col-md-4"><label className="form-label" htmlFor="company_name">Company Name</label><input className="form-control" id="company_name" name="company_name" defaultValue={v('company_name')} /></div>
-          <div className="col-md-4"><label className="form-label" htmlFor="company_gst_no">Company GSTIN</label><input className="form-control" id="company_gst_no" name="company_gst_no" defaultValue={v('company_gst_no')} /></div>
+          {!isWa && (
+            <>
+              <div className="col-md-4"><label className="form-label" htmlFor="company_name">Company Name</label><input className="form-control" id="company_name" name="company_name" defaultValue={v('company_name')} /></div>
+              <div className="col-md-4"><label className="form-label" htmlFor="company_gst_no">Company GSTIN</label><input className="form-control" id="company_gst_no" name="company_gst_no" defaultValue={v('company_gst_no')} /></div>
+            </>
+          )}
           <div className="col-md-4"><label className="form-label" htmlFor="mobile_no">Mobile No</label><input className="form-control" id="mobile_no" name="mobile_no" defaultValue={v('mobile_no')} /></div>
           <div className="col-md-4"><label className="form-label" htmlFor="email_id">Primary Email</label><input type="email" className="form-control" id="email_id" name="email_id" defaultValue={v('email_id')} /></div>
           <div className="col-md-4"><label className="form-label" htmlFor="billing_email_id">Billing Email</label><input type="email" className="form-control" id="billing_email_id" name="billing_email_id" defaultValue={v('billing_email_id')} /></div>
           <div className="col-md-4"><label className="form-label" htmlFor="username">Username *</label><input className="form-control" id="username" name="username" defaultValue={v('username')} required autoComplete="off" /></div>
           <div className="col-md-4"><label className="form-label" htmlFor="password">Password {exists ? '(leave blank to keep)' : '*'}</label><input type="password" className="form-control" id="password" name="password" autoComplete="new-password" required={!exists} /></div>
           <div className="col-md-4">
-            <label className="form-label" htmlFor="status">Status</label>
-            <select className="form-select" id="status" name="status" defaultValue={v('status') === '2' ? '2' : '1'}>
+            <label className="form-label" htmlFor="user_status">Status</label>
+            <select className="form-select" id="user_status" name="status" defaultValue={v('status') === '2' ? '2' : '1'}>
               <option value="1">Active</option>
               <option value="2">Inactive</option>
             </select>
@@ -101,19 +107,24 @@ export async function UserForm({ user, type }: { user: UserRow | null; type: num
             <div className="col-md-3"><label className="form-label" htmlFor="business_id">Business ID</label><input className="form-control" id="business_id" name="business_id" defaultValue={v('business_id')} /></div>
             <div className="col-md-3"><label className="form-label" htmlFor="daily_limit">Daily Limit</label><input type="number" min="0" className="form-control" id="daily_limit" name="daily_limit" defaultValue={v('daily_limit')} /></div>
             <div className="col-md-6"><label className="form-label" htmlFor="wa_incoming_url">Incoming URL (forward replies)</label><input type="url" className="form-control" id="wa_incoming_url" name="wa_incoming_url" defaultValue={v('wa_incoming_url')} /></div>
-            <div className="col-md-6"><label className="form-label" htmlFor="wa_catalogue_url">Catalogue Order URL</label><input type="url" className="form-control" id="wa_catalogue_url" name="wa_catalogue_url" defaultValue={v('wa_catalogue_url')} /></div>
-            <div className="col-md-6"><label className="form-label" htmlFor="wa_form_url">Flow Response URL</label><input type="url" className="form-control" id="wa_form_url" name="wa_form_url" defaultValue={v('wa_form_url')} /></div>
-            <div className="col-md-6"><label className="form-label" htmlFor="wa_app_url">App URL (raw webhook forward)</label><input type="url" className="form-control" id="wa_app_url" name="wa_app_url" defaultValue={v('wa_app_url')} /></div>
-            <div className="col-md-6"><label className="form-label" htmlFor="ai_key">AI API Key</label><input className="form-control" id="ai_key" name="ai_key" defaultValue={v('ai_key')} autoComplete="off" /></div>
             <TemplateLimitField limit={Number(u.u_msg_limit ?? 0)} used={Number(u.u_msg_used ?? 0)} exists={exists} />
+            <TemplateCategoriesField value={u.u_template_categories ?? null} />
           </div>
         </div>
       )}
 
       <div className="card">
         <div className="card-header"><h5 className="card-title mb-0">Options</h5></div>
+        {isWa ? (
+          <div className="card-body">
+            <WaOptions
+              flags={Object.fromEntries(['send_wa', 'wa_enable_incoming', 'wa_enable_catalogue', 'send_app', 'enable_ai', 'google_sheet', 'wa_coexistence'].map((f) => [f, v(f) === '1']))}
+              values={{ wa_form_url: v('wa_form_url'), wa_catalogue_url: v('wa_catalogue_url'), wa_app_url: v('wa_app_url'), ai_key: v('ai_key') }}
+            />
+          </div>
+        ) : (
         <div className="card-body row g-3">
-          {FLAGS.filter((f) => (isWa ? f !== 'own_account' : f === 'google_sheet' || f === 'own_account')).map((flag) => (
+          {FLAGS.filter((f) => f === 'google_sheet' || f === 'own_account').map((flag) => (
             <div className="col-md-3" key={flag}>
               <div className="form-check form-switch">
                 <input className="form-check-input" type="checkbox" role="switch" id={`flag_${flag}`} name={flag} value="1" defaultChecked={v(flag) === '1'} />
@@ -122,6 +133,7 @@ export async function UserForm({ user, type }: { user: UserRow | null; type: num
             </div>
           ))}
         </div>
+        )}
       </div>
 
       <SubmitButton className="btn btn-success">Save</SubmitButton>{' '}

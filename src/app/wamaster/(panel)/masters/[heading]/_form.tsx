@@ -58,8 +58,8 @@ export async function MasterForm({ head, value }: { head: Heading; value: Partia
               );
             })}
             <div className="col-md-6">
-              <label className="form-label" htmlFor="status">Status</label>
-              <select className="form-select" id="status" name="status" defaultValue={str(current.mv_status)}>
+              <label className="form-label" htmlFor="record_status">Status</label>
+              <select className="form-select" id="record_status" name="status" defaultValue={str(current.mv_status)}>
                 <option value="1">Active</option>
                 <option value="2">Inactive</option>
               </select>

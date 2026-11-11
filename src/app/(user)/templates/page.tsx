@@ -10,6 +10,7 @@ import { syncTemplates } from '@/lib/services/templates';
 import { decodeEntities, limit } from '@/lib/text';
 import { phpDate } from '@/lib/time';
 import type { TemplateRow } from '@/lib/types';
+import { categoryAllowed, categoryRefusal } from '@/lib/template-categories';
 import { destroyTemplate } from './actions';
 
 export const metadata: Metadata = { title: 'WA Templates' };
@@ -103,7 +104,9 @@ export default async function TemplatesPage({ searchParams }: { searchParams: Pa
               <tbody>
                 {templates.length ? templates.map((t, i) => (
                   <tr key={t.ut_id}>
-                    <td><Link className="btn btn-success btn-sm" href={`/compose?tm=${t.ut_id}`}>Send Template</Link></td>
+                    <td>{categoryAllowed(user.u_template_categories, t.ut_template_category)
+                      ? <Link className="btn btn-success btn-sm" href={`/compose?tm=${t.ut_id}`}>Send Template</Link>
+                      : <span className="badge bg-secondary-subtle text-secondary" title={categoryRefusal(user.u_template_categories)}>Category not enabled</span>}</td>
                     <td>{i + 1}</td>
                     <td>{t.ut_created_on ? phpDate('d M y H:i', t.ut_created_on) : ''}</td>
                     <td>{t.ut_name}</td>

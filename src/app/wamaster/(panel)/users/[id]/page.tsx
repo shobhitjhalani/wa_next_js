@@ -11,6 +11,7 @@ import { USER_TYPE, type UserRow } from '@/lib/types';
 import { ActionForm, SubmitButton } from '@/components/ActionForm';
 import { PageTitle } from '@/components/PageTitle';
 import { ConfirmButton } from '@/components/ui';
+import { allowedCategories, categoriesLabel } from '@/lib/template-categories';
 import {
   addEmail, deleteEmail, deleteKey, deleteSheet, generateKey, logoutKey, rechargeUser, registerUserNumber,
   syncUserTemplates, toggleEmail, toggleSheet,
@@ -175,6 +176,10 @@ export default async function UserShowPage({ params }: { params: Promise<{ id: s
                           {Number(user.u_msg_used ?? 0) >= Number(user.u_msg_limit) && <span className="badge bg-danger-subtle text-danger ms-1">Limit reached</span>}</>
                         : <>Unlimited <span className="text-muted">({numberFormat(Number(user.u_msg_used ?? 0))} used)</span></>}
                     </dd>
+                    <dt className="col-5">Template Categories</dt>
+                    <dd className="col-7">{allowedCategories(user.u_template_categories)
+                      ? <span className="badge bg-warning-subtle text-warning">{categoriesLabel(user.u_template_categories)} only</span>
+                      : 'All'}</dd>
                     <dt className="col-5">MM Lite</dt><dd className="col-7">{yes(user.u_is_new_no)}</dd>
                     <dt className="col-5">Catalogue</dt><dd className="col-7">{yes(user.u_wa_enable_catalogue)}</dd>
                     <dt className="col-5">AI</dt><dd className="col-7">{yes(user.u_enable_ai)}</dd>

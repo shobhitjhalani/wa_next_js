@@ -53,8 +53,8 @@ export async function TeamForm({ member }: { member: Member | null }) {
               <FieldError name="m_type" />
             </div>
             <div className="col-md-4">
-              <label className="form-label" htmlFor="status">Status</label>
-              <select className="form-select" id="status" name="status" defaultValue={v(cur.emp_status)}>
+              <label className="form-label" htmlFor="record_status">Status</label>
+              <select className="form-select" id="record_status" name="status" defaultValue={v(cur.emp_status)}>
                 <option value="1">Active</option>
                 <option value="2">Inactive</option>
               </select>

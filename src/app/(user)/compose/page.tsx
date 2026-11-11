@@ -6,6 +6,7 @@ import { one, query } from '@/lib/db';
 import { sp, spAll } from '@/lib/http';
 import { now, phpDate } from '@/lib/time';
 import { sendWindowLabel } from '@/lib/services/sender';
+import { allowedCategories } from '@/lib/template-categories';
 import { storeCampaign } from './actions';
 import { ComposeForm } from './ComposeForm';
 import { COMPOSE_TEMPLATE_COLUMNS, type ComposeTemplate } from './TemplateParts';
@@ -31,8 +32,9 @@ export default async function ComposePage({ searchParams }: { searchParams: Para
     query<{ ut_id: number; ut_name: string }>(
       `SELECT ut_id, ut_name FROM js_user_templates
         WHERE ut_user_id = $1 AND ut_dstatus = 0 AND ut_status = 1 AND ($2::int IS NULL OR ut_id = $2)
+          AND ($3::text[] IS NULL OR upper(ut_template_category) = ANY($3))
         ORDER BY ut_id DESC`,
-      [user.u_id, tmId],
+      [user.u_id, tmId, allowedCategories(user.u_template_categories)],
     ),
     query<{ ug_id: number; up_group_name: string | null; contacts_count: number }>(
       `SELECT g.ug_id, g.up_group_name,

@@ -12,6 +12,7 @@ import { dayStart, now, phpDate } from './time';
 import { USER_TYPE, type UserRow } from './types';
 import { insertMessage, messageFromApi } from './services/messages';
 import { isLimitedType, templateQuota } from './services/template-limit';
+import { allowedCategories } from './template-categories';
 import { sendPending } from './services/sender';
 import { handleWebhook } from './services/webhook';
 
@@ -117,6 +118,9 @@ async function createMessage(data: Record<string, any>, defaultType: string, tem
   const type = data.message_type ? String(data.message_type) : defaultType;
   // The final type can still change inside messageFromApi (opt / type fields); the sender enforces the limit either way
   const finalType = templateEndpoint ? type : (data.type ? String(data.type) : String(data.opt ?? '') === '1' ? 'Authentication' : type);
+  if (isLimitedType(finalType) && !(await apiCategoryAllowed(user, finalType, data))) {
+    return reply('209', '209 : Template Category Not Allowed', { id: '0', status: 'Template Category Not Allowed' });
+  }
   if (isLimitedType(finalType) && (await templateQuota(user.u_id)).remaining === 0) {
     return reply('208', '208 : Template Message Limit Reached', { id: '0', status: 'Template Message Limit Reached' });
   }
@@ -126,14 +130,26 @@ async function createMessage(data: Record<string, any>, defaultType: string, tem
   return reply('200', 'Success', { id: templateEndpoint ? '0' : message.m_unique_id, status: 'Success' });
 }
 
+/** Restricted accounts (e.g. utility only) may only send templates of their allowed categories; the sender re-checks. */
+async function apiCategoryAllowed(user: Pick<UserRow, 'u_id' | 'u_template_categories'>, type: string, data: Record<string, any>): Promise<boolean> {
+  const allowed: string[] | null = allowedCategories(user.u_template_categories);
+  if (!allowed) return true;
+  if (type === 'Authentication') return allowed.includes('AUTHENTICATION');
+  const category = await value<string>(
+    'SELECT ut_template_category FROM js_user_templates WHERE ut_user_id = $1 AND ut_name = $2 ORDER BY ut_status, ut_id DESC LIMIT 1',
+    [user.u_id, String(data.template ?? '')],
+  );
+  return allowed.includes(String(category ?? '').toUpperCase());
+}
+
 /** Active WhatsApp user by access key, or by username + password (CrmApi::fun_user_data). */
-async function authenticate(data: Record<string, any>): Promise<Pick<UserRow, 'u_id' | 'u_code' | 'u_wa_plan_status'> | null> {
-  const base = 'SELECT u_id, u_code, u_wa_plan_status, u_password FROM js_user WHERE u_dstatus = 0 AND u_status = 1 AND u_type = $1';
+async function authenticate(data: Record<string, any>): Promise<Pick<UserRow, 'u_id' | 'u_code' | 'u_wa_plan_status' | 'u_template_categories'> | null> {
+  const base = 'SELECT u_id, u_code, u_wa_plan_status, u_template_categories, u_password FROM js_user WHERE u_dstatus = 0 AND u_status = 1 AND u_type = $1';
   if (data.access_key) {
     return one(`${base} AND u_access_code = $2 LIMIT 1`, [USER_TYPE.WHATSAPP, String(data.access_key)]);
   }
   if (!data.username || !data.password) return null;
-  const user = await one<Pick<UserRow, 'u_id' | 'u_code' | 'u_wa_plan_status' | 'u_password'>>(`${base} AND u_username = $2 ORDER BY u_id LIMIT 1`, [USER_TYPE.WHATSAPP, String(data.username)]);
+  const user = await one<Pick<UserRow, 'u_id' | 'u_code' | 'u_wa_plan_status' | 'u_template_categories' | 'u_password'>>(`${base} AND u_username = $2 ORDER BY u_id LIMIT 1`, [USER_TYPE.WHATSAPP, String(data.username)]);
   return user && (await checkPassword(String(data.password), user.u_password)) ? user : null;
 }
 

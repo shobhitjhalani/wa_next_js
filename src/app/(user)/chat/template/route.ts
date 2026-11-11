@@ -7,6 +7,7 @@ import { createCampaign } from '@/lib/services/campaigns';
 import { UserError, type CardInput } from '@/lib/services/messages';
 import { inSendWindow, sendNow, sendWindowLabel } from '@/lib/services/sender';
 import type { MessageRow, TemplateRow } from '@/lib/types';
+import { allowedCategories } from '@/lib/template-categories';
 import { bubbles, cleanMobile, contact, convRow, messageById, sameOrigin } from '../inbox';
 import type { SendResponse, TemplateListResponse } from '../types';
 
@@ -22,8 +23,9 @@ export async function GET() {
   const user = await getUser();
   if (!user) return invalid('Unauthenticated.', 401);
   const templates = await query<{ ut_id: number; ut_name: string }>(
-    'SELECT ut_id, ut_name FROM js_user_templates WHERE ut_user_id = $1 AND ut_dstatus = 0 AND ut_status = 1 ORDER BY ut_name',
-    [user.u_id],
+    `SELECT ut_id, ut_name FROM js_user_templates WHERE ut_user_id = $1 AND ut_dstatus = 0 AND ut_status = 1
+       AND ($2::text[] IS NULL OR upper(ut_template_category) = ANY($2)) ORDER BY ut_name`,
+    [user.u_id, allowedCategories(user.u_template_categories)],
   );
   return Response.json(
     { templates, window: { open: inSendWindow(), label: sendWindowLabel() } } satisfies TemplateListResponse,

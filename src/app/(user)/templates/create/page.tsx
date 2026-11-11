@@ -7,6 +7,7 @@ import { listFlows } from '@/lib/services/meta';
 import { storeTemplate } from './actions';
 import { LANGUAGES } from './languages';
 import { TemplateForm } from './TemplateForm';
+import { creatableCategories } from '@/lib/template-categories';
 
 export const metadata: Metadata = { title: 'Create WA Template' };
 
@@ -23,7 +24,7 @@ export default async function CreateTemplatePage({ searchParams }: { searchParam
       <PageTitle title="Create WA Template" home="/dashboard" />
       <div className="card">
         <div className="card-body">
-          <TemplateForm action={storeTemplate} languages={LANGUAGES} initialKind={kind} flows={flows} />
+          <TemplateForm action={storeTemplate} languages={LANGUAGES} initialKind={kind} flows={flows} categories={creatableCategories(user.u_template_categories)} />
         </div>
       </div>
     </>

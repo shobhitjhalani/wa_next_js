@@ -6,6 +6,7 @@ import { dayStart, now, phpDate } from '../time';
 import { CAMPAIGN, type CampaignRow, type CampaignStats, type TemplateRow, type UserRow } from '../types';
 import { queueMessages, templateFields, UserError, type CardInput } from './messages';
 import { templateQuota } from './template-limit';
+import { categoryAllowed, categoryRefusal } from '../template-categories';
 
 /**
  * Campaigns: create (now or scheduled), dispatch to groups + pasted numbers
@@ -28,7 +29,7 @@ export interface CampaignInput {
 }
 
 export async function createCampaign(
-  user: Pick<UserRow, 'u_id' | 'u_is_new_no'>,
+  user: Pick<UserRow, 'u_id' | 'u_is_new_no' | 'u_template_categories'>,
   template: Pick<TemplateRow, 'ut_id' | 'ut_name' | 'ut_template_type' | 'ut_template_category' | 'ut_cards'>,
   data: CampaignInput,
   headerFiles: File[],
@@ -39,6 +40,7 @@ export async function createCampaign(
   }
   const [numbers] = parsePhoneList(data.numbers);
   if (!numbers.length && !data.groupIds.length) throw new UserError('Choose at least one group or enter mobile numbers.');
+  if (!categoryAllowed(user.u_template_categories, template.ut_template_category)) throw new UserError(categoryRefusal(user.u_template_categories));
   if ((await templateQuota(user.u_id)).remaining === 0) {
     throw new UserError('Your template message limit has been reached. Please contact support to increase it.');
   }

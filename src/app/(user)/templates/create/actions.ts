@@ -10,6 +10,7 @@ import {
   type ButtonInput, type CarouselInput, type TemplateInput,
 } from '@/lib/services/templates';
 import { LANGUAGES } from './languages';
+import { creatableCategories } from '@/lib/template-categories';
 
 /** Upload rules for sample header media, by header format (extension check + size in KB). */
 const FILE_RULES: Record<string, { ext: string[]; max: number }> = {
@@ -104,7 +105,7 @@ export async function storeTemplate(_prev: ActionResult | null, fd: FormData): P
     e.regex('name', name, /^[a-z0-9_]+$/, 'Template name may only contain lowercase letters, numbers and underscores.');
   }
   const category = nStr(input, 'category');
-  if (e.required('category', category)) e.in('category', category, ['MARKETING', 'UTILITY']);
+  if (e.required('category', category)) e.in('category', category, creatableCategories(user.u_template_categories));
   const language = nStr(input, 'language');
   if (e.required('language', language)) e.in('language', language, Object.keys(LANGUAGES));
   const body = nStr(input, 'body');

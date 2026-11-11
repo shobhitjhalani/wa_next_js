@@ -11,6 +11,7 @@ import type { MessageRow, UserRow } from '../types';
 import { sendMarketingMessage, sendMessage, type MetaResponse } from './meta';
 import { safeFileName, storeBytes } from './media';
 import { isLimitedType, LIMIT_REACHED, releaseTemplateSend, reserveTemplateSend } from './template-limit';
+import { allowedCategories, CATEGORY_NOT_ALLOWED } from '../template-categories';
 
 /**
  * Sends queued messages through the Cloud API and records the outcome.
@@ -28,7 +29,7 @@ import { isLimitedType, LIMIT_REACHED, releaseTemplateSend, reserveTemplateSend 
 const IMAGE = ['jpg', 'jpeg', 'png', 'gif', 'webp'];
 const VIDEO = ['mpg', 'mp2', 'mpeg', 'mpe', 'mpv', 'mp4', 'm4p', 'm4v', '3gp'];
 
-type SendUser = Pick<UserRow, 'u_id' | 'u_code' | 'u_wa_phone_id' | 'u_wa_b_id'>;
+type SendUser = Pick<UserRow, 'u_id' | 'u_code' | 'u_wa_phone_id' | 'u_wa_b_id' | 'u_template_categories'>;
 type Media = { type: string; link: string; name?: string };
 type Payload = Record<string, any>;
 
@@ -36,10 +37,10 @@ type Payload = Record<string, any>;
 class RunCache {
   users = new Map<number, Promise<SendUser | null>>();
   blocked = new Map<number, Promise<Set<string>>>();
-  templates = new Map<string, Promise<{ ut_language: string | null; ut_cards: string | null; ut_buttons: string | null } | null>>();
+  templates = new Map<string, Promise<{ ut_language: string | null; ut_cards: string | null; ut_buttons: string | null; ut_template_category: string | null } | null>>();
 
   user(id: number) {
-    if (!this.users.has(id)) this.users.set(id, one<SendUser>('SELECT u_id, u_code, u_wa_phone_id, u_wa_b_id FROM js_user WHERE u_id = $1', [id]));
+    if (!this.users.has(id)) this.users.set(id, one<SendUser>('SELECT u_id, u_code, u_wa_phone_id, u_wa_b_id, u_template_categories FROM js_user WHERE u_id = $1', [id]));
     return this.users.get(id)!;
   }
 
@@ -54,7 +55,7 @@ class RunCache {
   template(userId: number, name: string) {
     const key = `${userId}:${name}`;
     if (!this.templates.has(key)) {
-      this.templates.set(key, one('SELECT ut_language, ut_cards, ut_buttons FROM js_user_templates WHERE ut_user_id = $1 AND ut_name = $2 ORDER BY ut_status, ut_id DESC LIMIT 1', [userId, name]));
+      this.templates.set(key, one('SELECT ut_language, ut_cards, ut_buttons, ut_template_category FROM js_user_templates WHERE ut_user_id = $1 AND ut_name = $2 ORDER BY ut_status, ut_id DESC LIMIT 1', [userId, name]));
     }
     return this.templates.get(key)!;
   }
@@ -185,13 +186,16 @@ async function send(message: MessageRow, cache: RunCache): Promise<boolean> {
 
   // Template messages count against the account's limit; a reserved slot is given back if WhatsApp rejects the send
   const limited = isLimitedType(message.m_msg_type);
-  if (limited && !(await reserveTemplateSend(user.u_id))) {
+  const refuse = async (reason: string) => {
     await exec(
       'UPDATE js_message SET m_status = 3, m_in_process_on = $2, m_updated_on = $2, m_message_id = $3, m_msg_id_count = 0, m_status_response = $4 WHERE m_id = $1',
-      [message.m_id, t, '', JSON.stringify([{ error: { message: LIMIT_REACHED, code: null } }])],
+      [message.m_id, t, '', JSON.stringify([{ error: { message: reason, code: null } }])],
     );
     return true;
-  }
+  };
+  // Accounts restricted to some template categories (e.g. utility only) never send the others
+  if (limited && !(await categoryPermitted(user, message, cache))) return refuse(CATEGORY_NOT_ALLOWED);
+  if (limited && !(await reserveTemplateSend(user.u_id))) return refuse(LIMIT_REACHED);
 
   let responses: MetaResponse[];
   try {
@@ -377,6 +381,19 @@ async function sendText(user: SendUser, m: MessageRow, to: string, media: Media[
 }
 
 // ---------------------------------------------------------------- helpers
+
+/**
+ * The template's category (as last synced from WhatsApp) is one the account may
+ * send. Authentication messages are the AUTHENTICATION category; a template we
+ * don't know is refused for restricted accounts.
+ */
+async function categoryPermitted(user: SendUser, m: MessageRow, cache: RunCache): Promise<boolean> {
+  const allowed = allowedCategories(user.u_template_categories);
+  if (!allowed) return true;
+  const tpl = await cache.template(user.u_id, String(m.m_msg_template_name ?? ''));
+  const category = m.m_msg_type === 'Authentication' ? 'AUTHENTICATION' : String(tpl?.ut_template_category ?? '').toUpperCase();
+  return (allowed as string[]).includes(category);
+}
 
 async function templatePayload(user: SendUser, m: MessageRow, to: string, components: Payload[], cache: RunCache): Promise<Payload> {
   const name = String(m.m_msg_template_name ?? '');

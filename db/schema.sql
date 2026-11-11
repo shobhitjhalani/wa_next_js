@@ -714,6 +714,14 @@ BEGIN
   END IF;
 END $$;
 
+-- ------------------------------------------------------------ allowed template categories
+
+-- js_user.u_template_categories: template categories the account may send
+-- (NULL = all; otherwise e.g. 'UTILITY' or 'UTILITY,AUTHENTICATION'). Admin-set on the
+-- user form; enforced by the pickers, campaigns, the API and the sender
+-- (src/lib/template-categories.ts).
+ALTER TABLE js_user ADD COLUMN IF NOT EXISTS u_template_categories text;
+
 -- ------------------------------------------------------------ flow (form) responses
 
 -- jsonb from legacy text that may hold raw newlines / unescaped quotes; NULL when it can't be read

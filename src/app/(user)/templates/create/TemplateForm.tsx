@@ -42,8 +42,10 @@ const newCard = (key: number): Card => ({ key, body: '', examples: {}, buttons: 
 
 type Action = (prev: ActionResult | null, fd: FormData) => Promise<ActionResult>;
 
-export function TemplateForm({ action, languages, initialKind, flows }: {
+export function TemplateForm({ action, languages, initialKind, flows, categories }: {
   action: Action; languages: Record<string, string>; initialKind: 'STANDARD' | 'CAROUSEL';
+  /** Categories this account may create (admin-set; usually Marketing and Utility). */
+  categories: ('MARKETING' | 'UTILITY')[];
   /** The account's WhatsApp Flows; null when they couldn't be loaded (the Flow ID is typed instead). */
   flows: FlowOption[] | null;
 }) {
@@ -117,10 +119,10 @@ export function TemplateForm({ action, languages, initialKind, flows }: {
             </div>
             <div className="col-md-3">
               <label htmlFor="category" className="form-label">Category <span className="text-danger">*</span></label>
-              <select className="form-select" name="category" id="category" required defaultValue="MARKETING">
-                <option value="MARKETING">Marketing</option>
-                <option value="UTILITY">Utility</option>
+              <select className="form-select" name="category" id="category" required defaultValue={categories[0]}>
+                {categories.map((c) => <option key={c} value={c}>{c === 'MARKETING' ? 'Marketing' : 'Utility'}</option>)}
               </select>
+              <FieldError name="category" />
             </div>
             <div className="col-md-3">
               <label htmlFor="language" className="form-label">Language <span className="text-danger">*</span></label>

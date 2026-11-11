@@ -2,7 +2,8 @@
 
 import { revalidatePath } from 'next/cache';
 import { redirect } from 'next/navigation';
-import { fail, fBool, flash, fRaw, fStr, invalid, isEmail, ok, type ActionResult } from '@/lib/actions';
+import { fail, fAll, fBool, flash, fRaw, fStr, invalid, isEmail, ok, type ActionResult } from '@/lib/actions';
+import { categoriesValue } from '@/lib/template-categories';
 import { requireAdmin } from '@/lib/auth';
 import { exec, insert, one, tx, update, value } from '@/lib/db';
 import { hashPassword } from '@/lib/password';
@@ -12,7 +13,7 @@ import { syncTemplates } from '@/lib/services/templates';
 import { randomString } from '@/lib/text';
 import { addDays, now, phpDate } from '@/lib/time';
 import { USER_TYPE, type UserRow } from '@/lib/types';
-import { FLAGS } from './flags';
+import { FLAGS, WA_FLAG_FIELDS } from './flags';
 
 /** Server Actions for /wamaster/users (Admin\UserController). Every action re-checks the admin session. */
 
@@ -115,6 +116,10 @@ export async function saveUser(id: number, _prev: ActionResult | null, fd: FormD
     if (raw === '') errors.msg_limit = 'Enter how many template messages this user may send.';
     else if (/^\d+$/.test(raw) && parseInt(raw, 10) < 1) errors.msg_limit = 'The template message limit must be at least 1.';
   }
+  // Allowed template categories: all ticked = no restriction (stored as NULL)
+  const categoriesPosted = type === USER_TYPE.WHATSAPP && fd.has('template_categories_form');
+  const categories = fAll(fd, 'template_categories');
+  if (categoriesPosted && !categories.length) errors.template_categories = 'Choose at least one template category.';
   for (const [key, rule] of Object.entries(USER_RULES)) {
     if (!fd.has(key) && !rule.required) continue;
     const v = fStr(fd, key);
@@ -141,6 +146,13 @@ export async function saveUser(id: number, _prev: ActionResult | null, fd: FormD
     values[`u_${key}`] = v !== null && USER_RULES[key]?.integer ? parseInt(v, 10) : v;
   }
   for (const flag of FLAGS) values[`u_${flag}`] = fBool(fd, flag) ? 1 : 2;
+  if (type === USER_TYPE.WHATSAPP) {
+    // MM Lite (marketing) is always on for WhatsApp users
+    values.u_is_new_no = 1;
+    if (categoriesPosted) values.u_template_categories = categoriesValue(categories);
+    // A switched-off option keeps no URL / key, so nothing is forwarded or used for it
+    for (const [flag, field] of Object.entries(WA_FLAG_FIELDS)) if (values[`u_${flag}`] !== 1) values[`u_${field}`] = null;
+  }
   // Sub-accounts inherit "own account" from their parent
   if (type === USER_TYPE.WHATSAPP && values.u_parent_id) {
     values.u_own_account = Number(await value<number>('SELECT u_own_account FROM js_user WHERE u_id = $1', [values.u_parent_id])) || 2;

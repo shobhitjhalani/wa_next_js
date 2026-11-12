@@ -67,6 +67,12 @@ export default async function ApiDocsPage() {
               <div className="d-flex gap-2 align-items-center"><code className="fs-6 text-break">{key}</code><CopyButton text={key} /></div>
             </div>
           </div>
+          <div className="mt-3">
+            <a href="/api_docs/postman" className="btn btn-sm btn-primary" download>
+              <i className="ri-download-2-line" /> Download Postman collection
+            </a>
+            <span className="small text-muted ms-2">Import it in Postman (File → Import): every request is ready, with your key and base URL filled in.</span>
+          </div>
           <hr />
           <p className="small mb-2">
             Send the key in an <code>X-API-Key</code> header (or <code>Authorization: Bearer &lt;key&gt;</code>) with every request.

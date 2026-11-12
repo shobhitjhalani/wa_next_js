@@ -1,0 +1,674 @@
+{
+  "info": {
+    "name": "WhatsApp API v2",
+    "_postman_id": "6b0f2c3e-6a7d-4b8e-9d2a-0c1f5e7a9b31",
+    "description": "Send WhatsApp templates, text and attachments, check message status, and list / create templates.\n\nSet the collection variables before sending:\n- base_url: your API base URL\n- api_key: your API key (Profile → API Access Key); it is sent in the X-API-Key header\n- to: a test mobile number with country code, e.g. 919876543210\n\nResponses are {\"success\": true, \"data\": …} or {\"success\": false, \"error\": {\"code\", \"message\", \"field\"}}.\nText and attachment messages need the customer to have written to you in the last 24 hours.\nSending a message saves its id in the message_id variable for \"Message status\".",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+  },
+  "auth": {
+    "type": "apikey",
+    "apikey": [
+      {
+        "key": "key",
+        "value": "X-API-Key",
+        "type": "string"
+      },
+      {
+        "key": "value",
+        "value": "{{api_key}}",
+        "type": "string"
+      },
+      {
+        "key": "in",
+        "value": "header",
+        "type": "string"
+      }
+    ]
+  },
+  "variable": [
+    {
+      "key": "base_url",
+      "value": "https://app.digitomation.com/api/v2",
+      "type": "string"
+    },
+    {
+      "key": "api_key",
+      "value": "YOUR_API_KEY",
+      "type": "string"
+    },
+    {
+      "key": "to",
+      "value": "919876543210",
+      "type": "string"
+    },
+    {
+      "key": "template",
+      "value": "order_update",
+      "type": "string"
+    },
+    {
+      "key": "message_id",
+      "value": "",
+      "type": "string"
+    }
+  ],
+  "item": [
+    {
+      "name": "Templates",
+      "item": [
+        {
+          "name": "List templates",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "const j = pm.response.json();",
+                  "pm.test(\"success\", () => pm.expect(j.success).to.eql(true));"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/templates",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "templates"
+              ],
+              "query": [
+                {
+                  "key": "sync",
+                  "value": "1",
+                  "description": "1 = fetch the latest templates from WhatsApp first",
+                  "disabled": true
+                },
+                {
+                  "key": "status",
+                  "value": "approved",
+                  "description": "approved (default) or all",
+                  "disabled": true
+                },
+                {
+                  "key": "name",
+                  "value": "{{template}}",
+                  "description": "only this template",
+                  "disabled": true
+                },
+                {
+                  "key": "category",
+                  "value": "UTILITY",
+                  "description": "MARKETING, UTILITY or AUTHENTICATION",
+                  "disabled": true
+                }
+              ]
+            },
+            "description": "Approved templates with body_parameters, header, buttons (dynamic URL buttons and their index), cards and can_send. Enable the query parameters you need."
+          }
+        },
+        {
+          "name": "Create template (text header, URL button)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "const j = pm.response.json();",
+                  "pm.test(\"success\", () => pm.expect(j.success).to.eql(true));"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/templates",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "templates"
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"name\": \"order_update\",\n  \"category\": \"UTILITY\",\n  \"language\": \"en\",\n  \"header_type\": \"TEXT\",\n  \"header_text\": \"Order update\",\n  \"body\": \"Hi {{1}}, your order {{2}} has been shipped.\",\n  \"body_examples\": [\n    \"Ravi\",\n    \"ORD-1001\"\n  ],\n  \"footer\": \"Reply STOP to opt out\",\n  \"buttons\": [\n    {\n      \"type\": \"URL\",\n      \"text\": \"Track order\",\n      \"url\": \"https://example.com/track/{{1}}\",\n      \"example\": \"https://example.com/track/ORD-1001\"\n    },\n    {\n      \"type\": \"QUICK_REPLY\",\n      \"text\": \"Talk to us\"\n    }\n  ]\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "description": "Submits a standard template to WhatsApp for review. It can be sent once approved (List templates with sync=1). category: MARKETING or UTILITY. header_type: NONE, TEXT, IMAGE, VIDEO or DOCUMENT. Buttons: QUICK_REPLY {text}, URL {text, url, example}, PHONE_NUMBER {text, phone}."
+          }
+        },
+        {
+          "name": "Create template (image header)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "const j = pm.response.json();",
+                  "pm.test(\"success\", () => pm.expect(j.success).to.eql(true));"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/templates",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "templates"
+              ]
+            },
+            "body": {
+              "mode": "formdata",
+              "formdata": [
+                {
+                  "key": "name",
+                  "value": "festive_offer",
+                  "type": "text"
+                },
+                {
+                  "key": "category",
+                  "value": "MARKETING",
+                  "type": "text"
+                },
+                {
+                  "key": "language",
+                  "value": "en",
+                  "type": "text"
+                },
+                {
+                  "key": "header_type",
+                  "value": "IMAGE",
+                  "type": "text"
+                },
+                {
+                  "key": "header_file",
+                  "type": "file",
+                  "src": [],
+                  "description": "Sample image (.jpg / .png, up to 5 MB)"
+                },
+                {
+                  "key": "body",
+                  "value": "Hi {{1}}, our festive offer is live! Visit us today.",
+                  "type": "text"
+                },
+                {
+                  "key": "body_examples",
+                  "value": "[\"Ravi\"]",
+                  "type": "text",
+                  "description": "JSON array, one sample per body variable"
+                },
+                {
+                  "key": "buttons",
+                  "value": "[{\"type\":\"QUICK_REPLY\",\"text\":\"Interested\"}]",
+                  "type": "text",
+                  "description": "JSON array (optional)"
+                }
+              ]
+            },
+            "description": "Media headers need a sample file, so this request is multipart/form-data. List fields are sent as JSON strings."
+          }
+        }
+      ]
+    },
+    {
+      "name": "Send messages",
+      "item": [
+        {
+          "name": "Send template",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "const j = pm.response.json();",
+                  "pm.test(\"success\", () => pm.expect(j.success).to.eql(true));",
+                  "if (j.success && j.data && j.data.messages && j.data.messages[0]) {",
+                  "  pm.collectionVariables.set(\"message_id\", j.data.messages[0].id);",
+                  "}"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/messages/template",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "messages",
+                "template"
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"to\": \"{{to}}\",\n  \"template\": \"{{template}}\",\n  \"parameters\": [\n    \"Ravi\",\n    \"ORD-1001\"\n  ]\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "description": "parameters: body values for {{1}}, {{2}}, … in order. to may also be an array or comma-separated list (up to 100 numbers; then the response is 202 and messages are sent in the background)."
+          }
+        },
+        {
+          "name": "Send template (media header + URL button)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "const j = pm.response.json();",
+                  "pm.test(\"success\", () => pm.expect(j.success).to.eql(true));",
+                  "if (j.success && j.data && j.data.messages && j.data.messages[0]) {",
+                  "  pm.collectionVariables.set(\"message_id\", j.data.messages[0].id);",
+                  "}"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/messages/template",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "messages",
+                "template"
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"to\": \"{{to}}\",\n  \"template\": \"{{template}}\",\n  \"language\": \"en\",\n  \"parameters\": [\n    \"Ravi\",\n    \"ORD-1001\"\n  ],\n  \"header_url\": \"https://example.com/invoice.pdf\",\n  \"header_parameter\": \"Ravi\",\n  \"button_parameters\": {\n    \"0\": \"ORD-1001\"\n  }\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "description": "header_url: for image / video / document templates (public URL ending in .jpg/.png, .mp4 or .pdf). header_parameter: value for {{1}} in a text header. button_parameters: dynamic URL button values by button index. Remove the fields your template does not use."
+          }
+        },
+        {
+          "name": "Send template (upload header file)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "const j = pm.response.json();",
+                  "pm.test(\"success\", () => pm.expect(j.success).to.eql(true));",
+                  "if (j.success && j.data && j.data.messages && j.data.messages[0]) {",
+                  "  pm.collectionVariables.set(\"message_id\", j.data.messages[0].id);",
+                  "}"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/messages/template",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "messages",
+                "template"
+              ]
+            },
+            "body": {
+              "mode": "formdata",
+              "formdata": [
+                {
+                  "key": "to",
+                  "value": "{{to}}",
+                  "type": "text"
+                },
+                {
+                  "key": "template",
+                  "value": "{{template}}",
+                  "type": "text"
+                },
+                {
+                  "key": "parameters[]",
+                  "value": "Ravi",
+                  "type": "text",
+                  "description": "{{1}}"
+                },
+                {
+                  "key": "parameters[]",
+                  "value": "ORD-1001",
+                  "type": "text",
+                  "description": "{{2}}"
+                },
+                {
+                  "key": "header_file",
+                  "type": "file",
+                  "src": [],
+                  "description": "Header image / video / document"
+                }
+              ]
+            },
+            "description": "Uploads the header media instead of a URL. Repeat parameters[] for each body value."
+          }
+        },
+        {
+          "name": "Send carousel template",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "const j = pm.response.json();",
+                  "pm.test(\"success\", () => pm.expect(j.success).to.eql(true));",
+                  "if (j.success && j.data && j.data.messages && j.data.messages[0]) {",
+                  "  pm.collectionVariables.set(\"message_id\", j.data.messages[0].id);",
+                  "}"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/messages/template",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "messages",
+                "template"
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"to\": \"{{to}}\",\n  \"template\": \"product_carousel\",\n  \"parameters\": [\n    \"Ravi\"\n  ],\n  \"cards\": [\n    {\n      \"media_url\": \"https://example.com/car-1.jpg\",\n      \"parameters\": [\n        \"Nexon\"\n      ],\n      \"button_parameters\": {\n        \"0\": \"nexon\"\n      }\n    },\n    {\n      \"media_url\": \"https://example.com/car-2.jpg\",\n      \"parameters\": [\n        \"Punch\"\n      ],\n      \"button_parameters\": {\n        \"0\": \"punch\"\n      }\n    }\n  ]\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "description": "One entry in cards per card of the template: media_url (.jpg/.png, or .mp4 for video cards), parameters for the card body, button_parameters for dynamic URL buttons."
+          }
+        },
+        {
+          "name": "Send text",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "const j = pm.response.json();",
+                  "pm.test(\"success\", () => pm.expect(j.success).to.eql(true));",
+                  "if (j.success && j.data && j.data.messages && j.data.messages[0]) {",
+                  "  pm.collectionVariables.set(\"message_id\", j.data.messages[0].id);",
+                  "}"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/messages/text",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "messages",
+                "text"
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"to\": \"{{to}}\",\n  \"text\": \"Hello! Your order is out for delivery 🚚\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "description": "Only within 24 hours of the customer's last message (otherwise error window_closed: send a template). Up to 4096 characters; WhatsApp formatting such as *bold* works."
+          }
+        },
+        {
+          "name": "Send text with reply buttons",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "const j = pm.response.json();",
+                  "pm.test(\"success\", () => pm.expect(j.success).to.eql(true));",
+                  "if (j.success && j.data && j.data.messages && j.data.messages[0]) {",
+                  "  pm.collectionVariables.set(\"message_id\", j.data.messages[0].id);",
+                  "}"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/messages/text",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "messages",
+                "text"
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"to\": \"{{to}}\",\n  \"text\": \"Would you like a call back?\",\n  \"buttons\": [\n    \"Yes\",\n    \"No\"\n  ]\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "description": "Up to 3 buttons show as buttons (20 characters each); up to 10 show as a list (24 characters). Titles must not contain commas."
+          }
+        },
+        {
+          "name": "Send attachment (URL)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "const j = pm.response.json();",
+                  "pm.test(\"success\", () => pm.expect(j.success).to.eql(true));",
+                  "if (j.success && j.data && j.data.messages && j.data.messages[0]) {",
+                  "  pm.collectionVariables.set(\"message_id\", j.data.messages[0].id);",
+                  "}"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/messages/media",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "messages",
+                "media"
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"to\": \"{{to}}\",\n  \"url\": \"https://example.com/brochure.pdf\",\n  \"caption\": \"Our new brochure\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "description": "Within the 24-hour window. Images (.jpg, .png, .webp), videos (.mp4, .3gp), documents (.pdf, .doc(x), .xls(x), .ppt(x), .txt, .csv), up to 16 MB. The URL must end in the file extension."
+          }
+        },
+        {
+          "name": "Send attachment (upload)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "const j = pm.response.json();",
+                  "pm.test(\"success\", () => pm.expect(j.success).to.eql(true));",
+                  "if (j.success && j.data && j.data.messages && j.data.messages[0]) {",
+                  "  pm.collectionVariables.set(\"message_id\", j.data.messages[0].id);",
+                  "}"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/messages/media",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "messages",
+                "media"
+              ]
+            },
+            "body": {
+              "mode": "formdata",
+              "formdata": [
+                {
+                  "key": "to",
+                  "value": "{{to}}",
+                  "type": "text"
+                },
+                {
+                  "key": "caption",
+                  "value": "Your invoice",
+                  "type": "text"
+                },
+                {
+                  "key": "file",
+                  "type": "file",
+                  "src": [],
+                  "description": "The attachment"
+                }
+              ]
+            },
+            "description": "Same as Send attachment, uploading the file (multipart/form-data)."
+          }
+        },
+        {
+          "name": "Message status",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "const j = pm.response.json();",
+                  "pm.test(\"success\", () => pm.expect(j.success).to.eql(true));"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/messages/{{message_id}}",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "messages",
+                "{{message_id}}"
+              ]
+            },
+            "description": "status: processing, queued, sent, delivered, read, failed (see error), opted_out or cancelled. message_id is filled in by the last send request."
+          }
+        }
+      ]
+    }
+  ]
+}

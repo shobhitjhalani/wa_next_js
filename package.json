@@ -12,7 +12,8 @@
     "import:mysql": "node --env-file-if-exists=.env --conditions=react-server --import tsx scripts/migrate-from-mysql.ts",
     "worker": "node --env-file-if-exists=.env --conditions=react-server --import tsx worker/index.ts",
     "wa": "node --env-file-if-exists=.env --conditions=react-server --import tsx worker/cli.ts",
-    "test": "vitest run"
+    "test": "vitest run",
+    "postman:export": "tsx scripts/postman-export.ts"
   },
   "dependencies": {
     "bcryptjs": "^3.0.3",

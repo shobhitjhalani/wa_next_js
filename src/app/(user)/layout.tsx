@@ -48,6 +48,7 @@ export default async function UserLayout({ children }: { children: React.ReactNo
         { label: 'Campaign Summary', href: '/reports_templates' },
       ],
     },
+    { label: 'API', icon: 'ri-code-s-slash-line', href: '/api_docs' },
     {
       label: 'Plans', icon: 'ri-wallet-3-line', children: [
         { label: 'Recharge', href: '/wa_plans' },

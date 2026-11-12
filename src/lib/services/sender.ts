@@ -246,7 +246,10 @@ async function send(message: MessageRow, cache: RunCache): Promise<boolean> {
 
 async function sendTemplate(user: SendUser, m: MessageRow, to: string, media: Media[], cache: RunCache) {
   const components = templateComponents(m, media);
-  if (m.m_button_url) components.push(urlButtonComponent(m.m_button_url));
+  const buttons = Object.entries(templateValues(m.m_msg_template_para).buttons);
+  if (buttons.length) {
+    for (const [index, text] of buttons) components.push({ type: 'button', sub_type: 'url', index, parameters: [{ type: 'text', text }] });
+  } else if (m.m_button_url) components.push(urlButtonComponent(m.m_button_url));
   const payload = await templatePayload(user, m, to, components, cache);
   return Number(m.m_msg_lite) === 1 ? sendMarketingMessage(user, payload) : sendMessage(user, payload);
 }
@@ -421,8 +424,9 @@ function templateComponents(m: MessageRow, media: Media[]): Payload[] {
       }),
     });
   }
-  const params = templateParameters(m.m_msg_template_para);
-  if (params.length) components.push({ type: 'body', parameters: params.map((v) => ({ type: 'text', text: v })) });
+  const values = templateValues(m.m_msg_template_para);
+  if (!media.length && values.header !== null) components.push({ type: 'header', parameters: [{ type: 'text', text: values.header }] });
+  if (values.body.length) components.push({ type: 'body', parameters: values.body.map((v) => ({ type: 'text', text: v })) });
   return components;
 }
 
@@ -441,9 +445,34 @@ function urlButtonComponent(buttonUrl: string): Payload {
  * values (so commas could appear inside a value) — honour that too.
  */
 export function templateParameters(raw: string | null | undefined): string[] {
-  const v = decodeEntities(raw);
-  if (v === '') return [];
-  return v.split(v.includes('|') ? '|' : ',').map((p) => p.trim());
+  return templateValues(raw).body;
+}
+
+/** Values a template message is sent with: body {{n}}, text-header {{1}}, dynamic URL button suffixes by button index. */
+export interface TemplateValues {
+  body: string[];
+  header: string | null;
+  buttons: Record<string, string>;
+}
+
+/**
+ * m_msg_template_para holds either the legacy list ("a,b" or "a|b") or, for
+ * API messages, JSON {"body":[…],"header":"…","buttons":{"0":"…"}} so values
+ * may contain commas and URL buttons / text headers can be filled.
+ */
+export function templateValues(raw: string | null | undefined): TemplateValues {
+  const v = String(raw ?? '');
+  if (v.startsWith('{')) {
+    const j = jsonParse<any>(v, null);
+    if (j && typeof j === 'object' && Array.isArray(j.body)) {
+      const buttons: Record<string, string> = {};
+      for (const [k, b] of Object.entries(j.buttons ?? {})) if (/^\d+$/.test(k) && b != null) buttons[k] = String(b);
+      return { body: j.body.map((p: unknown) => String(p ?? '')), header: j.header == null ? null : String(j.header), buttons };
+    }
+  }
+  const d = decodeEntities(v);
+  if (d === '') return { body: [], header: null, buttons: {} };
+  return { body: d.split(d.includes('|') ? '|' : ',').map((p) => p.trim()), header: null, buttons: {} };
 }
 
 function mediaPayload(file: Media, caption = ''): Payload {

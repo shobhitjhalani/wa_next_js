@@ -109,6 +109,20 @@ export const config = {
     time: env('REPORT_EMAIL_TIME', '23:30'),
   },
 
+  // Database backups to DigitalOcean Spaces (src/lib/services/backup.ts)
+  backup: {
+    key: env('DO_SPACES_KEY'),
+    secret: env('DO_SPACES_SECRET'),
+    bucket: env('DO_SPACES_BUCKET'),
+    region: env('DO_SPACES_REGION', 'blr1'),
+    endpoint: env('DO_SPACES_ENDPOINT'),
+    prefix: env('BACKUP_PREFIX', 'db-backups/').replace(/^\/+/, '').replace(/\/*$/, '/'),
+    keepDays: Math.max(1, int('BACKUP_KEEP_DAYS', 14)),
+    /** Local times (TZ) of the automatic backups. */
+    times: env('BACKUP_TIMES', '00:00,12:00').split(',').map((t) => t.trim()).filter((t) => /^\d{1,2}:\d{2}$/.test(t)),
+    pgDump: env('PG_DUMP_PATH', 'pg_dump'),
+  },
+
   // Master heading ids used by the app (js_master_heading)
   masters: {
     country: 42,

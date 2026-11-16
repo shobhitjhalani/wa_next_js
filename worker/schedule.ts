@@ -10,9 +10,11 @@
 import { createHash } from 'node:crypto';
 import { config } from '@/lib/config';
 import { pool } from '@/lib/db';
+import { requestedBackups, scheduledBackup } from '@/lib/services/backup';
 import { cleanup, dispatchCampaigns, emailReports, expireMessages, expirePlans, processWebhooks, sendQueue } from './jobs';
 
-type Schedule = { everySeconds: number } | { hourly: true } | { dailyAt: string };
+/** dailyAt: one 'HH:MM' or several (the job runs once after each of them). */
+type Schedule = { everySeconds: number } | { hourly: true } | { dailyAt: string | string[] };
 
 export interface Job {
   name: string;
@@ -30,6 +32,9 @@ export const JOBS: Job[] = [
   { name: 'expire-plans', schedule: { hourly: true }, run: (log) => expirePlans(log) },
   { name: 'cleanup', schedule: { dailyAt: '02:30' }, run: (log) => cleanup(log) },
   { name: 'email-reports', schedule: { dailyAt: config.reports.time }, run: (log) => emailReports({}, log) },
+  // Database backup to DigitalOcean Spaces (BACKUP_TIMES, default 00:00 and 12:00) and the ones queued from /wamaster/backups
+  { name: 'db-backup', schedule: { dailyAt: config.backup.times }, run: (log) => scheduledBackup(log) },
+  { name: 'db-backup-requested', schedule: { everySeconds: 30 }, run: (log) => requestedBackups(log) },
 ];
 
 const lockKey = (name: string) => createHash('sha1').update('wa_job:' + name).digest().readInt32BE(0);
@@ -41,9 +46,14 @@ export const runningJobs = () => running.size;
 function periodStart(s: Schedule, at: Date): Date | null {
   if ('hourly' in s) return new Date(at.getFullYear(), at.getMonth(), at.getDate(), at.getHours());
   if ('dailyAt' in s) {
-    const [h, m] = s.dailyAt.split(':').map(Number);
-    const today = new Date(at.getFullYear(), at.getMonth(), at.getDate(), h, m || 0);
-    return at >= today ? today : null;
+    // The latest of today's times that has passed
+    let start: Date | null = null;
+    for (const t of Array.isArray(s.dailyAt) ? s.dailyAt : [s.dailyAt]) {
+      const [h, m] = t.split(':').map(Number);
+      const d = new Date(at.getFullYear(), at.getMonth(), at.getDate(), h, m || 0);
+      if (at >= d && (!start || d > start)) start = d;
+    }
+    return start;
   }
   return null;
 }

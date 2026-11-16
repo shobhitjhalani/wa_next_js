@@ -47,6 +47,7 @@ export default async function AdminLayout({ children }: { children: React.ReactN
         { label: 'Google Sheets', href: '/wamaster/reports/google_sheets' },
       ],
     },
+    ...(me.isSuperAdmin ? [{ label: 'Database Backups', icon: 'ri-database-2-line', href: '/wamaster/backups' } satisfies MenuItem] : []),
   ];
 
   return (

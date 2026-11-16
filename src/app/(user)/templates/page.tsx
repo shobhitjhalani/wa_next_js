@@ -105,7 +105,7 @@ export default async function TemplatesPage({ searchParams }: { searchParams: Pa
           )}
         </div>
         <div className="card-body">
-          <DataTableControls path={PATH} query={queryString(tableParams)} perPage={table.perPage} q={table.q} placeholder="Search name, content, category…" />
+          <DataTableControls path={PATH} query={queryString(tableParams)} perPage={table.perPage} q={table.q} total={total} placeholder="Search name, content, category…" />
           <div className="table-responsive">
             <table className="table align-middle table-nowrap table-striped mb-0">
               <thead className="table-light">

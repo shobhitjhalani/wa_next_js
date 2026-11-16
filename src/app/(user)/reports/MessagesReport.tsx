@@ -79,7 +79,7 @@ export async function MessagesReport({ type, title, searchParams }: { type: Repo
           )}
         </div>
         <div className="card-body">
-          <DataTableControls path={path} query={queryString(params)} perPage={table.perPage} q={table.q} placeholder="Search mobile, template, text…" />
+          <DataTableControls path={path} query={queryString(params)} perPage={table.perPage} q={table.q} total={total} placeholder="Search mobile, template, text…" />
           <div className="table-responsive">
             <table className="table align-middle table-nowrap table-striped mb-0">
               <thead className="table-light">

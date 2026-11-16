@@ -27,7 +27,7 @@ export default async function AdminDashboardPage() {
                 CASE WHEN m_is_incoming = 1 THEN 'Incoming'
                      WHEN m_status = 1 THEN 'Que'
                      WHEN m_status = 6 THEN 'Processing'
-                     WHEN m_message_id = '' THEN 'Error'
+                     WHEN COALESCE(m_message_id, '') = '' THEN 'Error'
                      WHEN m_message_id <> '' THEN 's:' || COALESCE(NULLIF(m_delivery_status, ''), 'sent')
                 END AS col
            FROM js_message

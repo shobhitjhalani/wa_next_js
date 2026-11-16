@@ -44,7 +44,7 @@ export default async function MessageReportPage({ params, searchParams }: { para
       ? one<{ total: number; pending: number; error: number; sent: number; tsent: number }>(
         `SELECT COUNT(*) FILTER (WHERE ${statusWhere})::int AS total,
                 COUNT(*) FILTER (WHERE m_status = 1)::int AS pending,
-                COUNT(*) FILTER (WHERE m_status = 3 AND m_message_id = '')::int AS error,
+                COUNT(*) FILTER (WHERE m_status = 3 AND COALESCE(m_message_id, '') = '')::int AS error,
                 COUNT(*) FILTER (WHERE m_status = 3 AND m_message_id <> '')::int AS sent,
                 COUNT(*) FILTER (WHERE m_status = 3 AND m_message_id <> '' AND m_msg_type = 'template')::int AS tsent
            FROM js_message WHERE ${where}`, args)
@@ -122,7 +122,7 @@ export default async function MessageReportPage({ params, searchParams }: { para
           </form>
         </div>
         <div className="card-body">
-          <DataTableControls path={path} query={query_} perPage={perPage} q={table.q} placeholder="Search mobile, template, text…" />
+          <DataTableControls path={path} query={query_} perPage={perPage} q={table.q} total={total} placeholder="Search mobile, template, text…" />
           <form action={bulkMessages}>
             <input type="hidden" name="back" value={`${path}${query_ ? '?' + query_ : ''}`} />
             {bulk && (

@@ -8,8 +8,10 @@ import { PAGE_SIZES, tableHref } from '@/lib/datatable';
  * "Show N entries" + live "Search" for a server-side DataTable. Only changes the URL (back to
  * page 1); the page re-renders on the server. `query` is the current query string.
  */
-export function DataTableControls({ path, query, perPage, q, placeholder = 'Search…' }: {
+export function DataTableControls({ path, query, perPage, q, total, placeholder = 'Search…' }: {
   path: string; query: string; perPage: number; q: string; placeholder?: string;
+  /** Matching rows, shown as "Total: N". */
+  total?: number;
 }) {
   const router = useRouter();
   const [pending, startTransition] = useTransition();
@@ -33,6 +35,7 @@ export function DataTableControls({ path, query, perPage, q, placeholder = 'Sear
         </select>
         entries
       </label>
+      {total !== undefined && <span className="badge bg-primary-subtle text-primary fs-6 fw-semibold">Total: {total.toLocaleString('en-US')}</span>}
       {pending && <span className="spinner-border spinner-border-sm text-primary" role="status" aria-label="Loading" />}
       <div className="ms-auto position-relative datatable-search">
         <i className="ri-search-line position-absolute top-50 translate-middle-y ms-2 text-muted" aria-hidden />

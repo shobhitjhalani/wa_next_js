@@ -31,7 +31,7 @@ export default async function SummaryPage({ searchParams }: { searchParams: Prom
          FROM js_message
         WHERE m_dstatus = 0 ${rangeSql}
           AND ($1::int IS NULL OR m_user_id = $1)
-          AND (m_is_incoming = 1 OR (m_is_incoming = 2 AND m_status = 3 AND (m_message_id <> '' OR m_message_id = '')))
+          AND (m_is_incoming = 1 OR (m_is_incoming = 2 AND m_status = 3))
         GROUP BY 1, 2`,
       args,
     ),

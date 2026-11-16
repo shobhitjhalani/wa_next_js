@@ -70,7 +70,7 @@ export default async function CampaignSummaryReportPage({ searchParams }: { sear
           </form>
         </div>
         <div className="card-body">
-          <DataTableControls path={PATH} query={queryString(sp)} perPage={table.perPage} q={table.q} placeholder="Search campaign / template…" />
+          <DataTableControls path={PATH} query={queryString(sp)} perPage={table.perPage} q={table.q} total={allRows.length} placeholder="Search campaign / template…" />
           {!rows.length ? <p className="text-muted mb-0">{filter.q ? 'No campaigns match this search.' : 'No campaigns for this period.'}</p> : (
             <div className="table-responsive">
               <table className="table table-sm align-middle table-nowrap table-striped table-report mb-0">

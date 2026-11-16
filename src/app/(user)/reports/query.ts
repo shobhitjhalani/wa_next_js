@@ -49,7 +49,7 @@ export function reportFilter(userId: number, type: ReportType, params: Params): 
   };
 
   if (type === 'failed') where.push(`m_delivery_status = 'failed'`);
-  if (type === 'error') where.push(`m_message_id = ''`);
+  if (type === 'error') where.push(`COALESCE(m_message_id, '') = ''`); // legacy rows store a missing id as NULL
   const range = parseDateRange(dateInput(params));
   if (range) add('m_created_on BETWEEN ? AND ?', range[0], range[1]); // whereBetween: both bounds inclusive
   const mobile = sp(params, 'mobile_no');

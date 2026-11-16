@@ -66,7 +66,7 @@ export function messageWhere(params: Params, type: string): { where: string; sta
   const c: string[] = ['m_is_incoming = 2', 'm_dstatus = 0'];
   if (type === 'que') c.push('m_status = 1');
   if (type === 'in_process') c.push('m_status = 6');
-  if (type === 'error') c.push("((m_status = 3 AND m_message_id = '') OR m_status = 4)");
+  if (type === 'error') c.push("((m_status = 3 AND COALESCE(m_message_id, '') = '') OR m_status = 4)");
   if (type === 'failed') c.push("m_status <> 1 AND m_delivery_status = 'failed'");
 
   const range = dateRange(dateInput(params, ['send', 'error', 'failed'].includes(type)));

@@ -137,7 +137,7 @@ export async function emailReports(opts: { users?: number[]; adminOnly?: boolean
       await sendMail({
         to: { name: u.u_name ?? '', address: u.u_email_id },
         bcc,
-        subject: `WA Messages Report of ${u.u_name ?? ''} as on ${phpDate('M d, Y')}`,
+        subject: `WA Messages Report of ${u.u_name ?? ''} as on ${phpDate('M d, Y h:i A')}`,
         html: userReportHtml(await userTemplateReport(u.u_id)),
       });
       sent++;

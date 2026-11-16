@@ -11,6 +11,20 @@ const int = (key: string, fallback: number): number => {
   const n = parseInt(process.env[key] ?? '', 10);
   return Number.isFinite(n) ? n : fallback;
 };
+/** '08:00-23:00/30, 23:30' → ['08:00', '08:30', …, '23:00', '23:30'] */
+function reportTimes(spec: string): string[] {
+  const hhmm = (min: number) => `${String(Math.floor(min / 60)).padStart(2, '0')}:${String(min % 60).padStart(2, '0')}`;
+  const toMin = (t: string) => { const [h, m] = t.split(':').map(Number); return h * 60 + (m || 0); };
+  const out = new Set<string>();
+  for (const part of spec.split(',').map((v) => v.trim()).filter(Boolean)) {
+    const r = /^(\d{1,2}:\d{2})\s*-\s*(\d{1,2}:\d{2})\s*\/\s*(\d+)$/.exec(part);
+    if (r) {
+      const step = Math.max(5, parseInt(r[3], 10));
+      for (let t = toMin(r[1]); t <= toMin(r[2]); t += step) out.add(hhmm(t));
+    } else if (/^\d{1,2}:\d{2}$/.test(part)) out.add(hhmm(toMin(part)));
+  }
+  return [...out].sort();
+}
 const dir = (key: string, fallback: string): string => path.resolve(/* turbopackIgnore: true */ process.cwd(), env(key, fallback));
 
 export const config = {
@@ -87,14 +101,17 @@ export const config = {
   // Shared key the legacy waapi/client_api.php required in its Api-Key header ('' = not checked)
   clientApiKey: env('CLIENT_API_KEY'),
 
+  // SMTP_* (SMTP_URL, SMTP_PORT, SMTP_USERNAME, SMTP_PASSWORD, SMTP_EMAIL_FROM) win over MAIL_*;
+  // MAIL_MAILER=log prints mails to the worker log instead of sending
   mail: {
     mailer: env('MAIL_MAILER', 'log'),
-    host: env('MAIL_HOST', '127.0.0.1'),
-    port: int('MAIL_PORT', 2525),
-    username: env('MAIL_USERNAME'),
-    password: env('MAIL_PASSWORD'),
-    secure: env('MAIL_SECURE') === 'true',
-    fromAddress: env('MAIL_FROM_ADDRESS', 'hello@example.com'),
+    host: env('SMTP_URL').replace(/^smtps?:\/\//, '') || env('MAIL_HOST', '127.0.0.1'),
+    port: int('SMTP_PORT', int('MAIL_PORT', 2525)),
+    username: env('SMTP_USERNAME') || env('MAIL_USERNAME'),
+    password: env('SMTP_PASSWORD') || env('MAIL_PASSWORD'),
+    // 465 is implicit TLS; 587 / 2525 upgrade with STARTTLS
+    secure: env('MAIL_SECURE') === 'true' || int('SMTP_PORT', int('MAIL_PORT', 2525)) === 465,
+    fromAddress: env('SMTP_EMAIL_FROM') || env('MAIL_FROM_ADDRESS', 'hello@example.com'),
     fromName: env('MAIL_FROM_NAME', env('APP_NAME', 'JS Coretech')),
   },
 
@@ -106,7 +123,9 @@ export const config = {
       .split(',')
       .map((v) => parseInt(v, 10))
       .filter((n) => n > 0),
-    time: env('REPORT_EMAIL_TIME', '23:30'),
+    // REPORT_EMAIL_TIMES: 'HH:MM' times and / or 'HH:MM-HH:MM/minutes' ranges, comma separated
+    // (e.g. 08:00-23:00/30 = every 30 minutes from 8 AM to 11 PM); falls back to REPORT_EMAIL_TIME
+    times: reportTimes(env('REPORT_EMAIL_TIMES') || env('REPORT_EMAIL_TIME', '23:30')),
   },
 
   // Database backups to DigitalOcean Spaces (src/lib/services/backup.ts)

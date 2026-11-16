@@ -31,7 +31,8 @@ export const JOBS: Job[] = [
   { name: 'process-webhooks', schedule: { everySeconds: 60 }, run: (log) => processWebhooks(log) },
   { name: 'expire-plans', schedule: { hourly: true }, run: (log) => expirePlans(log) },
   { name: 'cleanup', schedule: { dailyAt: '02:30' }, run: (log) => cleanup(log) },
-  { name: 'email-reports', schedule: { dailyAt: config.reports.time }, run: (log) => emailReports({}, log) },
+  // REPORT_EMAIL_TIMES, e.g. every 30 minutes from 08:00 to 23:00
+  { name: 'email-reports', schedule: { dailyAt: config.reports.times }, run: (log) => emailReports({}, log) },
   // Database backup to DigitalOcean Spaces (BACKUP_TIMES, default 00:00) and the ones queued from /wamaster/backups
   { name: 'db-backup', schedule: { dailyAt: config.backup.times }, run: (log) => scheduledBackup(log) },
   { name: 'db-backup-requested', schedule: { everySeconds: 30 }, run: (log) => requestedBackups(log) },

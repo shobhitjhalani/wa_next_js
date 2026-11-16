@@ -69,8 +69,10 @@ export async function campaignSummary(scope: SummaryScope, f: SummaryFilter): Pr
     .filter(({ date }) => !range || (date >= range[0] && date < range[1]))
     .sort((a, b) => b.date - a.date || b.c.uc_id - a.c.uc_id);
 
-  const tracked = inRange.filter(({ c }) => campaignIsTracked(c)).map(({ c }) => c.uc_id);
-  const stats = tracked.length
+  // Count every campaign's linked messages: campaigns sent by the legacy PHP app have no
+  // uc_started_at, but their messages do carry m_campaign_id (js_message_campaign_idx)
+  const ids = inRange.map(({ c }) => c.uc_id);
+  const stats = ids.length
     ? await query<{ id: number } & Omit<Counts, 'total' | 'all'>>(
       `SELECT m_campaign_id AS id,
               COUNT(*) FILTER (WHERE m_status = 3 AND COALESCE(m_message_id, '') <> '' AND COALESCE(m_delivery_status, '') NOT IN ('delivered', 'read', 'failed'))::int AS sent,
@@ -79,9 +81,9 @@ export async function campaignSummary(scope: SummaryScope, f: SummaryFilter): Pr
               COUNT(*) FILTER (WHERE m_status = 3 AND COALESCE(m_message_id, '') <> '' AND m_delivery_status = 'failed')::int AS failed,
               COUNT(*) FILTER (WHERE m_status = 3 AND COALESCE(m_message_id, '') = '')::int AS error,
               COUNT(*) FILTER (WHERE m_status IN (1, 6))::int AS queue
-         FROM js_message WHERE m_campaign_id = ANY($1::int[]) AND m_dstatus = 0
+         FROM js_message WHERE m_campaign_id = ANY($1::int[]) AND m_campaign_id > 0 AND m_dstatus = 0
         GROUP BY m_campaign_id`,
-      [tracked],
+      [ids],
     )
     : [];
   const byId = new Map(stats.map((s) => [s.id, s]));
@@ -91,7 +93,8 @@ export async function campaignSummary(scope: SummaryScope, f: SummaryFilter): Pr
   const rows = inRange.map(({ c, date }): SummaryRow => {
     const recipients = Number(c.uc_total_contacts) || 0;
     const who = { userId: c.uc_user_id, username: String(c.u_username ?? c.uc_user_id) };
-    if (!campaignIsTracked(c)) {
+    // Untracked: sent before messages were linked to campaigns (no linked messages and never dispatched by this app)
+    if (!campaignIsTracked(c) && !byId.has(c.uc_id)) {
       untracked++;
       totals.all += recipients;
       return { id: c.uc_id, ...who, date, name: campaignTitle(c), template: c.uc_template ?? '', counts: null, recipients };

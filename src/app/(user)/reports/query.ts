@@ -1,6 +1,7 @@
 import 'server-only';
 import { config } from '@/lib/config';
-import { query, tx } from '@/lib/db';
+import { sqlDir, tableState, type TableState } from '@/lib/datatable';
+import { like, query, tx } from '@/lib/db';
 import { sp } from '@/lib/http';
 import type { MessageRow } from '@/lib/types';
 import { parseDateRange, todayString } from '@/lib/time';
@@ -14,6 +15,12 @@ export type ReportType = 'queue' | 'all' | 'failed' | 'error';
 export type Params = Record<string, string | string[] | undefined> | URLSearchParams;
 
 export const PAGE_SIZE = config.site.pageSize;
+
+/** Sortable columns of the report tables → SQL (whitelist). */
+export const REPORT_SORTS = { date: 'm_id', mobile: 'm_mobile_no', updated: 'm_updated_on', status: 'm_status' } as const;
+export type ReportSort = keyof typeof REPORT_SORTS;
+export const REPORT_TABLE = { sorts: Object.keys(REPORT_SORTS) as ReportSort[], sort: 'date' as ReportSort, dir: 'desc' as const, perPage: PAGE_SIZE };
+export const reportTable = (params: Params) => tableState<ReportSort>(params, REPORT_TABLE);
 
 /**
  * Statuses each report covers. 'all' / 'failed' have no status condition in
@@ -54,6 +61,13 @@ export function reportFilter(userId: number, type: ReportType, params: Params): 
   const msgType = sp(params, 'msg_type');
   if (msgType === '1') where.push(`m_msg_type = 'template'`);
   if (msgType === '2') where.push(`m_msg_type <> 'template'`);
+  // Table search: mobile number, template name or message text
+  const q = sp(params, 'q').slice(0, 100);
+  if (q) {
+    args.push(like(q));
+    const n = args.length;
+    where.push(`(m_mobile_no LIKE '%' || $${n} || '%' OR m_msg_template_name ILIKE '%' || $${n} || '%' OR m_content ILIKE '%' || $${n} || '%')`);
+  }
 
   return { where: where.join(' AND '), args };
 }
@@ -80,19 +94,21 @@ export type ReportMessage = Pick<MessageRow,
 const LIST_COLUMNS = `m_id, m_created_on, m_mobile_no, m_content, m_msg_template_name, m_msg_type, m_msg_template_para, m_image,
   m_response_file_name, m_updated_on, m_status, m_message_id, m_delivery_status, m_status_response`;
 
-/** One page (newest first) and the total, from a single pass over the matching rows. */
-export async function reportPage(userId: number, type: ReportType, params: Params, page: number): Promise<{ total: number; rows: ReportMessage[] }> {
+/** One page in the table's order (default newest first) and the total, from a single pass over the matching rows. */
+export async function reportPage(userId: number, type: ReportType, params: Params, table: TableState<ReportSort>): Promise<{ total: number; rows: ReportMessage[] }> {
   const { where, args } = reportFilter(userId, type, params);
-  args.push((page - 1) * PAGE_SIZE);
+  args.push((table.page - 1) * table.perPage);
+  const col = REPORT_SORTS[table.sort];
+  const dir = sqlDir(table.dir);
   const rows = await reportQuery<ReportMessage & { total: number }>(
-    `WITH f AS MATERIALIZED (SELECT m_id FROM js_message WHERE ${where})
+    `WITH f AS MATERIALIZED (SELECT m_id, ${col} AS s FROM js_message WHERE ${where})
      SELECT t.total, p.*
        FROM (SELECT COUNT(*)::int AS total FROM f) t
        LEFT JOIN LATERAL (
          SELECT ${LIST_COLUMNS} FROM js_message
-          WHERE m_id IN (SELECT m_id FROM f ORDER BY m_id DESC LIMIT ${PAGE_SIZE} OFFSET $${args.length})
+          WHERE m_id IN (SELECT m_id FROM f ORDER BY s ${dir} NULLS LAST, m_id ${dir} LIMIT ${table.perPage} OFFSET $${args.length})
        ) p ON true
-      ORDER BY p.m_id DESC`,
+      ORDER BY p.${col} ${dir} NULLS LAST, p.m_id ${dir}`,
     args,
   );
   return { total: rows[0]?.total ?? 0, rows: rows.filter((r) => r.m_id != null) };

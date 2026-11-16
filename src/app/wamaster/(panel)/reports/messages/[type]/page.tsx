@@ -7,10 +7,12 @@ import { limit, numberFormat } from '@/lib/text';
 import { phpDate } from '@/lib/time';
 import type { MessageRow } from '@/lib/types';
 import { PageTitle } from '@/components/PageTitle';
-import { Pagination, pageParam } from '@/components/Pagination';
+import { DataTableControls, DataTableHidden, SortTh, queryString } from '@/components/DataTable';
+import { Pagination } from '@/components/Pagination';
+import { tableState } from '@/lib/datatable';
 import { ConfirmButton, DateRangeInput, SelectAll } from '@/components/ui';
 import { bulkMessages } from '../actions';
-import { dateInput, filled, input, intParam, MESSAGE_REPORTS, messageOrder, messageWhere, waUsers, type Params } from '../../_lib';
+import { dateInput, filled, input, intParam, MESSAGE_REPORTS, MESSAGE_SORTS, messageTableOrder, messageWhere, waUsers, type MessageSort, type Params } from '../../_lib';
 import { AutoSubmitSelect } from '../../_ui';
 
 const COLS = `m_id, m_user_id, m_created_on, m_in_process_on, m_mobile_no, m_msg_type, m_content, m_msg_template_name,
@@ -23,10 +25,11 @@ export default async function MessageReportPage({ params, searchParams }: { para
   const title = MESSAGE_REPORTS[type];
   if (!title) notFound();
 
-  const page = pageParam(sp.page);
-  const perPage = config.site.pageSize;
+  const tableDefaults = { sorts: Object.keys(MESSAGE_SORTS) as MessageSort[], sort: 'date' as MessageSort, dir: 'desc' as const, perPage: config.site.pageSize };
+  const table = tableState(sp, tableDefaults);
+  const { page, perPage } = table;
   const { where, statusWhere, args, ranged } = messageWhere(sp, type);
-  const order = messageOrder(ranged);
+  const order = messageTableOrder(ranged, table.sort, table.dir);
   const n = args.length;
 
   const [messages, counts, users, templateNames] = await Promise.all([
@@ -65,6 +68,7 @@ export default async function MessageReportPage({ params, searchParams }: { para
   for (const [k, v] of Object.entries(sp)) for (const item of Array.isArray(v) ? v : v === undefined ? [] : [v]) qs.append(k, item);
   const query_ = qs.toString();
   const path = `/wamaster/reports/messages/${type}`;
+  const th = { path, params: sp, state: table };
 
   return (
     <>
@@ -79,6 +83,7 @@ export default async function MessageReportPage({ params, searchParams }: { para
       <div className="card">
         <div className="card-header">
           <form method="get" className="row g-2 align-items-center filter-bar">
+            <DataTableHidden state={table} defaults={tableDefaults} />
             <div className="col-md-2"><DateRangeInput name="wa_date" defaultValue={dtInput} placeholder="Date range" /></div>
             <div className="col-md-2">
               <AutoSubmitSelect className="form-select" name="user_id" defaultValue={userId} aria-label="User">
@@ -117,7 +122,7 @@ export default async function MessageReportPage({ params, searchParams }: { para
           </form>
         </div>
         <div className="card-body">
-          {type !== 'send' && <p className="text-muted small">{numberFormat(total)} message(s)</p>}
+          <DataTableControls path={path} query={query_} perPage={perPage} q={table.q} placeholder="Search mobile, template, text…" />
           <form action={bulkMessages}>
             <input type="hidden" name="back" value={`${path}${query_ ? '?' + query_ : ''}`} />
             {bulk && (
@@ -135,7 +140,13 @@ export default async function MessageReportPage({ params, searchParams }: { para
                 <thead className="table-light">
                   <tr>
                     {bulk && <th><SelectAll target=".mids" /></th>}
-                    <th>Username</th><th>Date</th><th>Mobile</th><th>Type</th><th>Content</th><th>Sheet</th><th>Updated</th><th>Status</th>
+                    <th>Username</th>
+                    <SortTh {...th} column="date" first="desc">Date</SortTh>
+                    <SortTh {...th} column="mobile">Mobile</SortTh>
+                    <SortTh {...th} column="type">Type</SortTh>
+                    <th>Content</th><th>Sheet</th>
+                    <SortTh {...th} column="updated" first="desc">Updated</SortTh>
+                    <SortTh {...th} column="status">Status</SortTh>
                   </tr>
                 </thead>
                 <tbody>
@@ -158,7 +169,7 @@ export default async function MessageReportPage({ params, searchParams }: { para
               </table>
             </div>
           </form>
-          <div className="mt-3"><Pagination path={path} params={sp} page={page} perPage={perPage} total={total} /></div>
+          <div className="mt-3"><Pagination path={path} params={sp} page={page} perPage={perPage} total={total} always /></div>
         </div>
       </div>
     </>

@@ -3,6 +3,7 @@
 import Link from 'next/link';
 import { useEffect, useRef, useState, type KeyboardEvent } from 'react';
 import { ActionForm, FieldError, SubmitButton } from '@/components/ActionForm';
+import { EmojiButton } from '@/components/EmojiButton';
 import type { ActionResult } from '@/lib/actions';
 import { toggleWaMarker, waToHtml } from '@/lib/whatsapp-text';
 
@@ -56,21 +57,24 @@ function formatShortcut(e: KeyboardEvent<HTMLTextAreaElement>, set: (v: string) 
   toggleFormat(e.currentTarget, e.currentTarget.value, set, f.marker);
 }
 
-/** Bold / Italic buttons above a message textarea. */
-function FormatBar({ target, value, onChange, size = '' }: {
-  target: () => HTMLTextAreaElement | null | undefined; value: string; onChange: (v: string) => void; size?: string;
+/** Emoji, Bold and Italic buttons above a message textarea. */
+function FormatBar({ target, value, onChange }: {
+  target: () => HTMLTextAreaElement | null | undefined; value: string; onChange: (v: string) => void;
 }) {
   return (
-    <div className={`btn-group btn-group-sm ${size}`} role="toolbar" aria-label="Text formatting">
-      {FORMATS.map((f) => (
-        <button
-          key={f.marker} type="button" className="btn btn-light border" title={`${f.label} (Ctrl+${f.key.toUpperCase()})`} aria-label={f.label}
-          onMouseDown={(e) => e.preventDefault() /* keep the textarea selection */}
-          onClick={() => toggleFormat(target(), value, onChange, f.marker)}
-        >
-          <i className={f.icon} />
-        </button>
-      ))}
+    <div className="d-flex gap-1" role="toolbar" aria-label="Text formatting">
+      <EmojiButton target={target} onInsert={onChange} />
+      <div className="btn-group btn-group-sm">
+        {FORMATS.map((f) => (
+          <button
+            key={f.marker} type="button" className="btn btn-light border" title={`${f.label} (Ctrl+${f.key.toUpperCase()})`} aria-label={f.label}
+            onMouseDown={(e) => e.preventDefault() /* keep the textarea selection */}
+            onClick={() => toggleFormat(target(), value, onChange, f.marker)}
+          >
+            <i className={f.icon} />
+          </button>
+        ))}
+      </div>
     </div>
   );
 }
@@ -218,7 +222,7 @@ export function TemplateForm({ action, languages, initialKind, flows, categories
               onChange={(e) => setBody(e.target.value)} onKeyDown={(e) => formatShortcut(e, setBody)}
             />
             <div className="d-flex justify-content-between form-text">
-              <span>Use {'{{1}}'}, {'{{2}}'}… for values filled in when sending. Select text and click <strong>B</strong> or <em>I</em> (or type *bold*, _italic_, ~strike~).</span>
+              <span>Use {'{{1}}'}, {'{{2}}'}… for values filled in when sending. Select text and click <strong>B</strong> or <em>I</em> (or type *bold*, _italic_, ~strike~); use ☺ for emojis.</span>
               <button type="button" className="btn btn-link btn-sm p-0 add-variable" onClick={() => addVariable(bodyRef.current, body, setBody)}>+ Add variable</button>
             </div>
             <FieldError name="body" />

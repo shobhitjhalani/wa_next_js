@@ -1,6 +1,7 @@
 import { requireUser } from '@/lib/auth';
 import { Shell } from '@/components/panel/Shell';
 import type { MenuItem } from '@/components/panel/Sidebar';
+import { API_DOCS_VISIBLE } from './api_docs/visibility';
 
 /** User panel frame (layouts/user.blade.php). Every page below requires a signed-in user. */
 export default async function UserLayout({ children }: { children: React.ReactNode }) {
@@ -48,7 +49,7 @@ export default async function UserLayout({ children }: { children: React.ReactNo
         { label: 'Campaign Summary', href: '/reports_templates' },
       ],
     },
-    { label: 'API', icon: 'ri-code-s-slash-line', href: '/api_docs' },
+    ...(API_DOCS_VISIBLE ? [{ label: 'API', icon: 'ri-code-s-slash-line', href: '/api_docs' } satisfies MenuItem] : []),
     {
       label: 'Plans', icon: 'ri-wallet-3-line', children: [
         { label: 'Recharge', href: '/wa_plans' },

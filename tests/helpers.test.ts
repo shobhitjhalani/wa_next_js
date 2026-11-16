@@ -5,6 +5,7 @@ import { decodeEntities, limit, numberFormat } from '@/lib/text';
 import { legacyHash, checkPassword, hashPassword, needsUpgrade } from '@/lib/password';
 import { ccaDecode, ccaDecrypt, ccaEncrypt } from '@/lib/ccavenue';
 import { toggleWaMarker, waToHtml } from '@/lib/whatsapp-text';
+import { sortRows, sqlDir, tableHref, tableState } from '@/lib/datatable';
 import { contactInitials, countVariables, messagePreview, messageStatusLabel, messageSummary, templateParameterCount, templateVariables } from '@/lib/format';
 
 describe('phone (Support\\Phone)', () => {
@@ -145,5 +146,34 @@ describe('campaign sending window (07:00–23:00 IST)', () => {
     expect(open('22:59')).toBe(true);
     expect(open('23:00')).toBe(false);
     expect(open('00:06')).toBe(false);
+  });
+});
+
+describe('server-side DataTable state', () => {
+  const opts = { sorts: ['date', 'name'] as const, sort: 'date' as const, dir: 'desc' as const, perPage: 25 };
+
+  it('reads page, size, search and a whitelisted sort from the URL', () => {
+    expect(tableState({ page: '3', per_page: '50', q: '  sale ', sort: 'name', dir: 'asc' }, opts))
+      .toEqual({ page: 3, perPage: 50, q: 'sale', sort: 'name', dir: 'asc' });
+  });
+
+  it('falls back to defaults for unknown or unsafe values', () => {
+    expect(tableState({ page: '-2', per_page: '9999', sort: 'm_id; DROP TABLE x', dir: 'sideways' }, opts))
+      .toEqual({ page: 1, perPage: 25, q: '', sort: 'date', dir: 'desc' });
+    expect(sqlDir('asc')).toBe('ASC');
+    expect(sqlDir('desc')).toBe('DESC');
+  });
+
+  it('builds links that keep filters, drop page 1 and remove cleared keys', () => {
+    const params = { wa_date: '01-11-2026 to 16-11-2026', page: '4', q: 'old' };
+    expect(tableHref('/reports', params, { sort: 'name', dir: 'asc', page: null }))
+      .toBe('/reports?wa_date=01-11-2026+to+16-11-2026&q=old&sort=name&dir=asc');
+    expect(tableHref('/reports', params, { q: null, page: 1 })).toBe('/reports?wa_date=01-11-2026+to+16-11-2026');
+  });
+
+  it('sorts computed rows numerically and by text', () => {
+    const rows = [{ n: 'b10', v: 2 }, { n: 'b9', v: 10 }, { n: 'A', v: null }];
+    expect(sortRows(rows, (r) => r.v, 'desc').map((r) => r.v)).toEqual([10, 2, null]);
+    expect(sortRows(rows, (r) => r.n, 'asc').map((r) => r.n)).toEqual(['A', 'b9', 'b10']);
   });
 });

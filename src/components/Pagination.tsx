@@ -10,13 +10,15 @@ import { numberFormat } from '@/lib/text';
  * Pass total = null for simple "Previous / Next" paging when counting is too
  * expensive; then pass hasMore.
  */
-export function Pagination({ path, params, page, perPage, total, hasMore }: {
+export function Pagination({ path, params, page, perPage, total, hasMore, always }: {
   path: string;
   params: Record<string, string | string[] | undefined>;
   page: number;
   perPage: number;
   total: number | null;
   hasMore?: boolean;
+  /** Show the "Showing x to y of z" line even when everything fits on one page (DataTables). */
+  always?: boolean;
 }) {
   const last = total === null ? (hasMore ? page + 1 : page) : Math.max(1, Math.ceil(total / perPage));
   const href = (p: number) => {
@@ -29,8 +31,8 @@ export function Pagination({ path, params, page, perPage, total, hasMore }: {
     const s = qs.toString();
     return s ? `${path}?${s}` : path;
   };
-  if (total !== null && total <= perPage && page <= 1) return null;
-  if (total === null && !hasMore && page <= 1) return null;
+  if (!always && total !== null && total <= perPage && page <= 1) return null;
+  if (!always && total === null && !hasMore && page <= 1) return null;
 
   const pages: (number | '…')[] = [];
   if (total !== null) {
@@ -40,7 +42,7 @@ export function Pagination({ path, params, page, perPage, total, hasMore }: {
       else if (pages[pages.length - 1] !== '…') pages.push('…');
     }
   }
-  const from = (page - 1) * perPage + 1;
+  const from = total === 0 ? 0 : (page - 1) * perPage + 1;
   const to = total === null ? page * perPage : Math.min(total, page * perPage);
   // Past the last page (e.g. ?page=9 or rows deleted since): Laravel's "0 of N results"
   const outOfRange = total !== null && from > total;

@@ -1,9 +1,11 @@
 import type { Metadata } from 'next';
+import { notFound } from 'next/navigation';
 import { PageTitle } from '@/components/PageTitle';
 import { requireUser } from '@/lib/auth';
 import { config } from '@/lib/config';
 import { categoriesLabel } from '@/lib/template-categories';
 import { CopyButton } from './CopyButton';
+import { API_DOCS_VISIBLE } from './visibility';
 
 export const metadata: Metadata = { title: 'API' };
 
@@ -46,6 +48,7 @@ function Endpoint({ id, method, path, title, children }: { id: string; method: '
 
 /** API documentation with the account's own key and base URL. */
 export default async function ApiDocsPage() {
+  if (!API_DOCS_VISIBLE) notFound();
   const user = await requireUser();
   const base = `${config.appUrl}/api/v2`;
   const key = user.u_access_code ?? '';

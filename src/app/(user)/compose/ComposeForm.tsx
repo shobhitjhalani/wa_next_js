@@ -1,9 +1,10 @@
 'use client';
 
 import Link from 'next/link';
-import { useMemo, useRef, useState } from 'react';
+import { useCallback, useMemo, useRef, useState } from 'react';
 import { ActionForm, useActionForm } from '@/components/ActionForm';
 import type { ActionResult } from '@/lib/actions';
+import { GroupContactsModal } from './GroupContactsModal';
 import { TemplateInputs, TemplatePreview, type ComposeTemplate } from './TemplateParts';
 
 /**
@@ -37,6 +38,12 @@ export function ComposeForm({ action, templates, selected, groups, preselectedGr
   const [later, setLater] = useState(false);
   const [noAudience, setNoAudience] = useState(false);
   const request = useRef(0);
+  const [groupQuery, setGroupQuery] = useState('');
+  const [viewGroup, setViewGroup] = useState<Group | null>(null);
+  const closeViewGroup = useCallback(() => setViewGroup(null), []);
+  const needle = groupQuery.trim().toLowerCase();
+  const matchesGroup = (g: Group) => !needle || g.name.toLowerCase().includes(needle);
+  const shownGroups = groups.filter(matchesGroup).length;
 
   const pasted = useMemo(() => pastedNumbers(numbers), [numbers]);
   const groupTotal = groups.reduce((sum, g) => sum + (checked.has(g.id) ? g.count : 0), 0);
@@ -104,9 +111,27 @@ export function ComposeForm({ action, templates, selected, groups, preselectedGr
                 {!groups.length ? (
                   <p className="text-muted small mb-0">No groups yet. <Link href="/contacts/upload">Upload contacts</Link> to create one, or paste numbers below.</p>
                 ) : (
+                  <>
+                  {groups.length > 5 && (
+                    <div className="d-flex align-items-center gap-2 mb-2">
+                      <div className="position-relative flex-grow-1">
+                        <i className="ri-search-line position-absolute top-50 translate-middle-y ms-2 text-muted" aria-hidden />
+                        <input
+                          type="search" className="form-control form-control-sm ps-4" placeholder="Find a group" aria-label="Find a group" value={groupQuery}
+                          onChange={(e) => setGroupQuery(e.target.value)}
+                          onKeyDown={(e) => { if (e.key === 'Enter') e.preventDefault(); /* don't submit the form */ }}
+                        />
+                      </div>
+                      <span className="small text-muted text-nowrap">
+                        {groupQuery.trim() ? `${shownGroups} of ${groups.length}` : `${groups.length} groups`}{selectedGroups ? ` · ${selectedGroups} selected` : ''}
+                      </span>
+                    </div>
+                  )}
                   <div className="border rounded p-2 group-picker">
+                    {groupQuery.trim() && !shownGroups && <p className="text-muted small mb-0">No group matches “{groupQuery.trim()}”.</p>}
                     {groups.map((g) => (
-                      <div className="form-check" key={g.id}>
+                      // Filtered-out groups are only hidden (d-none, not removed), so a checked one is still submitted
+                      <div className={`form-check align-items-center gap-2 ${matchesGroup(g) ? 'd-flex' : 'd-none'}`} key={g.id}>
                         <input
                           className="form-check-input group-check" type="checkbox" name="groups[]" value={g.id} id={`group_${g.id}`} data-count={g.count}
                           checked={checked.has(g.id)}
@@ -118,14 +143,22 @@ export function ComposeForm({ action, templates, selected, groups, preselectedGr
                             setNoAudience(false);
                           }}
                         />
-                        <label className="form-check-label d-flex" htmlFor={`group_${g.id}`}>
+                        <label className="form-check-label d-flex flex-grow-1" htmlFor={`group_${g.id}`}>
                           <span className="me-auto">{g.name}</span>
                           <span className="text-muted small">{g.count.toLocaleString('en-US')}</span>
                         </label>
+                        <button
+                          type="button" className="btn btn-link btn-sm p-0 text-info" title="View contacts" aria-label={`View contacts in ${g.name}`}
+                          onClick={() => setViewGroup(g)}
+                        >
+                          <i className="ri-eye-line" />
+                        </button>
                       </div>
                     ))}
                   </div>
+                  </>
                 )}
+                {viewGroup && <GroupContactsModal groupId={viewGroup.id} name={viewGroup.name} onClose={closeViewGroup} />}
               </div>
               <div>
                 <label htmlFor="txt_contact" className="form-label">Additional Numbers <span className="text-muted">(one per line or comma separated)</span></label>

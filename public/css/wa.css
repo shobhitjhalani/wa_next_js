@@ -35,6 +35,10 @@
 .wh-carousel { display: flex; gap: .75rem; overflow-x: auto; padding-bottom: .5rem; scroll-snap-type: x mandatory; }
 .wh-carousel .wh-card { flex: 0 0 220px; scroll-snap-align: start; }
 .wh-carousel .wh-msg { padding: .6rem .75rem; font-size: .85rem; }
+/* Emoji picker under the template editor toolbar */
+.emoji-popover { position: absolute; top: 100%; right: 0; margin-top: .25rem; z-index: 1056; }
+.emoji-popover em-emoji-picker { height: 380px; max-width: calc(100vw - 2rem); }
+
 /* Template popup on the list: chat-coloured backdrop behind the bubble */
 .tpl-view-body { background: #efeae2; }
 .tpl-view-body .wh-card { margin: 0 auto; }
@@ -159,3 +163,10 @@
 .quote-button-label { font-size: .7rem; color: #667781; margin-bottom: .1rem; }
 .chat-msg.flash .bubble { animation: msg-flash 1.2s ease-out; }
 @keyframes msg-flash { 0%, 40% { box-shadow: 0 0 0 3px rgba(6, 207, 156, .55); } 100% { box-shadow: 0 0 0 0 rgba(6, 207, 156, 0); } }
+
+/* Server-side DataTables (components/DataTable.tsx) */
+.datatable-search { width: 260px; max-width: 100%; }
+.datatable-search i { pointer-events: none; }
+th .sort-th { white-space: nowrap; cursor: pointer; }
+th .sort-th:hover { color: var(--vz-primary, #405189) !important; }
+th.num .sort-th { justify-content: flex-end; width: 100%; }

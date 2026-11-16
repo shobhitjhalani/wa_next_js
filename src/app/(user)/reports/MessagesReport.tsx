@@ -1,14 +1,15 @@
 import { PageTitle } from '@/components/PageTitle';
-import { Pagination, pageParam } from '@/components/Pagination';
+import { DataTableControls, DataTableHidden, SortTh, queryString } from '@/components/DataTable';
+import { Pagination } from '@/components/Pagination';
 import { ConfirmButton, DateRangeInput } from '@/components/ui';
 import { requireUser } from '@/lib/auth';
 import { config } from '@/lib/config';
 import { isErrorMessage, messageStatusLabel, messageSummary } from '@/lib/format';
 import { sp } from '@/lib/http';
-import { limit, numberFormat } from '@/lib/text';
+import { limit } from '@/lib/text';
 import { phpDate } from '@/lib/time';
 import { cancelQueue, resendMessage } from './actions';
-import { dateInput, PAGE_SIZE, reportPage, templateNames, type ReportType } from './query';
+import { dateInput, REPORT_TABLE, reportPage, reportTable, templateNames, type ReportType } from './query';
 
 type SearchParams = Record<string, string | string[] | undefined>;
 
@@ -20,15 +21,17 @@ const basename = (file: string) => file.replace(/\/+$/, '').split('/').pop() ?? 
 export async function MessagesReport({ type, title, searchParams }: { type: ReportType; title: string; searchParams: Promise<SearchParams> }) {
   const user = await requireUser();
   const params = await searchParams;
-  const page = pageParam(params.page);
+  const table = reportTable(params);
   const [{ total, rows }, names] = await Promise.all([
-    reportPage(user.u_id, type, params, page),
+    reportPage(user.u_id, type, params, table),
     type === 'queue' ? Promise.resolve([] as string[]) : templateNames(user.u_id),
   ]);
   const exportQs = new URLSearchParams();
   for (const [k, v] of Object.entries(params)) for (const item of Array.isArray(v) ? v : v === undefined ? [] : [v]) exportQs.append(k, item);
   const exportHref = `/reports/export/${type}${exportQs.size ? '?' + exportQs.toString() : ''}`;
-  const firstItem = (page - 1) * PAGE_SIZE + 1;
+  const firstItem = (table.page - 1) * table.perPage + 1;
+  const path = PATHS[type];
+  const th = { path, params, state: table };
 
   return (
     <>
@@ -36,6 +39,7 @@ export async function MessagesReport({ type, title, searchParams }: { type: Repo
       <div className="card">
         <div className="card-header">
           <form method="get" className="row g-2 align-items-center filter-bar">
+            <DataTableHidden state={table} defaults={REPORT_TABLE} />
             <div className="col-md-3"><DateRangeInput name="wa_date" defaultValue={dateInput(params)} placeholder="Date range" /></div>
             <div className="col-md-2"><input type="text" className="form-control" name="mobile_no" defaultValue={sp(params, 'mobile_no')} placeholder="Mobile No" aria-label="Mobile number" /></div>
             {type !== 'queue' && (
@@ -75,17 +79,17 @@ export async function MessagesReport({ type, title, searchParams }: { type: Repo
           )}
         </div>
         <div className="card-body">
-          <p className="text-muted small">{numberFormat(total)} message(s)</p>
+          <DataTableControls path={path} query={queryString(params)} perPage={table.perPage} q={table.q} placeholder="Search mobile, template, text…" />
           <div className="table-responsive">
             <table className="table align-middle table-nowrap table-striped mb-0">
               <thead className="table-light">
                 <tr>
                   <th>#</th>
-                  <th>Date</th>
-                  <th>Mobile No</th>
+                  <SortTh {...th} column="date" first="desc">Date</SortTh>
+                  <SortTh {...th} column="mobile">Mobile No</SortTh>
                   <th>Content</th>
-                  <th>Updated On</th>
-                  <th>Status</th>
+                  <SortTh {...th} column="updated" first="desc">Updated On</SortTh>
+                  <SortTh {...th} column="status">Status</SortTh>
                   <th></th>
                 </tr>
               </thead>
@@ -126,7 +130,7 @@ export async function MessagesReport({ type, title, searchParams }: { type: Repo
               </tbody>
             </table>
           </div>
-          <Pagination path={PATHS[type]} params={params} page={page} perPage={PAGE_SIZE} total={total} />
+          <Pagination path={path} params={params} page={table.page} perPage={table.perPage} total={total} always />
         </div>
       </div>
     </>

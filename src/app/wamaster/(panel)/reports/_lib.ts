@@ -1,5 +1,6 @@
 import 'server-only';
-import { query } from '@/lib/db';
+import { sqlDir, type SortDir } from '@/lib/datatable';
+import { like, query } from '@/lib/db';
 import { int } from '@/lib/text';
 import { parseDateRange, todayString } from '@/lib/time';
 import { USER_TYPE } from '@/lib/types';
@@ -79,6 +80,12 @@ export function messageWhere(params: Params, type: string): { where: string; sta
   const msgType = input(params, 'msg_type');
   if (msgType === '1') c.push("m_msg_type = 'template'");
   if (msgType === '2') c.push("m_msg_type <> 'template'");
+  // Table search: mobile number, template name or message text
+  const q = (input(params, 'q') ?? '').slice(0, 100);
+  if (q) {
+    const n = p(like(q));
+    c.push(`(m_mobile_no LIKE '%' || ${n} || '%' OR m_msg_template_name ILIKE '%' || ${n} || '%' OR m_content ILIKE '%' || ${n} || '%')`);
+  }
 
   const s: string[] = [];
   if (filled(params, 'dst')) s.push(`m_delivery_status = ${p(input(params, 'dst'))}`);
@@ -96,3 +103,14 @@ export function messageWhere(params: Params, type: string): { where: string; sta
  * order is the same.
  */
 export const messageOrder = (ranged: boolean) => (ranged ? 'm_created_on DESC, m_id DESC' : 'm_id DESC');
+
+/** Sortable columns of the admin message tables → SQL (whitelist). Username is not sortable (it would join every row). */
+export const MESSAGE_SORTS = { date: '', mobile: 'm_mobile_no', type: 'm_msg_type', updated: 'm_updated_on', status: 'm_status' } as const;
+export type MessageSort = keyof typeof MESSAGE_SORTS;
+
+/** ORDER BY for a message table: the date column keeps messageOrder's index-friendly form in either direction. */
+export function messageTableOrder(ranged: boolean, sort: MessageSort, dir: SortDir): string {
+  const d = sqlDir(dir);
+  if (sort === 'date') return ranged ? `m_created_on ${d}, m_id ${d}` : `m_id ${d}`;
+  return `${MESSAGE_SORTS[sort]} ${d} NULLS LAST, m_id ${d}`;
+}

@@ -48,8 +48,16 @@ const TABLES = [
 const LOG_TABLES = new Set(['js_webhook_que', 'js_message_log', 'js_user_login_log', 'js_employee_login_log']);
 
 /** COPY text-format escaping; NUL bytes can't be stored in PostgreSQL text. */
-function copyValue(v: unknown, type: string): string {
-  if (v === null || v === undefined) return '\\N';
+function copyValue(v: unknown, type: string, notNull = false): string {
+  if (v === null || v === undefined) {
+    if (!notNull) return '\\N';
+    // Legacy NULL in a column PostgreSQL keeps NOT NULL: store that type's empty value
+    if (type.startsWith('timestamp')) return '1970-01-01 00:00:00';
+    if (type === 'jsonb') return '{}';
+    if (type === 'boolean') return 'f';
+    if (['smallint', 'integer', 'bigint', 'numeric', 'real', 'double precision'].includes(type)) return '0';
+    return '';
+  }
   let s: string;
   if (Buffer.isBuffer(v)) s = v.toString('utf8');
   else s = String(v);
@@ -82,10 +90,11 @@ async function main() {
       console.log(`  - ${table}: not in ${srcDb}, skipped`);
       continue;
     }
-    const pgCols = (await pgc.query<{ column_name: string; data_type: string }>(
-      "SELECT column_name, data_type FROM information_schema.columns WHERE table_schema = 'public' AND table_name = $1", [table])).rows;
+    const pgCols = (await pgc.query<{ column_name: string; data_type: string; is_nullable: string }>(
+      "SELECT column_name, data_type, is_nullable FROM information_schema.columns WHERE table_schema = 'public' AND table_name = $1", [table])).rows;
     const types = new Map(pgCols.map((c) => [c.column_name, c.data_type === 'USER-DEFINED' ? 'citext' : c.data_type.replace(' without time zone', '')]));
     const cols = srcCols.filter((c) => types.has(c));
+    const notNull = new Set(pgCols.filter((c) => c.is_nullable === 'NO').map((c) => c.column_name));
     const started = Date.now();
 
     let indexes: string[] = [];
@@ -98,13 +107,14 @@ async function main() {
     const quoted = cols.map((c) => (c === 'systemTime' ? '"systemTime"' : c));
     const copy = pgc.query(copyFrom(`COPY ${table} (${quoted.join(', ')}) FROM STDIN`));
     const colTypes = cols.map((c) => types.get(c)!);
+    const colNotNull = cols.map((c) => notNull.has(c));
     const source = my.query({ sql: `SELECT ${cols.map((c) => '`' + c + '`').join(', ')} FROM \`${srcDb}\`.\`${table}\``, rowsAsArray: true }).stream({ highWaterMark: 2000 });
 
     let n = 0;
     const lines = Readable.from((async function* () {
       let buf = '';
       for await (const row of source as AsyncIterable<unknown[]>) {
-        buf += row.map((v, i) => copyValue(v, colTypes[i])).join('\t') + '\n';
+        buf += row.map((v, i) => copyValue(v, colTypes[i], colNotNull[i])).join('\t') + '\n';
         if (++n % 5000 === 0) {
           yield buf;
           buf = '';

@@ -28,7 +28,7 @@
   "variable": [
     {
       "key": "base_url",
-      "value": "https://app.digitomation.com/api/v2",
+      "value": "https://wa.jscoretech.com/api/v2",
       "type": "string"
     },
     {

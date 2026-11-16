@@ -22,13 +22,13 @@ export const THREAD_PAGE = 40;
 /** Columns a message bubble needs. */
 export const BUBBLE_COLUMNS =
   'm_id, m_is_incoming, m_content, m_msg_type, m_msg_template_name, m_msg_template_para, m_image, m_carousel, m_created_on, ' +
-  'm_delivery_status, m_status, m_message_id, m_status_response, m_is_read, m_context_id';
+  'm_delivery_status, m_status, m_message_id, m_status_response, m_is_read, m_context_id, m_buttons';
 
 const CONV_COLUMNS = 'cl_mobile_no, cl_name, cl_last_msg, cl_last_msg_id, cl_last_preview, cl_last_dir, cl_last_in, cl_unread';
 
 export type ConvSource = Pick<ContactRow, 'cl_mobile_no' | 'cl_name' | 'cl_last_msg' | 'cl_last_msg_id' | 'cl_last_preview' | 'cl_last_dir' | 'cl_last_in' | 'cl_unread'>;
 export type BubbleSource = Pick<MessageRow, 'm_id' | 'm_is_incoming' | 'm_content' | 'm_msg_type' | 'm_msg_template_name' | 'm_msg_template_para' | 'm_image' | 'm_created_on' | 'm_delivery_status' | 'm_status' | 'm_message_id' | 'm_status_response' | 'm_is_read' | 'm_context_id'>
-  & Partial<Pick<MessageRow, 'm_carousel'>>;
+  & Partial<Pick<MessageRow, 'm_carousel' | 'm_buttons'>>;
 
 type TemplateSource = Pick<TemplateRow, 'ut_name' | 'ut_template_type' | 'ut_header_type' | 'ut_header' | 'ut_message' | 'ut_footer' | 'ut_buttons' | 'ut_cards'>;
 
@@ -387,6 +387,10 @@ export function bubble(m: BubbleSource, tpl?: TemplateSource): Bubble {
     placeholder = ucfirst(type || 'message');
   }
 
+  // Session messages with reply buttons (chatbot / API): up to 3 go out as buttons, more as a list
+  const replies = out && !m.m_msg_template_name ? String(m.m_buttons ?? '').split(',').map((b) => b.trim()).filter(Boolean) : [];
+  const buttons: TemplateButtonView[] = replies.map((text) => ({ icon: replies.length > 3 ? 'ri-list-check' : 'ri-reply-line', text }));
+
   let tick: Tick | null = null;
   if (out) {
     if (isError) tick = 'error';
@@ -411,6 +415,7 @@ export function bubble(m: BubbleSource, tpl?: TemplateSource): Bubble {
     rendered,
     html,
     placeholder,
+    buttons,
     quote: null,
   };
 }

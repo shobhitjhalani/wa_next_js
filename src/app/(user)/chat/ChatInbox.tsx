@@ -693,6 +693,7 @@ function MessageBubble({ m, contact }: { m: Bubble; contact: string }) {
         )}
         {m.html !== null && <div className="bubble-text" dangerouslySetInnerHTML={{ __html: m.html }} />}
         {m.placeholder !== null && <div className="bubble-text text-muted fst-italic">{m.placeholder}</div>}
+        {m.buttons?.length > 0 && <TemplateButtons buttons={m.buttons} />}
 
         <span className="bubble-meta">
           {m.time}

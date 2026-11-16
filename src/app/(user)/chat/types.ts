@@ -71,6 +71,8 @@ export interface Bubble {
   rendered: RenderedTemplate | null;
   html: string | null; // WhatsApp-formatted text, already escaped
   placeholder: string | null;
+  /** Reply buttons / list options of a session message (m_buttons). */
+  buttons: TemplateButtonView[];
   /** The message this one replies to (swiped reply / template button), shown quoted on top. */
   quote: BubbleQuote | null;
 }

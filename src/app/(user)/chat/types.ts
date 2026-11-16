@@ -66,7 +66,7 @@ export interface Bubble {
   status: string; // status label (error text / tooltip)
   tick: Tick | null;
   media: BubbleMedia | null;
-  files: { url: string; image: boolean; name: string }[];
+  files: { url: string; image: boolean; video?: boolean; name: string }[];
   template: { name: string; para: string } | null; // fallback when the template row is gone
   rendered: RenderedTemplate | null;
   html: string | null; // WhatsApp-formatted text, already escaped

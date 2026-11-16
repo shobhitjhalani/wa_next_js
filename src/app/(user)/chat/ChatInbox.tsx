@@ -680,8 +680,14 @@ function MessageBubble({ m, contact }: { m: Bubble; contact: string }) {
             {/* eslint-disable-next-line @next/next/no-img-element */}
             <img src={f.url} loading="lazy" alt="Attachment" />
           </a>
+        ) : f.video ? (
+          <video key={i} className="bubble-video" controls preload="metadata" src={f.url} />
         ) : (
-          <a key={i} href={f.url} target="_blank" rel="noopener" className="bubble-file"><i className="ri-attachment-2" /> <span className="text-truncate">{f.name}</span></a>
+          <a key={i} href={f.url} target="_blank" rel="noopener" className="bubble-file">
+            <i className={/\.pdf(\?|$)/i.test(f.url) ? 'ri-file-pdf-2-line' : 'ri-attachment-2'} />
+            <span className="text-truncate">{f.name}</span>
+            <i className="ri-download-2-line ms-auto" />
+          </a>
         ))}
 
         {m.rendered && <RenderedTemplateView t={m.rendered} />}

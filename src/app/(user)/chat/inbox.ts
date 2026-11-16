@@ -22,13 +22,13 @@ export const THREAD_PAGE = 40;
 /** Columns a message bubble needs. */
 export const BUBBLE_COLUMNS =
   'm_id, m_is_incoming, m_content, m_msg_type, m_msg_template_name, m_msg_template_para, m_image, m_carousel, m_created_on, ' +
-  'm_delivery_status, m_status, m_message_id, m_status_response, m_is_read, m_context_id, m_buttons';
+  'm_delivery_status, m_status, m_message_id, m_status_response, m_is_read, m_context_id, m_buttons, m_response_file_name';
 
 const CONV_COLUMNS = 'cl_mobile_no, cl_name, cl_last_msg, cl_last_msg_id, cl_last_preview, cl_last_dir, cl_last_in, cl_unread';
 
 export type ConvSource = Pick<ContactRow, 'cl_mobile_no' | 'cl_name' | 'cl_last_msg' | 'cl_last_msg_id' | 'cl_last_preview' | 'cl_last_dir' | 'cl_last_in' | 'cl_unread'>;
 export type BubbleSource = Pick<MessageRow, 'm_id' | 'm_is_incoming' | 'm_content' | 'm_msg_type' | 'm_msg_template_name' | 'm_msg_template_para' | 'm_image' | 'm_created_on' | 'm_delivery_status' | 'm_status' | 'm_message_id' | 'm_status_response' | 'm_is_read' | 'm_context_id'>
-  & Partial<Pick<MessageRow, 'm_carousel' | 'm_buttons'>>;
+  & Partial<Pick<MessageRow, 'm_carousel' | 'm_buttons' | 'm_response_file_name'>>;
 
 type TemplateSource = Pick<TemplateRow, 'ut_name' | 'ut_template_type' | 'ut_header_type' | 'ut_header' | 'ut_message' | 'ut_footer' | 'ut_buttons' | 'ut_cards'>;
 
@@ -344,6 +344,21 @@ function contactCards(m: BubbleSource): any[] {
   return Array.isArray(v) ? v : v && typeof v === 'object' ? Object.values(v) : [];
 }
 
+/**
+ * Files that went out with an outgoing message: the URLs in m_image, plus the links the sender
+ * recorded in m_response_file_name (files the API sent as base64 only exist there). That column
+ * is cut at 250 characters, so a cut-off last link is dropped.
+ */
+function sentFiles(m: BubbleSource): string[] {
+  const split = (v: string | null | undefined) => String(v ?? '').split(',').map((u) => u.trim()).filter((u) => /^https?:\/\//.test(u));
+  const out = split(m.m_image);
+  const sent = split(m.m_response_file_name);
+  const raw = String(m.m_response_file_name ?? '');
+  if (raw.length >= 250 && sent.length) sent.pop();
+  for (const u of sent) if (!out.includes(u)) out.push(u);
+  return out;
+}
+
 /** Display data for one bubble (_bubble.blade.php); pass the template row to render a sent template. */
 export function bubble(m: BubbleSource, tpl?: TemplateSource): Bubble {
   const out = Number(m.m_is_incoming) === 2;
@@ -352,11 +367,11 @@ export function bubble(m: BubbleSource, tpl?: TemplateSource): Bubble {
   let text = decodeEntities(m.m_content ?? '');
   if (text === 'File_Attachment') text = String(info.caption ?? '');
   const view = `/view_attachment/${m.m_id}`;
-  const urls = out ? String(m.m_image ?? '').split(',').map((u) => u.trim()).filter((u) => u.startsWith('http')) : [];
+  const urls = out ? sentFiles(m) : [];
   const rendered = out && tpl && m.m_msg_template_name && text === '' ? renderTemplate(m, tpl, urls) : null;
   // A media template's first file is its header, already shown by `rendered`
   const headerUsed = rendered?.header && rendered.header.kind !== 'text' && urls[0] === rendered.header.url ? 1 : 0;
-  const files = urls.slice(headerUsed).map((u) => ({ url: u, image: IMAGE_RE.test(u), name: basename(u) }));
+  const files = urls.slice(headerUsed).map((u) => ({ url: u, image: IMAGE_RE.test(u), video: !IMAGE_RE.test(u) && VIDEO_RE.test(u), name: basename(u) }));
   const isError = out && isErrorMessage(m);
   const status = out ? messageStatusLabel(m) : '';
 

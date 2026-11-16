@@ -111,13 +111,14 @@ export const config = {
 
   // Database backups to DigitalOcean Spaces (src/lib/services/backup.ts)
   backup: {
-    key: env('DO_SPACES_KEY'),
-    secret: env('DO_SPACES_SECRET'),
+    // DO_SPACES_ACCESS_KEY / _SECRET_KEY / _PREFIX and BACKUP_RETENTION_DAYS are accepted too
+    key: env('DO_SPACES_KEY') || env('DO_SPACES_ACCESS_KEY'),
+    secret: env('DO_SPACES_SECRET') || env('DO_SPACES_SECRET_KEY'),
     bucket: env('DO_SPACES_BUCKET'),
     region: env('DO_SPACES_REGION', 'blr1'),
     endpoint: env('DO_SPACES_ENDPOINT'),
-    prefix: env('BACKUP_PREFIX', 'db-backups/').replace(/^\/+/, '').replace(/\/*$/, '/'),
-    keepDays: Math.max(1, int('BACKUP_KEEP_DAYS', 14)),
+    prefix: (env('BACKUP_PREFIX') || env('DO_SPACES_PREFIX') || 'db-backups/').replace(/^\/+/, '').replace(/\/*$/, '/'),
+    keepDays: Math.max(1, int('BACKUP_KEEP_DAYS', int('BACKUP_RETENTION_DAYS', 14))),
     /** Local times (TZ) of the automatic backups. */
     times: env('BACKUP_TIMES', '00:00,12:00').split(',').map((t) => t.trim()).filter((t) => /^\d{1,2}:\d{2}$/.test(t)),
     pgDump: env('PG_DUMP_PATH', 'pg_dump'),

@@ -220,6 +220,13 @@ export interface CampaignRow {
 
 export const CAMPAIGN = { SCHEDULED: 1, DISPATCHED: 2, CANCELLED: 4 } as const;
 
+/**
+ * Condition on js_message: the message belongs to its campaign's owner. Messages imported from the
+ * legacy app can carry campaign ids that were never imported and were later reused by new campaigns
+ * of other accounts; this keeps them out of every campaign figure and action.
+ */
+export const CAMPAIGN_OWNER_SQL = 'm_user_id = (SELECT uc_user_id FROM js_user_campaign WHERE uc_id = m_campaign_id)';
+
 export interface GroupRow {
   ug_id: number;
   ug_user_id: number;

@@ -3,7 +3,7 @@ import { like, query } from '../db';
 import { campaignIsTracked, campaignSendAt, campaignTitle } from '../format';
 import { sp } from '../http';
 import { monthStart, now, parseDateRange, phpDate } from '../time';
-import { CAMPAIGN, type CampaignRow } from '../types';
+import { CAMPAIGN, CAMPAIGN_OWNER_SQL, type CampaignRow } from '../types';
 
 /**
  * Campaign Summary report (user /reports_templates and admin /wamaster/reports/templates):
@@ -81,7 +81,7 @@ export async function campaignSummary(scope: SummaryScope, f: SummaryFilter): Pr
               COUNT(*) FILTER (WHERE m_status = 3 AND COALESCE(m_message_id, '') <> '' AND m_delivery_status = 'failed')::int AS failed,
               COUNT(*) FILTER (WHERE m_status = 3 AND COALESCE(m_message_id, '') = '')::int AS error,
               COUNT(*) FILTER (WHERE m_status IN (1, 6))::int AS queue
-         FROM js_message WHERE m_campaign_id = ANY($1::int[]) AND m_campaign_id > 0 AND m_dstatus = 0
+         FROM js_message WHERE m_campaign_id = ANY($1::int[]) AND m_campaign_id > 0 AND m_dstatus = 0 AND ${CAMPAIGN_OWNER_SQL}
         GROUP BY m_campaign_id`,
       [ids],
     )

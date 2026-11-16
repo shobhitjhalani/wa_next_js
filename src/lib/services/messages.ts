@@ -7,7 +7,7 @@ import { templateCards } from '../format';
 import { blockNumber, contactId, recordMessage } from '../models';
 import { limit } from '../text';
 import { dayStart, now, phpDate } from '../time';
-import type { MessageRow, TemplateRow, UserRow } from '../types';
+import { CAMPAIGN_OWNER_SQL, type MessageRow, type TemplateRow, type UserRow } from '../types';
 import { storePublic } from './media';
 
 /**
@@ -225,5 +225,5 @@ export async function storeIncoming(user: Pick<UserRow, 'u_id'>, data: Partial<M
 
 /** Messages already queued for a campaign (diagnostics / tests). */
 export function campaignMessages(campaignId: number) {
-  return query<MessageRow>('SELECT * FROM js_message WHERE m_campaign_id = $1 ORDER BY m_id', [campaignId]);
+  return query<MessageRow>(`SELECT * FROM js_message WHERE m_campaign_id = $1 AND ${CAMPAIGN_OWNER_SQL} ORDER BY m_id`, [campaignId]);
 }

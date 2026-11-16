@@ -193,3 +193,29 @@ function cellText(v: unknown): string {
   }
   return String(v);
 }
+
+export interface NumbersFile { rows: number; numbers: string[]; invalid: number; duplicates: number }
+
+/** Mobile numbers of a CSV / TXT / XLSX file (same column detection as the contact import), without saving contacts. */
+export async function readNumbersFile(file: { bytes: Buffer; extension: string }): Promise<NumbersFile> {
+  let rows = file.extension.toLowerCase() === 'xlsx' ? await readXlsx(file.bytes) : readCsv(file.bytes);
+  if (!rows.length) throw new ImportError('The file has no rows.');
+  const [mobileCol, , hasHeader] = detectColumns(rows);
+  if (mobileCol === null) throw new ImportError('Could not find a mobile number column. Add a header named "mobile" or put numbers in the first column.');
+  if (hasHeader) rows = rows.slice(1);
+  const seen = new Set<string>();
+  const out: NumbersFile = { rows: 0, numbers: [], invalid: 0, duplicates: 0 };
+  for (const row of rows) {
+    const raw = String(row[mobileCol] ?? '').trim();
+    if (raw === '' && !row.some((v) => String(v ?? '').trim() !== '')) continue; // blank line
+    out.rows++;
+    const mobile = normalizePhone(raw);
+    if (!mobile) out.invalid++;
+    else if (seen.has(mobile)) out.duplicates++;
+    else { seen.add(mobile); out.numbers.push(mobile); }
+  }
+  return out;
+}
+
+/** Allowed audience / contact file extensions. */
+export const NUMBER_FILE_EXTENSIONS = ['xlsx', 'csv', 'txt'];

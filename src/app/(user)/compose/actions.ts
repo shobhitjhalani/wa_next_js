@@ -6,6 +6,7 @@ import { requireUser } from '@/lib/auth';
 import { one, query } from '@/lib/db';
 import { nestedForm, nFile, nList, nObj, nStr, nStrings } from '@/lib/form-nested';
 import { createCampaign } from '@/lib/services/campaigns';
+import { ImportError, NUMBER_FILE_EXTENSIONS, readNumbersFile } from '@/lib/services/contacts-import';
 import { UserError, type CardInput } from '@/lib/services/messages';
 import { numberFormat } from '@/lib/text';
 import { now, parseDate, phpDate } from '@/lib/time';
@@ -77,6 +78,24 @@ export async function storeCampaign(_prev: ActionResult | null, fd: FormData): P
   } else if (sendMode === 'later') {
     add('schedule_at', 'Choose when to send the campaign.');
   }
+
+  // Audience from an uploaded Excel / CSV file (Audience → Excel Upload)
+  let fileNumbers: string[] = [];
+  const audienceFile = fd.get('contact_file');
+  if (audienceFile instanceof File && audienceFile.size) {
+    const ext = audienceFile.name.split('.').pop()?.toLowerCase() ?? '';
+    if (!NUMBER_FILE_EXTENSIONS.includes(ext)) add('contact_file', 'Upload an .xlsx, .csv or .txt file.');
+    else if (audienceFile.size > 10 * 1024 * 1024) add('contact_file', 'The file must not be larger than 10 MB.');
+    else {
+      try {
+        fileNumbers = (await readNumbersFile({ bytes: Buffer.from(await audienceFile.arrayBuffer()), extension: ext })).numbers;
+        if (!fileNumbers.length) add('contact_file', 'The file has no valid mobile numbers.');
+      } catch (e) {
+        if (e instanceof ImportError) add('contact_file', e.message);
+        else throw e;
+      }
+    }
+  }
   if (Object.keys(errors).length) return invalid(errors);
 
   const template = await one<Pick<TemplateRow, 'ut_id' | 'ut_name' | 'ut_template_type' | 'ut_template_category' | 'ut_cards'>>(
@@ -91,7 +110,7 @@ export async function storeCampaign(_prev: ActionResult | null, fd: FormData): P
       name: campaignName,
       uniqueCode: ucode,
       groupIds,
-      numbers: nStr(input, 'txt_contact'),
+      numbers: [nStr(input, 'txt_contact'), ...fileNumbers].filter(Boolean).join('\n'),
       parameters,
       cards: Array.from(cards, (c) => c ?? {}),
       scheduleAt: sendMode === 'later' ? scheduleAt : null,

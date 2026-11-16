@@ -1,6 +1,7 @@
 import { campaignStatusLabel } from '@/lib/format';
 import { decodeEntities, jsonParse, numberFormat } from '@/lib/text';
 import type { CampaignRow, CampaignStats, MessageRow } from '@/lib/types';
+import { CAMPAIGN_OWNER_SQL } from '@/lib/types';
 
 /**
  * Campaign view pieces shared by the list, the detail page and the export:
@@ -87,7 +88,7 @@ export function recipientWhere(campaignId: number, status: string, mobile: strin
     return `$${params.length}`;
   };
   // Rows marked Re-Send (8) were replaced by a new copy, which is the one shown
-  const where = [`m_campaign_id = ${p(campaignId)}`, 'm_status <> 8'];
+  const where = [`m_campaign_id = ${p(campaignId)}`, CAMPAIGN_OWNER_SQL, 'm_status <> 8'];
   if (mobile !== '') where.push(`m_mobile_no LIKE ${p('%' + mobile.replace(/\D/g, '') + '%')}`);
   switch (status) {
     case 'pending': where.push('m_status IN (1, 6)'); break;

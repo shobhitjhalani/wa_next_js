@@ -15,6 +15,7 @@ import type { CampaignRow, MessageRow } from '@/lib/types';
 import { barSegments, DeliveryBar, errorText, pct, recipientStatus, recipientWhere, StatusBadge } from '../shared';
 import { cancelCampaignAction, resendFailedAction } from './actions';
 import { AutoReload } from './AutoReload';
+import { CAMPAIGN_OWNER_SQL } from '@/lib/types';
 
 export const metadata: Metadata = { title: 'Campaign' };
 
@@ -62,7 +63,7 @@ export default async function CampaignPage({ params, searchParams }: { params: P
   const failureReasons = stats && stats.failed
     ? (await query<{ m_status_response: string | null; n: number }>(
       `SELECT m_status_response, COUNT(*)::int AS n FROM js_message
-        WHERE m_campaign_id = $1 AND m_status = 3 AND (COALESCE(m_message_id, '') = '' OR m_delivery_status = 'failed')
+        WHERE m_campaign_id = $1 AND ${CAMPAIGN_OWNER_SQL} AND m_status = 3 AND (COALESCE(m_message_id, '') = '' OR m_delivery_status = 'failed')
         GROUP BY m_status_response ORDER BY n DESC LIMIT 5`, [campaign.uc_id],
     )).map((r) => ({ reason: errorText(r.m_status_response), count: r.n }))
     : [];

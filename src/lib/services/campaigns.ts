@@ -3,7 +3,7 @@ import { exec, insert, one, query, tx, value } from '../db';
 import { campaignGroupIds, campaignIsTracked } from '../format';
 import { normalizePhone, parsePhoneList } from '../phone';
 import { dayStart, now, phpDate } from '../time';
-import { CAMPAIGN, type CampaignRow, type CampaignStats, type TemplateRow, type UserRow } from '../types';
+import { CAMPAIGN, CAMPAIGN_OWNER_SQL, type CampaignRow, type CampaignStats, type TemplateRow, type UserRow } from '../types';
 import { queueMessages, templateFields, UserError, type CardInput } from './messages';
 import { templateQuota } from './template-limit';
 import { categoryAllowed, categoryRefusal } from '../template-categories';
@@ -15,6 +15,8 @@ import { categoryAllowed, categoryRefusal } from '../template-categories';
 
 /** Statuses keep changing for a while after sending; stats are cached once a campaign settles. */
 const SETTLE_SECONDS = 3 * 86400;
+/** Cached stats from before the campaign-owner check (17 Nov 2026) may include another account's legacy messages. */
+const STATS_VALID_FROM = 1794858764;
 /** Replies counted within this long after the message went out. */
 const REPLY_WINDOW = 3 * 86400;
 
@@ -140,7 +142,7 @@ export async function dispatchDueCampaigns(): Promise<[number, number]> {
 /** Cancel a scheduled campaign, or the not-yet-sent messages of a running one. Returns messages cancelled. */
 export async function cancelCampaign(campaignId: number): Promise<number> {
   return tx(async (db) => {
-    const cancelled = await exec('UPDATE js_message SET m_status = 4, m_updated_on = $2 WHERE m_campaign_id = $1 AND m_status = 1', [campaignId, now()], db);
+    const cancelled = await exec(`UPDATE js_message SET m_status = 4, m_updated_on = $2 WHERE m_campaign_id = $1 AND ${CAMPAIGN_OWNER_SQL} AND m_status = 1`, [campaignId, now()], db);
     await exec('UPDATE js_user_campaign SET uc_status = $2, uc_payload = NULL, uc_stats_at = 0 WHERE uc_id = $1', [campaignId, CAMPAIGN.CANCELLED], db);
     return cancelled;
   });
@@ -193,7 +195,7 @@ export async function campaignStats(campaigns: CampaignRow[], withReplies = fals
     // A resend restarts the settling period
     const since = Math.max(Number(c.uc_started_at), Number(c.uc_resent_at ?? 0));
     const settled = since < t - SETTLE_SECONDS && (c.uc_stats?.pending ?? 1) === 0;
-    const fresh = !!c.uc_stats && (c.uc_stats_at > t - 30 || (settled && c.uc_stats_at > since + SETTLE_SECONDS));
+    const fresh = !!c.uc_stats && c.uc_stats_at >= STATS_VALID_FROM && (c.uc_stats_at > t - 30 || (settled && c.uc_stats_at > since + SETTLE_SECONDS));
     if (fresh && (!withReplies || c.uc_stats?.replied !== undefined)) stats[c.uc_id] = c.uc_stats;
     else refresh.push(c);
   }
@@ -209,7 +211,7 @@ export async function campaignStats(campaigns: CampaignRow[], withReplies = fals
             COUNT(*) FILTER (WHERE m_status = 3 AND (COALESCE(m_message_id, '') = '' OR m_delivery_status = 'failed'))::int AS failed,
             COUNT(*) FILTER (WHERE m_status = 3 AND COALESCE(m_message_id, '') <> '' AND m_delivery_status = 'failed')::int AS delivery_failed,
             COUNT(*) FILTER (WHERE m_status IN (4, 5, 9))::int AS skipped
-       FROM js_message WHERE m_campaign_id = ANY($1::int[]) GROUP BY m_campaign_id`,
+       FROM js_message WHERE m_campaign_id = ANY($1::int[]) AND ${CAMPAIGN_OWNER_SQL} GROUP BY m_campaign_id`,
     [refresh.map((c) => c.uc_id)],
   );
   const byId = new Map(rows.map((r) => [r.m_campaign_id, r]));
@@ -232,7 +234,7 @@ export async function campaignStats(campaigns: CampaignRow[], withReplies = fals
 async function replies(campaignId: number): Promise<number> {
   return (await value<number>(
     `SELECT COUNT(DISTINCT c.m_mobile_no)::int FROM js_message c
-       WHERE c.m_campaign_id = $1 AND c.m_status = 3 AND c.m_message_id <> ''
+       WHERE c.m_campaign_id = $1 AND c.m_user_id = (SELECT uc_user_id FROM js_user_campaign WHERE uc_id = c.m_campaign_id) AND c.m_status = 3 AND c.m_message_id <> ''
          AND EXISTS (SELECT 1 FROM js_message i
                       WHERE i.m_user_id = c.m_user_id AND i.m_mobile_no = c.m_mobile_no AND i.m_is_incoming = 1
                         AND i.m_created_on >= c.m_in_process_on AND i.m_created_on < c.m_in_process_on + $2)`,

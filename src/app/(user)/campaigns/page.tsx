@@ -9,7 +9,7 @@ import { campaignGroupIds, campaignIsTracked, campaignSendAt, campaignTitle } fr
 import { sp } from '@/lib/http';
 import { campaignStats } from '@/lib/services/campaigns';
 import { numberFormat } from '@/lib/text';
-import { addDays, now, parseDateRange, phpDate } from '@/lib/time';
+import { parseDateRange, phpDate, todayString } from '@/lib/time';
 import { CAMPAIGN, type CampaignRow, type CampaignStats } from '@/lib/types';
 import { DeliveryBar, pct, StatusBadge } from './shared';
 
@@ -24,8 +24,8 @@ export default async function CampaignsPage({ searchParams }: { searchParams: Pa
   const user = await requireUser();
   const params = await searchParams;
   const page = pageParam(params.page);
-  // Absent → the last 30 days; present but empty → all time (Laravel input() default semantics)
-  const dtInput = params.wa_date === undefined ? `${phpDate('d-m-Y', addDays(now(), -29))} to ${phpDate('d-m-Y')}` : sp(params, 'wa_date');
+  // Absent → today only; present but empty → all time (Laravel input() default semantics)
+  const dtInput = params.wa_date === undefined ? todayString() : sp(params, 'wa_date');
   const range = parseDateRange(dtInput);
   const q = sp(params, 'q');
 

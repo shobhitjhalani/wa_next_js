@@ -3,7 +3,7 @@ import { PageTitle } from '@/components/PageTitle';
 import { ConfirmButton } from '@/components/ui';
 import { requireAdminCan } from '@/lib/auth';
 import { config } from '@/lib/config';
-import { backupMissing, listBackups, recentRuns, type BackupFile } from '@/lib/services/backup';
+import { backupMissing, listBackups, recentRuns, walStatus, type BackupFile } from '@/lib/services/backup';
 import { numberFormat } from '@/lib/text';
 import { backupNow } from './actions';
 
@@ -19,8 +19,9 @@ export default async function BackupsPage() {
   await requireAdminCan('super');
   const missing = backupMissing();
   const b = config.backup;
-  const [runs, files] = await Promise.all([
+  const [runs, wal, files] = await Promise.all([
     recentRuns(),
+    walStatus(),
     missing.length ? Promise.resolve({ files: [] as BackupFile[], error: '' })
       : listBackups().then((f) => ({ files: f, error: '' })).catch((e: Error) => ({ files: [] as BackupFile[], error: e.message })),
   ]);
@@ -49,7 +50,37 @@ export default async function BackupsPage() {
       </div>
 
       <div className="card">
-        <div className="card-header"><h5 className="card-title mb-0">Backup files</h5></div>
+        <div className="card-header d-flex align-items-center">
+          <h5 className="card-title mb-0 me-auto">Continuous backup (WAL archiving)</h5>
+          {wal.archiving
+            ? <span className={`badge ${wal.failed && wal.lastFailed && (!wal.lastArchived || wal.lastFailed > wal.lastArchived) ? 'bg-danger' : 'bg-success'}`}>{wal.failed && wal.lastFailed && (!wal.lastArchived || wal.lastFailed > wal.lastArchived) ? 'Failing' : 'On'}</span>
+            : <span className="badge bg-secondary">Off</span>}
+        </div>
+        <div className="card-body small">
+          {!wal.archiving ? <p className="text-muted mb-0">PostgreSQL WAL archiving is not enabled on this server.</p> : (
+            <>
+              <p className="mb-2">
+                Every change is uploaded within about a minute (WAL-G), on top of a weekly full copy (Sundays 03:00), so the database can be restored
+                to any moment of the last two weeks. Last upload: <strong>{when(wal.lastArchived) || '—'}</strong> · {numberFormat(wal.archived)} uploaded
+                {wal.failed ? <> · <span className="text-danger">{numberFormat(wal.failed)} failed (last {when(wal.lastFailed)})</span></> : null} since the database started.
+              </p>
+              {wal.base === null ? <p className="text-muted mb-0">Full-copy status not available.</p> : !wal.base.length ? <p className="text-muted mb-0">No full copy yet.</p> : (
+                <div className="table-responsive">
+                  <table className="table table-sm align-middle table-striped mb-0">
+                    <thead className="table-light"><tr><th>Full copy</th><th>Taken</th><th className="text-end">Stored</th><th className="text-end">Database size</th></tr></thead>
+                    <tbody>{wal.base.map((b) => (
+                      <tr key={b.name}><td><code>{b.name}</code></td><td>{when(b.time)}</td><td className="text-end">{size(b.compressed)}</td><td className="text-end">{size(b.uncompressed)}</td></tr>
+                    ))}</tbody>
+                  </table>
+                </div>
+              )}
+            </>
+          )}
+        </div>
+      </div>
+
+      <div className="card">
+        <div className="card-header"><h5 className="card-title mb-0">Daily dumps</h5></div>
         <div className="card-body">
           {files.error ? <p className="text-danger mb-0">Could not list the bucket: {files.error}</p> : !files.files.length ? (
             <p className="text-muted mb-0">No backups yet.</p>

@@ -120,8 +120,10 @@ export const config = {
     prefix: (env('BACKUP_PREFIX') || env('DO_SPACES_PREFIX') || 'db-backups/').replace(/^\/+/, '').replace(/\/*$/, '/'),
     keepDays: Math.max(1, int('BACKUP_KEEP_DAYS', int('BACKUP_RETENTION_DAYS', 14))),
     /** Local times (TZ) of the automatic backups. */
-    times: env('BACKUP_TIMES', '00:00,12:00').split(',').map((t) => t.trim()).filter((t) => /^\d{1,2}:\d{2}$/.test(t)),
+    times: env('BACKUP_TIMES', '00:00').split(',').map((t) => t.trim()).filter((t) => /^\d{1,2}:\d{2}$/.test(t)),
     pgDump: env('PG_DUMP_PATH', 'pg_dump'),
+    /** WAL-G base-backup list written by the weekly wal-g-base-backup job (server only). */
+    walgStatus: env('WALG_STATUS_FILE', '/var/www/wa/shared/walg/status.json'),
   },
 
   // Master heading ids used by the app (js_master_heading)

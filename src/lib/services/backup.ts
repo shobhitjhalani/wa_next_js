@@ -5,6 +5,7 @@ import { DeleteObjectsCommand, GetObjectCommand, ListObjectsV2Command, S3Client,
 import { Upload } from '@aws-sdk/lib-storage';
 import { getSignedUrl } from '@aws-sdk/s3-request-presigner';
 import { config } from '../config';
+import { readFile } from 'node:fs/promises';
 import { one, pool, query } from '../db';
 import { phpDate } from '../time';
 
@@ -100,7 +101,7 @@ export async function listBackups(): Promise<BackupFile[]> {
   const out: _Object[] = [];
   let token: string | undefined;
   do {
-    const res = await s3().send(new ListObjectsV2Command({ Bucket: c.bucket, Prefix: c.prefix, ContinuationToken: token }));
+    const res = await s3().send(new ListObjectsV2Command({ Bucket: c.bucket, Prefix: c.prefix, Delimiter: '/', ContinuationToken: token }));
     out.push(...(res.Contents ?? []));
     token = res.IsTruncated ? res.NextContinuationToken : undefined;
   } while (token);
@@ -186,6 +187,28 @@ export async function requestedBackups(log: (m: string) => void): Promise<void> 
         RETURNING id`);
     if (row) await perform(row.id, log);
   }, log);
+}
+
+export type WalStatus = {
+  /** pg_stat_archiver: WAL segments uploaded continuously by PostgreSQL's archive_command (WAL-G). */
+  archiving: boolean; archived: number; failed: number; lastArchived: Date | null; lastFailed: Date | null;
+  /** Weekly full (base) backups, newest first; null when the status file is not there (e.g. locally). */
+  base: { name: string; time: Date; compressed: number; uncompressed: number }[] | null;
+};
+
+export async function walStatus(): Promise<WalStatus> {
+  const a = await one<{ mode: string; archived_count: number; failed_count: number; last_archived_time: Date | null; last_failed_time: Date | null }>(
+    `SELECT current_setting('archive_mode') AS mode, archived_count::int, failed_count::int, last_archived_time, last_failed_time FROM pg_stat_archiver`);
+  let base: WalStatus['base'] = null;
+  try {
+    const list = JSON.parse(await readFile(config.backup.walgStatus, 'utf8')) as { backup_name: string; time: string; compressed_size?: number; uncompressed_size?: number }[];
+    base = list.map((b) => ({ name: b.backup_name, time: new Date(b.time), compressed: b.compressed_size ?? 0, uncompressed: b.uncompressed_size ?? 0 }))
+      .sort((x, y) => y.time.getTime() - x.time.getTime());
+  } catch { /* no status file */ }
+  return {
+    archiving: a?.mode === 'on', archived: a?.archived_count ?? 0, failed: a?.failed_count ?? 0,
+    lastArchived: a?.last_archived_time ?? null, lastFailed: a?.last_failed_time ?? null, base,
+  };
 }
 
 export function recentRuns(limit = 30): Promise<BackupRun[]> {

@@ -32,7 +32,7 @@ export const JOBS: Job[] = [
   { name: 'expire-plans', schedule: { hourly: true }, run: (log) => expirePlans(log) },
   { name: 'cleanup', schedule: { dailyAt: '02:30' }, run: (log) => cleanup(log) },
   { name: 'email-reports', schedule: { dailyAt: config.reports.time }, run: (log) => emailReports({}, log) },
-  // Database backup to DigitalOcean Spaces (BACKUP_TIMES, default 00:00 and 12:00) and the ones queued from /wamaster/backups
+  // Database backup to DigitalOcean Spaces (BACKUP_TIMES, default 00:00) and the ones queued from /wamaster/backups
   { name: 'db-backup', schedule: { dailyAt: config.backup.times }, run: (log) => scheduledBackup(log) },
   { name: 'db-backup-requested', schedule: { everySeconds: 30 }, run: (log) => requestedBackups(log) },
 ];

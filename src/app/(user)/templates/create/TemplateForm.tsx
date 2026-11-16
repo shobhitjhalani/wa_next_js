@@ -1,9 +1,10 @@
 'use client';
 
 import Link from 'next/link';
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useRef, useState, type KeyboardEvent } from 'react';
 import { ActionForm, FieldError, SubmitButton } from '@/components/ActionForm';
 import type { ActionResult } from '@/lib/actions';
+import { toggleWaMarker, waToHtml } from '@/lib/whatsapp-text';
 
 /**
  * Template create form with carousel support and live preview
@@ -30,6 +31,48 @@ function vars(text: string): number[] {
 }
 function fill(text: string, samples: Record<number, string>): string {
   return (text || '').replace(/\{\{\s*(\d+)\s*\}\}/g, (all, n) => samples[+n] || all);
+}
+
+/** WhatsApp formatting markers offered in the editor toolbar. */
+const FORMATS = [
+  { marker: '*', key: 'b', icon: 'ri-bold', label: 'Bold' },
+  { marker: '_', key: 'i', icon: 'ri-italic', label: 'Italic' },
+] as const;
+
+/** Toggle a marker around the textarea's selection, then restore the selection on the changed text. */
+function toggleFormat(el: HTMLTextAreaElement | null | undefined, current: string, set: (v: string) => void, marker: string) {
+  const start = el?.selectionStart ?? current.length;
+  const r = toggleWaMarker(current, start, el?.selectionEnd ?? start, marker);
+  set(r.text);
+  requestAnimationFrame(() => { el?.focus(); el?.setSelectionRange(r.from, r.to); });
+}
+
+/** Ctrl/⌘+B and Ctrl/⌘+I inside a message textarea. */
+function formatShortcut(e: KeyboardEvent<HTMLTextAreaElement>, set: (v: string) => void) {
+  if (!(e.ctrlKey || e.metaKey) || e.altKey || e.shiftKey) return;
+  const f = FORMATS.find((x) => x.key === e.key.toLowerCase());
+  if (!f) return;
+  e.preventDefault();
+  toggleFormat(e.currentTarget, e.currentTarget.value, set, f.marker);
+}
+
+/** Bold / Italic buttons above a message textarea. */
+function FormatBar({ target, value, onChange, size = '' }: {
+  target: () => HTMLTextAreaElement | null | undefined; value: string; onChange: (v: string) => void; size?: string;
+}) {
+  return (
+    <div className={`btn-group btn-group-sm ${size}`} role="toolbar" aria-label="Text formatting">
+      {FORMATS.map((f) => (
+        <button
+          key={f.marker} type="button" className="btn btn-light border" title={`${f.label} (Ctrl+${f.key.toUpperCase()})`} aria-label={f.label}
+          onMouseDown={(e) => e.preventDefault() /* keep the textarea selection */}
+          onClick={() => toggleFormat(target(), value, onChange, f.marker)}
+        >
+          <i className={f.icon} />
+        </button>
+      ))}
+    </div>
+  );
 }
 
 interface Btn { key: number; type: string; text: string; url: string; phone: string; example: string; flowId: string; screen: string }
@@ -166,10 +209,16 @@ export function TemplateForm({ action, languages, initialKind, flows, categories
           </fieldset>
 
           <div className="mb-3">
-            <label htmlFor="body" className="form-label"><span id="body_label">{carousel ? 'Message Text (shown above the cards)' : 'Body'}</span> <span className="text-danger">*</span></label>
-            <textarea ref={bodyRef} className="form-control" name="body" id="body" rows={6} maxLength={1024} required value={body} onChange={(e) => setBody(e.target.value)} />
+            <div className="d-flex align-items-end justify-content-between mb-1">
+              <label htmlFor="body" className="form-label mb-0"><span id="body_label">{carousel ? 'Message Text (shown above the cards)' : 'Body'}</span> <span className="text-danger">*</span></label>
+              <FormatBar target={() => bodyRef.current} value={body} onChange={setBody} />
+            </div>
+            <textarea
+              ref={bodyRef} className="form-control" name="body" id="body" rows={6} maxLength={1024} required value={body}
+              onChange={(e) => setBody(e.target.value)} onKeyDown={(e) => formatShortcut(e, setBody)}
+            />
             <div className="d-flex justify-content-between form-text">
-              <span>Use {'{{1}}'}, {'{{2}}'}… for values filled in when sending. *bold*, _italic_ and ~strike~ are supported.</span>
+              <span>Use {'{{1}}'}, {'{{2}}'}… for values filled in when sending. Select text and click <strong>B</strong> or <em>I</em> (or type *bold*, _italic_, ~strike~).</span>
               <button type="button" className="btn btn-link btn-sm p-0 add-variable" onClick={() => addVariable(bodyRef.current, body, setBody)}>+ Add variable</button>
             </div>
             <FieldError name="body" />
@@ -315,11 +364,15 @@ export function TemplateForm({ action, languages, initialKind, flows, categories
                       <div className="form-text card-file-hint">{FILE_HINTS[cardFormat][1]}</div>
                     </div>
                     <div className="mb-2">
-                      <label className="form-label small mb-1" htmlFor={`card_body_${c}`}>Card Text <span className="text-danger">*</span></label>
+                      <div className="d-flex align-items-end justify-content-between mb-1">
+                        <label className="form-label small mb-0" htmlFor={`card_body_${c}`}>Card Text <span className="text-danger">*</span></label>
+                        <FormatBar target={() => cardRefs.current.get(c)} value={card.body} onChange={(v) => updateCard(c, { body: v })} />
+                      </div>
                       <textarea
                         ref={(el) => { if (el) cardRefs.current.set(c, el); else cardRefs.current.delete(c); }}
                         className="form-control form-control-sm card-body" name={`cards[${c}][body]`} id={`card_body_${c}`} rows={2} maxLength={160} required
                         value={card.body} onChange={(e) => updateCard(c, { body: e.target.value })}
+                        onKeyDown={(e) => formatShortcut(e, (v) => updateCard(c, { body: v }))}
                       />
                       <div className="d-flex justify-content-between form-text">
                         <span>Up to 160 characters.</span>
@@ -378,19 +431,19 @@ export function TemplateForm({ action, languages, initialKind, flows, categories
                 ? <strong>{fill(headerText, { 1: headerExample })}</strong>
                 : headerType !== 'NONE' && <MediaPreview type={headerType} file={headerFile} />}
             </div>
-            <div className="wh-msg" id="pv_body">{bodyText}</div>
+            <div className="wh-msg" id="pv_body" dangerouslySetInnerHTML={{ __html: waToHtml(bodyText) }} />
             <div className="wh-footer" id="pv_footer" hidden={!footer}>{footer}</div>
             <div id="pv_buttons">
               {buttons.map((b) => <ButtonPreview key={b.key} type={b.type} text={b.text} />)}
             </div>
           </div>
           <div id="pv_carousel" hidden={!carousel}>
-            <div className="wh-card mb-2"><div className="wh-msg" id="pv_bubble">{bodyText}</div></div>
+            <div className="wh-card mb-2"><div className="wh-msg" id="pv_bubble" dangerouslySetInnerHTML={{ __html: waToHtml(bodyText) }} /></div>
             <div className="wh-carousel" id="pv_cards">
               {cards.map((card) => (
                 <div className="wh-card" key={card.key}>
                   <div className="media-wrap"><MediaPreview type={cardFormat} file={card.file} /></div>
-                  <div className="wh-msg">{fill(card.body, card.examples) || 'Card text'}</div>
+                  <div className="wh-msg" dangerouslySetInnerHTML={{ __html: waToHtml(fill(card.body, card.examples) || 'Card text') }} />
                   {([0, 1] as const).map((s) => slots[s] && <ButtonPreview key={s} type={slots[s]} text={card.buttons[s].text} />)}
                 </div>
               ))}

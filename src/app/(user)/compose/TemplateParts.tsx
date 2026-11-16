@@ -16,7 +16,7 @@ export type ComposeTemplate = Pick<TemplateRow,
 export const COMPOSE_TEMPLATE_COLUMNS =
   'ut_id, ut_name, ut_template_type, ut_header_type, ut_header, ut_message, ut_parameters, ut_footer, ut_buttons, ut_cards';
 
-const BUTTON_ICONS: Record<string, string> = { URL: 'ri-external-link-line', PHONE_NUMBER: 'ri-phone-line' };
+const BUTTON_ICONS: Record<string, string> = { URL: 'ri-external-link-line', PHONE_NUMBER: 'ri-phone-line', FLOW: 'ri-survey-line', COPY_CODE: 'ri-file-copy-line' };
 
 export function TemplatePreview({ template }: { template: ComposeTemplate }) {
   const message = decodeEntities(template.ut_message ?? '');
@@ -28,7 +28,7 @@ export function TemplatePreview({ template }: { template: ComposeTemplate }) {
           {templateCards(template).map((card, i) => (
             <div className="wh-card" key={i}>
               <div className="media-wrap">
-                {card.header_type === 'VIDEO' ? <video controls src={card.header} /> : <img src={card.header} alt="Card image" />}
+                <HeaderMedia type={card.header_type === 'VIDEO' ? 'VIDEO' : 'IMAGE'} src={card.header} />
               </div>
               <div className="wh-msg" dangerouslySetInnerHTML={{ __html: waToHtml(card.body ?? '') }} />
               {(card.buttons ?? []).map((b, j) => (
@@ -45,17 +45,26 @@ export function TemplatePreview({ template }: { template: ComposeTemplate }) {
     <div className="wh-card">
       {header && (
         <div className="media-wrap">
-          {header === 'IMAGE' ? <img src={template.ut_header ?? ''} alt="Header image" />
-            : header === 'VIDEO' ? <video controls src={template.ut_header ?? ''} />
-              : header === 'DOCUMENT' ? <div className="p-3 bg-light rounded text-center"><i className="ri-file-pdf-2-line fs-2" /><br />Document</div>
-                : <strong>{decodeEntities(template.ut_header ?? '')}</strong>}
+          {header === 'TEXT' ? <strong>{decodeEntities(template.ut_header ?? '')}</strong> : <HeaderMedia type={header} src={template.ut_header} />}
         </div>
       )}
       <div className="wh-msg" dangerouslySetInnerHTML={{ __html: waToHtml(message) }} />
       {template.ut_footer && <div className="wh-footer">{template.ut_footer}</div>}
       {templateButtons(template).map((b, i) => (
-        <div className="wh-action" key={i}><i className="ri-reply-line" /> {b.text ?? ''}</div>
+        <div className="wh-action" key={i}><i className={BUTTON_ICONS[b.type ?? ''] ?? 'ri-reply-line'} /> {b.text ?? ''}</div>
       ))}
+    </div>
+  );
+}
+
+/** Header image / video, or a placeholder when there is no sample file (documents, videos synced without a URL). */
+function HeaderMedia({ type, src }: { type: string; src?: string | null }) {
+  if (src && type === 'IMAGE') return <img src={src} alt="Header image" loading="lazy" />;
+  if (src && type === 'VIDEO') return <video controls preload="metadata" src={src} />;
+  const icon = { IMAGE: 'ri-image-line', VIDEO: 'ri-video-line', DOCUMENT: 'ri-file-pdf-2-line' }[type] ?? 'ri-attachment-line';
+  return (
+    <div className="p-3 bg-light rounded text-center text-muted">
+      <i className={`${icon} fs-2`} /><br />{type.charAt(0) + type.slice(1).toLowerCase()}
     </div>
   );
 }

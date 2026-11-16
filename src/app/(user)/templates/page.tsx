@@ -11,12 +11,14 @@ import { decodeEntities, limit } from '@/lib/text';
 import { phpDate } from '@/lib/time';
 import type { TemplateRow } from '@/lib/types';
 import { categoryAllowed, categoryRefusal } from '@/lib/template-categories';
+import { COMPOSE_TEMPLATE_COLUMNS, TemplatePreview, type ComposeTemplate } from '../compose/TemplateParts';
 import { destroyTemplate } from './actions';
+import { TemplateViewButton } from './TemplateViewButton';
 
 export const metadata: Metadata = { title: 'WA Templates' };
 
 type Params = Promise<Record<string, string | string[] | undefined>>;
-type Row = Pick<TemplateRow, 'ut_id' | 'ut_created_on' | 'ut_name' | 'ut_message' | 'ut_template_category' | 'ut_template_type' | 'ut_language'>;
+type Row = ComposeTemplate & Pick<TemplateRow, 'ut_created_on' | 'ut_template_category' | 'ut_language'>;
 
 const truthy = (v: string) => ['1', 'true', 'on', 'yes'].includes(v.toLowerCase());
 
@@ -43,7 +45,7 @@ export default async function TemplatesPage({ searchParams }: { searchParams: Pa
   }
 
   const templates = await query<Row>(
-    `SELECT ut_id, ut_created_on, ut_name, ut_message, ut_template_category, ut_template_type, ut_language
+    `SELECT ${COMPOSE_TEMPLATE_COLUMNS}, ut_created_on, ut_template_category, ut_language
        FROM js_user_templates
       WHERE ut_user_id = $1 AND ut_status = 1 AND ut_dstatus = 0 AND ($2 = '' OR ut_name ILIKE '%' || $2 || '%')
       ORDER BY ut_id DESC`,
@@ -102,9 +104,11 @@ export default async function TemplatesPage({ searchParams }: { searchParams: Pa
                 </tr>
               </thead>
               <tbody>
-                {templates.length ? templates.map((t, i) => (
+                {templates.length ? templates.map((t, i) => {
+                  const canSend = categoryAllowed(user.u_template_categories, t.ut_template_category);
+                  return (
                   <tr key={t.ut_id}>
-                    <td>{categoryAllowed(user.u_template_categories, t.ut_template_category)
+                    <td>{canSend
                       ? <Link className="btn btn-success btn-sm" href={`/compose?tm=${t.ut_id}`}>Send Template</Link>
                       : <span className="badge bg-secondary-subtle text-secondary" title={categoryRefusal(user.u_template_categories)}>Category not enabled</span>}</td>
                     <td>{i + 1}</td>
@@ -115,14 +119,23 @@ export default async function TemplatesPage({ searchParams }: { searchParams: Pa
                     <td><span className="badge bg-info-subtle text-info">{t.ut_template_type}</span></td>
                     <td>{t.ut_language}</td>
                     <td>
-                      <form action={destroyTemplate.bind(null, t.ut_id)}>
-                        <ConfirmButton message="Remove this template from the list?" className="btn btn-sm btn-soft-danger" title="Delete" aria-label="Delete">
-                          <i className="ri-delete-bin-fill" />
-                        </ConfirmButton>
-                      </form>
+                      <div className="d-flex gap-1">
+                        <TemplateViewButton
+                          id={t.ut_id} name={t.ut_name ?? ''} category={t.ut_template_category} language={t.ut_language}
+                          sendHref={canSend ? `/compose?tm=${t.ut_id}` : null}
+                        >
+                          <TemplatePreview template={t} />
+                        </TemplateViewButton>
+                        <form action={destroyTemplate.bind(null, t.ut_id)}>
+                          <ConfirmButton message="Remove this template from the list?" className="btn btn-sm btn-soft-danger" title="Delete" aria-label="Delete">
+                            <i className="ri-delete-bin-fill" />
+                          </ConfirmButton>
+                        </form>
+                      </div>
                     </td>
                   </tr>
-                )) : (
+                  );
+                }) : (
                   <tr><td colSpan={9} className="text-center text-muted py-4">No approved templates. Use “Sync from WhatsApp” after creating templates in WhatsApp Manager.</td></tr>
                 )}
               </tbody>

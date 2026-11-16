@@ -19,3 +19,25 @@ export function waToHtml(text: unknown): string {
 
   return html.replace(/\bhttps?:\/\/[^\s<]+[^\s<.,!?:;)\]]/gu, (u) => `<a href="${u}" target="_blank" rel="noopener">${u}</a>`);
 }
+
+/**
+ * Editor helper: wrap text[start, end) in a WhatsApp marker (* bold, _ italic), or remove
+ * the marker when that range is already wrapped. Surrounding spaces stay outside the
+ * markers (WhatsApp only formats when a marker touches the text); an empty range inserts
+ * the pair. Returns the new text and the range to select afterwards.
+ */
+export function toggleWaMarker(text: string, start: number, end: number, marker: string): { text: string; from: number; to: number } {
+  const m = marker.length;
+  const selected = text.slice(start, end);
+  const s = start + (selected.length - selected.trimStart().length);
+  const e = Math.max(s, end - (selected.length - selected.trimEnd().length));
+  const inner = text.slice(s, e);
+
+  if (text.slice(s - m, s) === marker && text.slice(e, e + m) === marker && s >= m) {
+    return { text: text.slice(0, s - m) + inner + text.slice(e + m), from: s - m, to: e - m };
+  }
+  if (inner.length > 2 * m && inner.startsWith(marker) && inner.endsWith(marker)) {
+    return { text: text.slice(0, s) + inner.slice(m, -m) + text.slice(e), from: s, to: e - 2 * m };
+  }
+  return { text: text.slice(0, s) + marker + inner + marker + text.slice(e), from: s + m, to: e + m };
+}

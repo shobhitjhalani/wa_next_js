@@ -4,7 +4,7 @@ import { parseDate, parseDateRange, phpDate, addDays, hourIn, withinHours } from
 import { decodeEntities, limit, numberFormat } from '@/lib/text';
 import { legacyHash, checkPassword, hashPassword, needsUpgrade } from '@/lib/password';
 import { ccaDecode, ccaDecrypt, ccaEncrypt } from '@/lib/ccavenue';
-import { waToHtml } from '@/lib/whatsapp-text';
+import { toggleWaMarker, waToHtml } from '@/lib/whatsapp-text';
 import { contactInitials, countVariables, messagePreview, messageStatusLabel, messageSummary, templateParameterCount, templateVariables } from '@/lib/format';
 
 describe('phone (Support\\Phone)', () => {
@@ -90,6 +90,22 @@ describe('WhatsApp text → HTML', () => {
     expect(waToHtml('see https://a.test/x_y_z.')).toBe('see <a href="https://a.test/x_y_z" target="_blank" rel="noopener">https://a.test/x_y_z</a>.');
     expect(waToHtml('snake_case_name')).toBe('snake_case_name');
     expect(waToHtml('got *₹1* for *1* booking dated *4-11-2026*.')).toBe('got <strong>₹1</strong> for <strong>1</strong> booking dated <strong>4-11-2026</strong>.');
+  });
+
+  it('toggles bold / italic markers around an editor selection', () => {
+    // wrap a selection; trailing space stays outside so WhatsApp still formats it
+    expect(toggleWaMarker('Hello world', 6, 11, '*')).toEqual({ text: 'Hello *world*', from: 7, to: 12 });
+    expect(toggleWaMarker('Hello world ', 0, 6, '_')).toEqual({ text: '_Hello_ world ', from: 1, to: 6 });
+    // clicking again removes it (selection inside or including the markers)
+    expect(toggleWaMarker('Hello *world*', 7, 12, '*')).toEqual({ text: 'Hello world', from: 6, to: 11 });
+    expect(toggleWaMarker('Hello *world*', 6, 13, '*')).toEqual({ text: 'Hello world', from: 6, to: 11 });
+    // nothing selected: insert a pair with the cursor between; again removes the empty pair
+    expect(toggleWaMarker('Hi ', 3, 3, '*')).toEqual({ text: 'Hi **', from: 4, to: 4 });
+    expect(toggleWaMarker('Hi **', 4, 4, '*')).toEqual({ text: 'Hi ', from: 3, to: 3 });
+    // bold + italic together, and the preview renders both
+    const both = toggleWaMarker('*Sale*', 1, 5, '_').text;
+    expect(both).toBe('*_Sale_*');
+    expect(waToHtml(both)).toBe('<strong><em>Sale</em></strong>');
   });
 });
 

@@ -234,7 +234,11 @@ export function ComposeForm({ action, templates, selected, groups, preselectedGr
               </div>
 
               <div role="tabpanel" hidden={tab !== 'file'}>
-                <label htmlFor="contact_file" className="form-label">Excel / CSV File</label>
+                <div className="d-flex flex-wrap align-items-center gap-2 mb-1">
+                  <label htmlFor="contact_file" className="form-label mb-0 me-auto">Excel / CSV File</label>
+                  <a href="/compose/sample" className="btn btn-sm btn-soft-primary" download><i className="ri-file-excel-2-line" /> Download sample Excel</a>
+                  <a href="/contacts/sample" className="btn btn-sm btn-light border" download><i className="ri-download-2-line" /> Sample CSV</a>
+                </div>
                 <div className="d-flex gap-2 align-items-center">
                   <input
                     ref={fileRef} type="file" className="form-control" name="contact_file" id="contact_file"

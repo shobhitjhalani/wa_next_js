@@ -10,6 +10,7 @@ import { PageTitle } from '@/components/PageTitle';
 import { Pagination, pageParam } from '@/components/Pagination';
 import { DateRangeInput, SelectAll } from '@/components/ui';
 import { markIncoming } from './actions';
+import { IncomingRow } from './IncomingRow';
 
 const ATTACHMENT_TYPES = ['image', 'document', 'video', 'audio'];
 
@@ -86,24 +87,21 @@ export async function IncomingListing({ params, attachments }: { params: Record<
                     <th>Sender Name</th>
                     <th>Mobile No</th>
                     <th>Content</th>
+                    <th>Status</th>
                     {attachments && <th />}
                   </tr>
                 </thead>
                 <tbody>
                   {rows.length ? rows.map((m, i) => (
-                    <tr key={m.m_id} className={Number(m.m_is_read) === 2 ? 'fw-semibold' : ''}>
-                      <td><input type="checkbox" className="form-check-input mids" name="mids" value={m.m_id} aria-label="Select" /></td>
+                    <IncomingRow key={m.m_id} id={Number(m.m_id)} read={Number(m.m_is_read) !== 2} attachment={attachments}>
                       <td>{first + i}</td>
                       <td>{phpDate('d M H:i:s', Number(m.m_created_on))}</td>
                       <td>{m.m_sender_name}</td>
                       <td><Link href={'/chat?mb=' + encodeURIComponent(m.m_mobile_no ?? '')}>{m.m_mobile_no}</Link></td>
                       <td className="msg-content">{messageSummary(m)}</td>
-                      {attachments && (
-                        <td><a href={`/view_attachment/${m.m_id}`} target="_blank" className="btn btn-sm btn-soft-primary"><i className="ri-eye-line" /> View</a></td>
-                      )}
-                    </tr>
+                    </IncomingRow>
                   )) : (
-                    <tr><td colSpan={7} className="text-center text-muted py-4">No messages.</td></tr>
+                    <tr><td colSpan={8} className="text-center text-muted py-4">No messages.</td></tr>
                   )}
                 </tbody>
               </table>

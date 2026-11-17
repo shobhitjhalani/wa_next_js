@@ -75,6 +75,14 @@ export const config = {
   mediaUrl: '/media',
   // Base64 attachment payloads saved by the API (legacy waapi/media)
   apiMediaPath: dir('API_MEDIA_PATH', './storage/api_media'),
+  // API attachment payloads older than this many days are deleted by the daily cleanup
+  apiMediaDays: Math.max(1, int('API_MEDIA_DAYS', 4)),
+
+  // Disk-space alert (hourly): email when the disk holding the media / database is this full
+  diskAlert: {
+    percent: Math.min(99, Math.max(50, int('DISK_ALERT_PERCENT', 90))),
+    email: env('DISK_ALERT_EMAIL') || env('REPORT_ADMIN_EMAIL'),
+  },
 
   payment: {
     // 1 = Razorpay, 2 = CCAvenue (legacy p_gateway)

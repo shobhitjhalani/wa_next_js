@@ -99,12 +99,14 @@ export async function cleanup(log: Log = console.log): Promise<void> {
       removed++;
     }
   }
-  const apiCutoff = Date.now() - config.cancelAfterDays * 86400_000;
+  // Attachments sent through the API (base64 payloads): kept API_MEDIA_DAYS (4) days
+  const apiCutoff = Date.now() - config.apiMediaDays * 86400_000;
+  let apiRemoved = 0;
   for (const f of await readdir(config.apiMediaPath).catch(() => [] as string[])) {
     if (!f.endsWith('.json')) continue;
     const p = path.join(config.apiMediaPath, f);
     const mtime = (await stat(p).catch(() => null))?.mtimeMs ?? Infinity;
-    if (mtime < apiCutoff) await unlink(p).catch(() => undefined);
+    if (mtime < apiCutoff && (await unlink(p).then(() => true, () => false))) apiRemoved++;
   }
   // Incoming attachments are a download cache; view_attachment fetches them again from Meta
   const att = path.join(config.mediaPath, 'attachment');
@@ -116,7 +118,7 @@ export async function cleanup(log: Log = console.log): Promise<void> {
       if (st?.isFile() && st.mtimeMs < dayAgo) await unlink(p).catch(() => undefined);
     }
   }
-  log(`${removed} media folder(s) removed.`);
+  log(`${removed} media folder(s) removed. ${apiRemoved} API media file(s) older than ${config.apiMediaDays} days deleted.`);
 }
 
 /** wa:email-reports — daily summary to the admin, template report to selected clients. */

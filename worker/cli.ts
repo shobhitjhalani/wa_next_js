@@ -6,7 +6,8 @@
  *   npm run wa -- process-webhooks
  *   npm run wa -- expire-plans
  *   npm run wa -- expire-messages   cancel queued messages older than WA_MSG_EXPIRY (24h)
- *   npm run wa -- cleanup
+ *   npm run wa -- cleanup         also deletes API media older than API_MEDIA_DAYS (4)
+ *   npm run wa -- disk-alert [--force]   check disk space; email if DISK_ALERT_PERCENT (90) % full
  *   npm run wa -- email-reports [--user=46,47] [--admin-only]
  *   npm run wa -- inbox-rebuild [--user=74]
  *   npm run wa -- db-backup       back up the database to DigitalOcean Spaces now
@@ -15,6 +16,7 @@
 import { pool } from '@/lib/db';
 import { cleanup, dispatchCampaigns, emailReports, expireMessages, expirePlans, inboxRebuild, processWebhooks, sendQueue } from './jobs';
 import { scheduledBackup } from '@/lib/services/backup';
+import { checkDiskSpace } from '@/lib/services/disk-alert';
 import { runDueJobs } from './schedule';
 
 const [command, ...rest] = process.argv.slice(2);
@@ -31,6 +33,7 @@ const commands: Record<string, () => Promise<unknown>> = {
   'expire-plans': () => expirePlans(),
   'expire-messages': () => expireMessages(),
   cleanup: () => cleanup(),
+  'disk-alert': () => checkDiskSpace(console.log, { force: opts.force === 'true' }),
   'email-reports': () => emailReports({ users: opts.user ? String(opts.user).split(',').map(Number) : undefined, adminOnly: opts['admin-only'] === 'true' }),
   'inbox-rebuild': () => inboxRebuild({ user }),
   'db-backup': () => scheduledBackup(console.log),

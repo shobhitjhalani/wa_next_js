@@ -11,6 +11,7 @@ import { createHash } from 'node:crypto';
 import { config } from '@/lib/config';
 import { pool } from '@/lib/db';
 import { requestedBackups, scheduledBackup } from '@/lib/services/backup';
+import { checkDiskSpace } from '@/lib/services/disk-alert';
 import { cleanup, dispatchCampaigns, emailReports, expireMessages, expirePlans, processWebhooks, sendQueue } from './jobs';
 
 /** dailyAt: one 'HH:MM' or several (the job runs once after each of them). */
@@ -31,6 +32,8 @@ export const JOBS: Job[] = [
   { name: 'process-webhooks', schedule: { everySeconds: 60 }, run: (log) => processWebhooks(log) },
   { name: 'expire-plans', schedule: { hourly: true }, run: (log) => expirePlans(log) },
   { name: 'cleanup', schedule: { dailyAt: '02:30' }, run: (log) => cleanup(log) },
+  // Email DISK_ALERT_EMAIL when the disk is DISK_ALERT_PERCENT (90) % full — once a day while it stays full
+  { name: 'disk-alert', schedule: { hourly: true }, run: (log) => checkDiskSpace(log) },
   // REPORT_EMAIL_TIMES, e.g. every 30 minutes from 08:00 to 23:00 — the admin summary to REPORT_ADMIN_EMAIL only, never to users
   { name: 'email-reports', schedule: { dailyAt: config.reports.times }, run: (log) => emailReports({ adminOnly: true }, log) },
   // Database backup to DigitalOcean Spaces (BACKUP_TIMES, default 00:00) and the ones queued from /wamaster/backups

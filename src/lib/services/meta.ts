@@ -104,6 +104,25 @@ export function createTemplate(user: WaUser, payload: Record<string, unknown>): 
   return metaPost(`${user.u_wa_b_id}/message_templates`, payload);
 }
 
+/** One template of the WABA as WhatsApp has it now (id, status, components), or null. */
+export async function findTemplate(user: WaUser, name: string, language: string | null): Promise<Record<string, any> | null> {
+  const res = await metaGet(`${user.u_wa_b_id}/message_templates`, {
+    name, fields: 'id,name,language,status,category,components', limit: 100,
+  });
+  const list: Record<string, any>[] = Array.isArray(res.data) ? res.data : [];
+  // The name filter also matches longer names: keep the exact one (and language when known)
+  const same = list.filter((t) => t.name === name);
+  return same.find((t) => !language || t.language === language) ?? same[0] ?? null;
+}
+
+/**
+ * Edit a template's components (POST /{template-id}). WhatsApp re-reviews the change; an
+ * approved template can be edited once a day and 10 times a month, name and language can't change.
+ */
+export function editTemplate(templateId: string, payload: Record<string, unknown>): Promise<MetaResponse> {
+  return metaPost(templateId, payload);
+}
+
 /** App that owns the token: FB_APP_ID, or looked up from the token itself. */
 async function appId(): Promise<string | null> {
   if (config.meta.fbAppId) return config.meta.fbAppId;

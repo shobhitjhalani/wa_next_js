@@ -5,6 +5,7 @@ import { useEffect, useRef, useState, type KeyboardEvent } from 'react';
 import { ActionForm, FieldError, SubmitButton } from '@/components/ActionForm';
 import { EmojiButton } from '@/components/EmojiButton';
 import type { ActionResult } from '@/lib/actions';
+import type { TemplateFormValues } from '@/lib/services/templates';
 import { toggleWaMarker, waToHtml } from '@/lib/whatsapp-text';
 
 /**
@@ -89,28 +90,35 @@ const newCard = (key: number): Card => ({ key, body: '', examples: {}, buttons: 
 
 type Action = (prev: ActionResult | null, fd: FormData) => Promise<ActionResult>;
 
-export function TemplateForm({ action, languages, initialKind, flows, categories }: {
+export function TemplateForm({ action, languages, initialKind, flows, categories, initial }: {
   action: Action; languages: Record<string, string>; initialKind: 'STANDARD' | 'CAROUSEL';
+  /** Editing an existing standard template: its current values (name, language and category can't change). */
+  initial?: TemplateFormValues;
   /** Categories this account may create (admin-set; usually Marketing and Utility). */
   categories: ('MARKETING' | 'UTILITY')[];
   /** The account's WhatsApp Flows; null when they couldn't be loaded (the Flow ID is typed instead). */
   flows: FlowOption[] | null;
 }) {
-  const [kind, setKind] = useState(initialKind);
+  const editing = !!initial;
+  const [kind, setKind] = useState(editing ? 'STANDARD' : initialKind);
   const carousel = kind === 'CAROUSEL';
-  const [name, setName] = useState('');
-  const [headerType, setHeaderType] = useState('NONE');
-  const [headerText, setHeaderText] = useState('');
-  const [headerExample, setHeaderExample] = useState('');
+  const [name, setName] = useState(initial?.name ?? '');
+  const [headerType, setHeaderType] = useState(initial?.header_type ?? 'NONE');
+  const [headerText, setHeaderText] = useState(initial?.header_text ?? '');
+  const [headerExample, setHeaderExample] = useState(initial?.header_example ?? '');
   const [headerFile, setHeaderFile] = useState<File | null>(null);
-  const [body, setBody] = useState('');
-  const [bodyExamples, setBodyExamples] = useState<Record<number, string>>({});
-  const [footer, setFooter] = useState('');
-  const [buttons, setButtons] = useState<Btn[]>([]);
+  const [body, setBody] = useState(initial?.body ?? '');
+  const [bodyExamples, setBodyExamples] = useState<Record<number, string>>(initial?.body_example ?? {});
+  const [footer, setFooter] = useState(initial?.footer ?? '');
+  const [buttons, setButtons] = useState<Btn[]>(() => (initial?.buttons ?? []).map((b, key) => ({
+    key, type: b.type, text: b.text, url: b.url, phone: b.phone, example: b.example, flowId: b.flow_id, screen: b.navigate_screen,
+  })));
+  // Editing: the current media header is kept unless a new sample is chosen
+  const keptMedia = editing && initial?.header_type === headerType && headerType !== 'TEXT' && headerType !== 'NONE' ? initial?.header_media ?? '' : '';
   const [cardFormat, setCardFormat] = useState('IMAGE');
   const [slots, setSlots] = useState<[string, string]>(['QUICK_REPLY', '']);
   const [cards, setCards] = useState<Card[]>(() => [newCard(0), newCard(1)]);
-  const nextKey = useRef({ button: 0, card: 2 });
+  const nextKey = useRef({ button: initial?.buttons.length ?? 0, card: 2 });
   const bodyRef = useRef<HTMLTextAreaElement>(null);
   const cardRefs = useRef(new Map<number, HTMLTextAreaElement>());
 
@@ -139,7 +147,14 @@ export function TemplateForm({ action, languages, initialKind, flows, categories
     <ActionForm action={action} id="template_form">
       <div className="row g-4">
         <div className="col-lg-7">
-          <div className="mb-3">
+          {editing && <input type="hidden" name="kind" value="STANDARD" />}
+          {editing && (
+            <div className="alert alert-info small">
+              WhatsApp reviews the changed template again before it can be sent. An approved template can be edited once a day
+              and up to 10 times a month. The name, category and language can&apos;t be changed.
+            </div>
+          )}
+          <div className="mb-3" hidden={editing}>
             <span className="form-label d-block">Template Type</span>
             <div className="btn-group" role="group" aria-label="Template type">
               <input type="radio" className="btn-check" name="kind" id="kind_standard" value="STANDARD" checked={!carousel} onChange={() => setKind('STANDARD')} />
@@ -159,23 +174,31 @@ export function TemplateForm({ action, languages, initialKind, flows, categories
               <label htmlFor="name" className="form-label">Template Name <span className="text-danger">*</span></label>
               <input
                 type="text" className="form-control" name="name" id="name" value={name} maxLength={512} pattern="[a-z0-9_]+" placeholder="order_update" required
-                onChange={(e) => setName(e.target.value.toLowerCase().replace(/\s+/g, '_'))}
+                readOnly={editing} onChange={(e) => setName(e.target.value.toLowerCase().replace(/\s+/g, '_'))}
               />
-              <div className="form-text">Lowercase letters, numbers and underscores only.</div>
+              {!editing && <div className="form-text">Lowercase letters, numbers and underscores only.</div>}
               <FieldError name="name" />
             </div>
             <div className="col-md-3">
               <label htmlFor="category" className="form-label">Category <span className="text-danger">*</span></label>
-              <select className="form-select" name="category" id="category" required defaultValue={categories[0]}>
-                {categories.map((c) => <option key={c} value={c}>{c === 'MARKETING' ? 'Marketing' : 'Utility'}</option>)}
-              </select>
+              {editing ? (
+                <input className="form-control" id="category" value={initial.category.charAt(0) + initial.category.slice(1).toLowerCase()} readOnly />
+              ) : (
+                <select className="form-select" name="category" id="category" required defaultValue={categories[0]}>
+                  {categories.map((c) => <option key={c} value={c}>{c === 'MARKETING' ? 'Marketing' : 'Utility'}</option>)}
+                </select>
+              )}
               <FieldError name="category" />
             </div>
             <div className="col-md-3">
               <label htmlFor="language" className="form-label">Language <span className="text-danger">*</span></label>
-              <select className="form-select" name="language" id="language" required defaultValue="en">
-                {Object.entries(languages).map(([code, label]) => <option key={code} value={code}>{label}</option>)}
-              </select>
+              {editing ? (
+                <input className="form-control" id="language" value={languages[initial.language] ?? initial.language} readOnly />
+              ) : (
+                <select className="form-select" name="language" id="language" required defaultValue="en">
+                  {Object.entries(languages).map(([code, label]) => <option key={code} value={code}>{label}</option>)}
+                </select>
+              )}
             </div>
           </div>
 
@@ -202,11 +225,12 @@ export function TemplateForm({ action, languages, initialKind, flows, categories
             <div className="mb-3" id="header_file_wrap" hidden={!media}>
               <label htmlFor="header_file" className="form-label">Sample Header File</label>
               <input
-                type="file" className="form-control" name="header_file" id="header_file" required={!!media && !carousel} accept={media?.[0]}
+                type="file" className="form-control" name="header_file" id="header_file" required={!!media && !carousel && !keptMedia} accept={media?.[0]}
                 onChange={(e) => setHeaderFile(e.target.files?.[0] ?? null)}
               />
               <div className="form-text" id="header_file_hint">
                 {media ? `${media[1]}. WhatsApp uses it only as a review sample; you choose the real file when sending.` : ''}
+                {keptMedia ? ' Leave empty to keep the current sample.' : ''}
               </div>
               <FieldError name="header_file" />
             </div>
@@ -422,7 +446,7 @@ export function TemplateForm({ action, languages, initialKind, flows, categories
           </fieldset>
 
           <div>
-            <SubmitButton className="btn btn-success"><i className="ri-send-plane-2-line" /> Submit for Approval</SubmitButton>{' '}
+            <SubmitButton className="btn btn-success"><i className="ri-send-plane-2-line" /> {editing ? 'Submit Changes for Approval' : 'Submit for Approval'}</SubmitButton>{' '}
             <Link href="/templates" className="btn btn-light">Cancel</Link>
           </div>
         </div>
@@ -433,7 +457,7 @@ export function TemplateForm({ action, languages, initialKind, flows, categories
             <div className="media-wrap" id="pv_header" hidden={headerType === 'NONE'}>
               {headerType === 'TEXT'
                 ? <strong>{fill(headerText, { 1: headerExample })}</strong>
-                : headerType !== 'NONE' && <MediaPreview type={headerType} file={headerFile} />}
+                : headerType !== 'NONE' && <MediaPreview type={headerType} file={headerFile} url={keptMedia} />}
             </div>
             <div className="wh-msg" id="pv_body" dangerouslySetInnerHTML={{ __html: waToHtml(bodyText) }} />
             <div className="wh-footer" id="pv_footer" hidden={!footer}>{footer}</div>
@@ -489,7 +513,7 @@ function ButtonPreview({ type, text }: { type: string; text: string }) {
 }
 
 /** Picked image shown inline; other media as an icon placeholder. */
-function MediaPreview({ type, file }: { type: string; file: File | null }) {
+function MediaPreview({ type, file, url = '' }: { type: string; file: File | null; url?: string }) {
   const [src, setSrc] = useState<string | null>(null);
   useEffect(() => {
     if (type !== 'IMAGE' || !file) {
@@ -501,6 +525,8 @@ function MediaPreview({ type, file }: { type: string; file: File | null }) {
     return () => URL.revokeObjectURL(u);
   }, [type, file]);
   if (src) return <img alt="" src={src} />;
+  // eslint-disable-next-line @next/next/no-img-element -- WhatsApp sample URL of the current header
+  if (type === 'IMAGE' && url) return <img alt="" src={url} />;
   const icon = { IMAGE: 'ri-image-line', VIDEO: 'ri-video-line', DOCUMENT: 'ri-file-pdf-2-line' }[type];
   return (
     <div className="p-3 bg-light rounded text-center">

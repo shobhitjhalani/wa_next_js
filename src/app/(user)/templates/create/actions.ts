@@ -1,12 +1,13 @@
 'use server';
 
-import { forbidden, redirect } from 'next/navigation';
+import { forbidden, notFound, redirect } from 'next/navigation';
 import { fail, fileExt, flash, invalid, type ActionResult } from '@/lib/actions';
 import { requireUser } from '@/lib/auth';
+import { loadEditableTemplate } from '../template-edit';
 import { templateVariables } from '@/lib/format';
-import { nestedForm, nFile, nList, nObj, nStr, nStrings, type NestedValue } from '@/lib/form-nested';
+import { nestedForm, nFile, nList, nObj, nStr, nStrings, type NestedObject, type NestedValue } from '@/lib/form-nested';
 import {
-  createCarouselTemplate, createStandardTemplate, syncTemplates,
+  createCarouselTemplate, createStandardTemplate, editStandardTemplate, syncTemplates,
   type ButtonInput, type CarouselInput, type TemplateInput,
 } from '@/lib/services/templates';
 import { LANGUAGES } from './languages';
@@ -86,6 +87,79 @@ function checkButton(b: ButtonInput, field: string, e: Errors) {
   } else if (!b.example) {
     e.add(`${field}.example`, 'Enter a sample full URL for the URL button.');
   }
+}
+
+/**
+ * Header, body, footer and buttons of a standard template (shared by create and edit).
+ * Null when there are errors (in `e`). `keepMedia` = media header type the template already
+ * has: editing may keep it without uploading a new sample.
+ */
+function parseStandard(
+  input: NestedObject, e: Errors, base: { name: string; language: string; category: string; body: string; bodyExample: Record<number, string> },
+  keepMedia = '',
+): { data: TemplateInput; headerFile: File | null } | null {
+  const { name, language, category, body, bodyExample } = base;
+  const headerType = nStr(input, 'header_type');
+  if (e.required('header_type', headerType)) e.in('header_type', headerType, ['NONE', 'TEXT', 'IMAGE', 'VIDEO', 'DOCUMENT']);
+  const headerText = nStr(input, 'header_text');
+  if (headerType === 'TEXT') e.required('header_text', headerText, 'The header text field is required when header type is TEXT.');
+  e.max('header_text', headerText, 60);
+  const headerExample = nStr(input, 'header_example');
+  e.max('header_example', headerExample, 200);
+  const headerFile = nFile(input, 'header_file');
+  if (['IMAGE', 'VIDEO', 'DOCUMENT'].includes(headerType) && !headerFile && headerType !== keepMedia) e.add('header_file', 'Upload a sample file for the media header.');
+  e.file('header_file', headerFile, FILE_RULES[headerType]);
+  const footer = nStr(input, 'footer');
+  e.max('footer', footer, 60);
+  const rawButtons = nList(input.buttons);
+  if (rawButtons.length > 10) e.add('buttons', 'The buttons field must not have more than 10 items.');
+  const buttons: ButtonInput[] = rawButtons.map((b, i) => {
+    const f = `buttons.${i}`;
+    const type = nStr(b, 'type');
+    if (e.required(`${f}.type`, type)) e.in(`${f}.type`, type, STANDARD_BUTTON_TYPES);
+    const text = nStr(b, 'text');
+    if (e.required(`${f}.text`, text)) e.max(`${f}.text`, text, 25);
+    const url = nStr(b, 'url');
+    if (type === 'URL' && !url) e.add(`${f}.url`, `The ${f}.url field is required when ${f}.type is URL.`);
+    e.max(`${f}.url`, url, 2000);
+    e.startsWith(`${f}.url`, url);
+    const phone = nStr(b, 'phone');
+    if (type === 'PHONE_NUMBER' && !phone) e.add(`${f}.phone`, `The ${f}.phone field is required when ${f}.type is PHONE_NUMBER.`);
+    e.max(`${f}.phone`, phone, 20);
+    e.regex(`${f}.phone`, phone, PHONE, 'Phone number must include the country code, e.g. +919876543210.');
+    const example = nStr(b, 'example');
+    e.max(`${f}.example`, example, 2000);
+    const flowId = nStr(b, 'flow_id');
+    const screen = nStr(b, 'navigate_screen');
+    if (type === 'FLOW') {
+      if (!flowId) e.add(`${f}.flow_id`, 'Choose the WhatsApp Flow this button opens.');
+      e.regex(`${f}.flow_id`, flowId, /^\d{5,25}$/, 'The Flow ID is the number shown for the flow in WhatsApp Manager.');
+      e.max(`${f}.navigate_screen`, screen, 100);
+      e.regex(`${f}.navigate_screen`, screen, /^[A-Za-z0-9_]+$/, 'The screen ID may only contain letters, numbers and underscores, e.g. QUESTION_ONE.');
+    }
+    return {
+      type, text, url: url || undefined, phone: phone || undefined, example: example || undefined,
+      flow_id: type === 'FLOW' ? flowId : undefined, navigate_screen: type === 'FLOW' && screen ? screen : undefined,
+    };
+  });
+  if (buttons.filter((b) => b.type === 'FLOW').length > 1) e.add('buttons', 'A template can have only one Flow button.');
+  if (e.any) return null;
+
+  checkBody(body, bodyExample, 'body', 'body_example', e);
+  const headerVars = headerType === 'TEXT' ? templateVariables(headerText) : [];
+  if (headerVars.length && (headerVars.length !== 1 || headerVars[0] !== 1)) {
+    e.add('header_text', 'The header can contain only one variable, {{1}}.');
+  } else if (headerVars.length && !headerExample) {
+    e.add('header_example', 'Enter a sample value for the header variable.');
+  }
+  buttons.forEach((b, i) => checkButton(b, `buttons.${i}`, e));
+  if (e.any) return null;
+
+  return { headerFile, data: {
+    name, language, category, header_type: headerType,
+    header_text: headerText || undefined, header_example: headerExample || undefined,
+    body, body_example: bodyExample, footer: footer || undefined, buttons,
+  } };
 }
 
 /** Create a template and submit it to Meta for review (User\TemplateController::store). */
@@ -182,68 +256,9 @@ export async function storeTemplate(_prev: ActionResult | null, fd: FormData): P
   }
 
   // Standard template
-  const headerType = nStr(input, 'header_type');
-  if (e.required('header_type', headerType)) e.in('header_type', headerType, ['NONE', 'TEXT', 'IMAGE', 'VIDEO', 'DOCUMENT']);
-  const headerText = nStr(input, 'header_text');
-  if (headerType === 'TEXT') e.required('header_text', headerText, 'The header text field is required when header type is TEXT.');
-  e.max('header_text', headerText, 60);
-  const headerExample = nStr(input, 'header_example');
-  e.max('header_example', headerExample, 200);
-  const headerFile = nFile(input, 'header_file');
-  if (['IMAGE', 'VIDEO', 'DOCUMENT'].includes(headerType) && !headerFile) e.add('header_file', 'Upload a sample file for the media header.');
-  e.file('header_file', headerFile, FILE_RULES[headerType]);
-  const footer = nStr(input, 'footer');
-  e.max('footer', footer, 60);
-  const rawButtons = nList(input.buttons);
-  if (rawButtons.length > 10) e.add('buttons', 'The buttons field must not have more than 10 items.');
-  const buttons: ButtonInput[] = rawButtons.map((b, i) => {
-    const f = `buttons.${i}`;
-    const type = nStr(b, 'type');
-    if (e.required(`${f}.type`, type)) e.in(`${f}.type`, type, STANDARD_BUTTON_TYPES);
-    const text = nStr(b, 'text');
-    if (e.required(`${f}.text`, text)) e.max(`${f}.text`, text, 25);
-    const url = nStr(b, 'url');
-    if (type === 'URL' && !url) e.add(`${f}.url`, `The ${f}.url field is required when ${f}.type is URL.`);
-    e.max(`${f}.url`, url, 2000);
-    e.startsWith(`${f}.url`, url);
-    const phone = nStr(b, 'phone');
-    if (type === 'PHONE_NUMBER' && !phone) e.add(`${f}.phone`, `The ${f}.phone field is required when ${f}.type is PHONE_NUMBER.`);
-    e.max(`${f}.phone`, phone, 20);
-    e.regex(`${f}.phone`, phone, PHONE, 'Phone number must include the country code, e.g. +919876543210.');
-    const example = nStr(b, 'example');
-    e.max(`${f}.example`, example, 2000);
-    const flowId = nStr(b, 'flow_id');
-    const screen = nStr(b, 'navigate_screen');
-    if (type === 'FLOW') {
-      if (!flowId) e.add(`${f}.flow_id`, 'Choose the WhatsApp Flow this button opens.');
-      e.regex(`${f}.flow_id`, flowId, /^\d{5,25}$/, 'The Flow ID is the number shown for the flow in WhatsApp Manager.');
-      e.max(`${f}.navigate_screen`, screen, 100);
-      e.regex(`${f}.navigate_screen`, screen, /^[A-Za-z0-9_]+$/, 'The screen ID may only contain letters, numbers and underscores, e.g. QUESTION_ONE.');
-    }
-    return {
-      type, text, url: url || undefined, phone: phone || undefined, example: example || undefined,
-      flow_id: type === 'FLOW' ? flowId : undefined, navigate_screen: type === 'FLOW' && screen ? screen : undefined,
-    };
-  });
-  if (buttons.filter((b) => b.type === 'FLOW').length > 1) e.add('buttons', 'A template can have only one Flow button.');
-  if (e.any) return invalid(e.list);
-
-  checkBody(body, bodyExample, 'body', 'body_example', e);
-  const headerVars = headerType === 'TEXT' ? templateVariables(headerText) : [];
-  if (headerVars.length && (headerVars.length !== 1 || headerVars[0] !== 1)) {
-    e.add('header_text', 'The header can contain only one variable, {{1}}.');
-  } else if (headerVars.length && !headerExample) {
-    e.add('header_example', 'Enter a sample value for the header variable.');
-  }
-  buttons.forEach((b, i) => checkButton(b, `buttons.${i}`, e));
-  if (e.any) return invalid(e.list);
-
-  const data: TemplateInput = {
-    name, language, category, header_type: headerType,
-    header_text: headerText || undefined, header_example: headerExample || undefined,
-    body, body_example: bodyExample, footer: footer || undefined, buttons,
-  };
-  const result = await createStandardTemplate(user, data, headerFile);
+  const parsed = parseStandard(input, e, { name, language, category, body, bodyExample });
+  if (!parsed) return invalid(e.list);
+  const result = await createStandardTemplate(user, parsed.data, parsed.headerFile);
   if (!result.ok) return fail(result.message);
   return finish(user, name, result.status);
 }
@@ -253,5 +268,31 @@ async function finish(user: Parameters<typeof syncTemplates>[0], name: string, s
   await flash('success', status === 'APPROVED'
     ? `Template “${name}” was approved and is ready to send.`
     : `Template “${name}” submitted to WhatsApp (status: ${status}). It appears here once approved — use “Sync from WhatsApp” to refresh.`);
+  redirect('/templates');
+}
+
+/** Change a standard template's header, body, footer or buttons; WhatsApp reviews it again. */
+export async function updateTemplate(id: number, _prev: ActionResult | null, fd: FormData): Promise<ActionResult> {
+  const user = await requireUser();
+  if (!user.u_wa_b_id) forbidden();
+  const found = await loadEditableTemplate(user.u_id, user, Number(id) || 0);
+  if (!found) notFound();
+  if (found.problem || !found.meta) return fail(found.problem);
+  const meta = found.meta;
+
+  const input = nestedForm(fd);
+  const e = new Errors();
+  const body = nStr(input, 'body');
+  if (e.required('body', body)) e.max('body', body, 1024);
+  const bodyExample = strings(input.body_example, 'body_example', e, 200);
+  const header = (meta.components ?? []).find((c: any) => String(c.type).toUpperCase() === 'HEADER');
+  const keepMedia = header && String(header.format).toUpperCase() !== 'TEXT' ? String(header.format).toUpperCase() : '';
+  const parsed = parseStandard(input, e, { name: meta.name, language: meta.language, category: meta.category, body, bodyExample }, keepMedia);
+  if (!parsed) return invalid(e.list);
+
+  const result = await editStandardTemplate(meta, parsed.data, parsed.headerFile);
+  if (!result.ok) return fail(result.message);
+  await syncTemplates(user);
+  await flash('success', `Changes to “${meta.name}” were sent to WhatsApp for review. Until WhatsApp approves them the template may be unavailable to send — use “Sync from WhatsApp” to refresh.`);
   redirect('/templates');
 }

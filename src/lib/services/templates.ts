@@ -3,7 +3,7 @@ import { exec, insertMany, query, tx } from '../db';
 import { templateVariables, type TemplateCard } from '../format';
 import { now } from '../time';
 import type { UserRow } from '../types';
-import { createTemplate, fetchTemplates, uploadSample } from './meta';
+import { createTemplate, editTemplate, fetchTemplates, uploadSample } from './meta';
 
 /**
  * Template sync from Meta (Common::fun_get_templates_meta) and template
@@ -186,22 +186,108 @@ async function submit(user: WaUser, data: { name: string; language: string; cate
   return { ok: true, message: 'Template submitted.', status: res.status ?? 'PENDING' };
 }
 
-/** Standard template: optional header (text or media sample), body, footer, buttons. */
-export async function createStandardTemplate(user: WaUser, data: TemplateInput, headerFile: File | null): Promise<CreateResult> {
+/**
+ * Components of a standard template. A media header uses the uploaded sample, or, when editing
+ * without a new file, the template's current media header (`keepHeader`). Null when the upload failed.
+ */
+async function standardComponents(data: TemplateInput, headerFile: File | null, keepHeader: Record<string, unknown> | null = null): Promise<unknown[] | null> {
   const components: unknown[] = [];
   if (data.header_type === 'TEXT') {
     const header: Record<string, unknown> = { type: 'HEADER', format: 'TEXT', text: data.header_text };
     if (templateVariables(data.header_text).length) header.example = { header_text: [data.header_example] };
     components.push(header);
   } else if (data.header_type !== 'NONE') {
-    const handle = await upload(headerFile);
-    if (!handle) return UPLOAD_FAILED;
-    components.push({ type: 'HEADER', format: data.header_type, example: { header_handle: [handle] } });
+    if (!headerFile && keepHeader && String(keepHeader.format).toUpperCase() === data.header_type) {
+      components.push(keepHeader);
+    } else {
+      const handle = await upload(headerFile);
+      if (!handle) return null;
+      components.push({ type: 'HEADER', format: data.header_type, example: { header_handle: [handle] } });
+    }
   }
   components.push(body(data.body, data.body_example));
   if (data.footer) components.push({ type: 'FOOTER', text: data.footer });
   if (data.buttons?.length) components.push(buttons(data.buttons));
+  return components;
+}
+
+/** Standard template: optional header (text or media sample), body, footer, buttons. */
+export async function createStandardTemplate(user: WaUser, data: TemplateInput, headerFile: File | null): Promise<CreateResult> {
+  const components = await standardComponents(data, headerFile);
+  if (!components) return UPLOAD_FAILED;
   return submit(user, data, components);
+}
+
+/**
+ * Edit a standard template on WhatsApp (`metaTemplate` = findTemplate()). Name, language and
+ * category stay as they are; WhatsApp reviews the new content again.
+ */
+export async function editStandardTemplate(metaTemplate: Record<string, any>, data: TemplateInput, headerFile: File | null): Promise<CreateResult> {
+  const current = (metaTemplate.components ?? []).find((c: any) => String(c.type).toUpperCase() === 'HEADER') ?? null;
+  const keep = current && current.format && String(current.format).toUpperCase() !== 'TEXT'
+    ? { type: 'HEADER', format: current.format, ...(current.example ? { example: current.example } : {}) }
+    : null;
+  const components = await standardComponents(data, headerFile, keep);
+  if (!components) return UPLOAD_FAILED;
+  const res = await editTemplate(String(metaTemplate.id), { components });
+  if (!res.success && !res.id) {
+    const e = res.error ?? {};
+    return { ok: false, message: e.error_user_msg ?? e.message ?? 'WhatsApp did not accept the changes.' };
+  }
+  return { ok: true, message: 'Template changes submitted.', status: 'PENDING' };
+}
+
+/** Values for the template form, read from a WhatsApp template's components. */
+export interface TemplateFormValues {
+  name: string;
+  language: string;
+  category: string;
+  header_type: string;
+  header_text: string;
+  header_example: string;
+  /** Current media header sample URL (shown in the preview). */
+  header_media: string;
+  body: string;
+  body_example: Record<number, string>;
+  footer: string;
+  buttons: { type: string; text: string; url: string; phone: string; example: string; flow_id: string; navigate_screen: string }[];
+}
+
+export function templateFormValues(tpl: Record<string, any>): TemplateFormValues {
+  const out: TemplateFormValues = {
+    name: String(tpl.name ?? ''), language: String(tpl.language ?? 'en'), category: String(tpl.category ?? ''),
+    header_type: 'NONE', header_text: '', header_example: '', header_media: '', body: '', body_example: {}, footer: '', buttons: [],
+  };
+  for (const c of tpl.components ?? []) {
+    switch (String(c.type).toUpperCase()) {
+      case 'HEADER':
+        out.header_type = String(c.format ?? 'TEXT').toUpperCase();
+        if (out.header_type === 'TEXT') {
+          out.header_text = c.text ?? '';
+          out.header_example = String(c.example?.header_text?.[0] ?? '');
+        } else {
+          out.header_media = String(c.example?.header_handle?.[0] ?? '');
+        }
+        break;
+      case 'BODY': {
+        out.body = c.text ?? '';
+        const samples: unknown[] = c.example?.body_text?.[0] ?? [];
+        templateVariables(out.body).forEach((n, i) => { out.body_example[n] = String(samples[i] ?? ''); });
+        break;
+      }
+      case 'FOOTER':
+        out.footer = c.text ?? '';
+        break;
+      case 'BUTTONS':
+        out.buttons = (c.buttons ?? []).map((b: any) => ({
+          type: String(b.type ?? 'QUICK_REPLY'), text: String(b.text ?? ''), url: String(b.url ?? ''),
+          phone: String(b.phone_number ?? ''), example: String(b.example?.[0] ?? ''),
+          flow_id: String(b.flow_id ?? ''), navigate_screen: String(b.navigate_screen ?? ''),
+        }));
+        break;
+    }
+  }
+  return out;
 }
 
 /**

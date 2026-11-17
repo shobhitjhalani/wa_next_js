@@ -144,6 +144,11 @@ export default async function TemplatesPage({ searchParams }: { searchParams: Pa
                         >
                           <TemplatePreview template={t} />
                         </TemplateViewButton>
+                        {canCreateTemplate && ['template', 'flow'].includes(String(t.ut_template_type)) && t.ut_template_category !== 'AUTHENTICATION' && (
+                          <Link href={`/templates/${t.ut_id}/edit`} className="btn btn-sm btn-soft-secondary" title="Edit" aria-label="Edit">
+                            <i className="ri-pencil-fill" />
+                          </Link>
+                        )}
                         <form action={destroyTemplate.bind(null, t.ut_id)}>
                           <ConfirmButton message="Remove this template from the list?" className="btn btn-sm btn-soft-danger" title="Delete" aria-label="Delete">
                             <i className="ri-delete-bin-fill" />

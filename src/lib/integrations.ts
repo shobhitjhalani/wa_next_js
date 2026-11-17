@@ -11,6 +11,7 @@ import { limit, randomString } from './text';
 import { dayStart, now, phpDate } from './time';
 import { USER_TYPE, type UserRow } from './types';
 import { insertMessage, messageFromApi } from './services/messages';
+import { addApiMessages, apiCampaignId } from './services/campaigns';
 import { isLimitedType, templateQuota } from './services/template-limit';
 import { allowedCategories } from './template-categories';
 import { sendPending } from './services/sender';
@@ -124,7 +125,10 @@ async function createMessage(data: Record<string, any>, defaultType: string, tem
   if (isLimitedType(finalType) && (await templateQuota(user.u_id)).remaining === 0) {
     return reply('208', '208 : Template Message Limit Reached', { id: '0', status: 'Template Message Limit Reached' });
   }
-  const message = await messageFromApi(user, type, data, baseFile, templateEndpoint);
+  // Sent without a campaign: grouped into the campaign named after the template (created on first use)
+  const campaignId = String(data.template ?? '').trim() ? await apiCampaignId(user.u_id, String(data.template)) : 0;
+  const message = await messageFromApi(user, type, data, baseFile, templateEndpoint, campaignId);
+  if (Number(message.m_campaign_id) > 0) await addApiMessages(Number(message.m_campaign_id));
   if (Number(message.m_status) === 6) after(() => sendPending(message.m_id).catch((e) => console.error('[api] send failed', e)));
 
   return reply('200', 'Success', { id: templateEndpoint ? '0' : message.m_unique_id, status: 'Success' });
@@ -267,7 +271,9 @@ export async function handleShopify(req: Request, action: string): Promise<Respo
       row.m_button_url = '';
     }
   }
+  row.m_campaign_id = await apiCampaignId(user.u_id, template);
   const message = await insertMessage(row);
+  await addApiMessages(Number(row.m_campaign_id));
   after(() => sendPending(message.m_id).catch((e) => console.error('[shopify] send failed', e)));
   return shopifyReply('200', 'Success', 'Success');
 }

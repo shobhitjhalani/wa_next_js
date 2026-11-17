@@ -148,7 +148,7 @@ export async function chatReply(user: Pick<UserRow, 'u_id' | 'u_code'>, mobile: 
  * Message posted through the public API. `data` is the decoded JSON body.
  * Bot / OTP messages are marked for immediate sending (status 6).
  */
-export async function messageFromApi(user: Pick<UserRow, 'u_id'>, type: string, data: Record<string, any>, baseFile = '', templateEndpoint = false): Promise<MessageRow> {
+export async function messageFromApi(user: Pick<UserRow, 'u_id'>, type: string, data: Record<string, any>, baseFile = '', templateEndpoint = false, campaignId = 0): Promise<MessageRow> {
   const receiver = data.receiverMobileNo ?? '';
   const mobile = (Array.isArray(receiver) ? receiver.join(',') : String(receiver)).replace(/ /g, '').trim();
   let text = data.message ?? '';
@@ -185,6 +185,8 @@ export async function messageFromApi(user: Pick<UserRow, 'u_id'>, type: string, 
   }
   if (data.msg_values !== undefined) row.m_msg_values = limit(JSON.stringify(data.msg_values), 250, '');
   if (data.template !== undefined) row.m_msg_template_name = String(data.template);
+  // Template messages go into the campaign named after the template (apiCampaignId)
+  if (campaignId && row.m_msg_template_name) row.m_campaign_id = campaignId;
   if (data.template_parameters !== undefined) {
     const p = data.template_parameters;
     row.m_msg_template_para = limit(Array.isArray(p) ? p.join(',') : String(p), 250, '');

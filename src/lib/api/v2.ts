@@ -13,6 +13,7 @@ import { dayStart, now, phpDate } from '../time';
 import { USER_TYPE, type MessageRow, type TemplateRow, type UserRow } from '../types';
 import { storePublic } from '../services/media';
 import { insertMessage, UserError } from '../services/messages';
+import { addApiMessages, apiCampaignId } from '../services/campaigns';
 import { mapLimit, sendPending } from '../services/sender';
 import { templateQuota } from '../services/template-limit';
 import { createStandardTemplate, syncTemplates, type ButtonInput, type TemplateInput } from '../services/templates';
@@ -445,7 +446,11 @@ export async function sendTemplate(req: Request, user: ApiUser): Promise<Respons
       ? 'The template message limit of this account has been reached.'
       : `Only ${quota.remaining} template message(s) left on this account's limit.`);
   }
-  return dispatch(await createMessages(user, numbers, fields));
+  // Sent without a campaign: grouped into the campaign named after the template (created on first use)
+  fields.m_campaign_id = await apiCampaignId(user.u_id, t.ut_name);
+  const rows = await createMessages(user, numbers, fields);
+  await addApiMessages(fields.m_campaign_id, rows.length);
+  return dispatch(rows);
 }
 
 /** POST /api/v2/messages/text */

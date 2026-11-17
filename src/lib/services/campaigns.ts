@@ -241,3 +241,42 @@ async function replies(campaignId: number): Promise<number> {
     [campaignId, REPLY_WINDOW],
   )) ?? 0;
 }
+
+/**
+ * Template messages sent through the API without a campaign are grouped into a campaign named after
+ * the template: the account's existing one (not cancelled) when there is one, otherwise a new one
+ * created now. Returns its id (0 without a template name). Serialised per account + template, so
+ * parallel API calls never create two.
+ */
+export async function apiCampaignId(userId: number, template: string | null | undefined): Promise<number> {
+  const name = String(template ?? '').trim();
+  if (!name || !userId) return 0;
+  return tx(async (db) => {
+    await db.query('SELECT pg_advisory_xact_lock($1::int, hashtext($2))', [userId, 'api-campaign:' + name]);
+    const found = await value<number>(
+      `SELECT uc_id FROM js_user_campaign WHERE uc_user_id = $1 AND uc_name = $2 AND uc_status <> $3 ORDER BY uc_id DESC LIMIT 1`,
+      [userId, name, CAMPAIGN.CANCELLED], db);
+    if (found) return Number(found);
+    const templateId = await value<number>(
+      'SELECT ut_id FROM js_user_templates WHERE ut_user_id = $1 AND ut_name = $2 ORDER BY ut_status, ut_id DESC LIMIT 1', [userId, name], db);
+    const t = now();
+    const c = await insert<{ uc_id: number }>('js_user_campaign', {
+      uc_unique_code: `api-${userId}-${t}-${Math.random().toString(36).slice(2, 8)}`,
+      uc_name: name,
+      uc_template: name,
+      uc_template_id: Number(templateId ?? 0),
+      uc_user_id: userId,
+      uc_total_contacts: 0,
+      uc_status: CAMPAIGN.DISPATCHED,
+      uc_scheduled_at: t,
+      uc_started_at: t,
+    }, 'uc_id', db);
+    return c.uc_id;
+  });
+}
+
+/** Count API messages added to their campaign (recipients figure; cached stats are recomputed). */
+export async function addApiMessages(campaignId: number, count = 1): Promise<void> {
+  if (!campaignId || count <= 0) return;
+  await exec('UPDATE js_user_campaign SET uc_total_contacts = uc_total_contacts + $2, uc_stats_at = 0 WHERE uc_id = $1', [campaignId, count]);
+}

@@ -164,12 +164,13 @@ export function campaignSendAt(c: Pick<CampaignRow, 'uc_started_at' | 'uc_schedu
   return Number.isFinite(t) ? Math.floor(t / 1000) : 0;
 }
 
-/** Scheduled / Sending / Completed / Cancelled, from the stored status and live stats. */
+/** Scheduled / In Queue / Sending / Completed / Cancelled, from the stored status and live stats. */
 export function campaignStatusLabel(c: Pick<CampaignRow, 'uc_status' | 'uc_started_at'>, stats: CampaignStats | null): string {
   if (Number(c.uc_status) === 4) return 'Cancelled';
   if (Number(c.uc_status) === 1) return 'Scheduled';
   if (!campaignIsTracked(c)) return 'Sent';
-  if ((stats?.pending ?? 0) > 0) return 'Sending';
+  // Queued but nothing sent yet (waiting for the sending window or for earlier messages): In Queue
+  if ((stats?.pending ?? 0) > 0) return stats!.sent + stats!.failed === 0 ? 'In Queue' : 'Sending';
   return 'Completed';
 }
 

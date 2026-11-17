@@ -176,3 +176,10 @@ th.num .sort-th { justify-content: flex-end; width: 100%; }
    scrolls instead of running off the screen. */
 [data-sidebar-size=sm] .navbar-menu #scrollbar { overflow: visible !important; height: auto !important; }
 [data-sidebar-size=sm] .navbar-menu .navbar-nav .nav-item:hover > .menu-dropdown { max-height: calc(100vh - 90px); overflow-y: auto; z-index: 1003; }
+
+/* Campaign list: figures under the delivery bar; spinning refresh icon */
+.bar-counts { display: flex; flex-wrap: wrap; gap: .15rem .6rem; margin-top: .3rem; font-size: .75rem; color: var(--vz-secondary-color, #6c757d); white-space: normal; }
+.bar-counts b { color: var(--vz-body-color, #212529); font-weight: 600; }
+.bar-counts .legend-dot { margin-right: .25rem; }
+@keyframes wa-spin { to { transform: rotate(360deg); } }
+.spin { display: inline-block; animation: wa-spin .8s linear infinite; }

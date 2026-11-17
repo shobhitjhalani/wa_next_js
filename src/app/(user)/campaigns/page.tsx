@@ -8,10 +8,12 @@ import { like, one, query } from '@/lib/db';
 import { campaignGroupIds, campaignIsTracked, campaignSendAt, campaignTitle } from '@/lib/format';
 import { sp } from '@/lib/http';
 import { campaignStats } from '@/lib/services/campaigns';
+import { campaignEtas, sendRatePerMinute, sendWindowText } from '@/lib/services/campaign-eta';
+import { RefreshButton } from '@/components/RefreshButton';
 import { numberFormat } from '@/lib/text';
-import { parseDateRange, phpDate, todayString } from '@/lib/time';
+import { now, parseDateRange, phpDate, todayString } from '@/lib/time';
 import { CAMPAIGN, type CampaignRow, type CampaignStats } from '@/lib/types';
-import { DeliveryBar, pct, StatusBadge } from './shared';
+import { BarCounts, DeliveryBar, EtaNote, pct, StatusBadge } from './shared';
 
 export const metadata: Metadata = { title: 'Campaigns' };
 
@@ -59,6 +61,9 @@ export default async function CampaignsPage({ searchParams }: { searchParams: Pa
       : Promise.resolve([]),
   ]);
   const groupNames = new Map(groupRows.map((g) => [g.ug_id, g.up_group_name]));
+  // Tentative finish of the campaigns on this page that still have queued messages
+  const etas = await campaignEtas(user, campaigns.filter((c) => (stats[c.uc_id]?.pending ?? 0) > 0));
+  const t = now();
 
   const totals = { campaigns: counts?.campaigns ?? 0, scheduled: counts?.scheduled ?? 0, total: 0, pending: 0, sent: 0, delivered: 0, read: 0, failed: 0 };
   for (const s of Object.values(stats)) {
@@ -108,7 +113,11 @@ export default async function CampaignsPage({ searchParams }: { searchParams: Pa
 
       <div className="card">
         <div className="card-header d-flex flex-wrap align-items-center gap-3">
-          <h5 className="card-title mb-0 me-auto">Campaigns</h5>
+          <h5 className="card-title mb-0">Campaigns</h5>
+          <RefreshButton />
+          <span className="small text-muted me-auto" title="Sending limit used for the tentative finish time">
+            <i className="ri-speed-up-line" /> Up to {numberFormat(sendRatePerMinute())} messages/min, {sendWindowText()}
+          </span>
           <div className="small text-muted d-flex flex-wrap gap-3" aria-label="Legend">
             {[['read', 'Read'], ['delivered', 'Delivered'], ['sent', 'Sent'], ['pending', 'Pending'], ['failed', 'Failed'], ['skipped', 'Skipped']].map(([key, label]) => (
               <span key={key}><span className={`legend-dot seg-${key}`} />{label}</span>
@@ -147,14 +156,14 @@ export default async function CampaignsPage({ searchParams }: { searchParams: Pa
                       <td className="small">{phpDate('d M Y, H:i', campaignSendAt(c))}</td>
                       <td className="text-end">{Number(c.uc_status) === CAMPAIGN.SCHEDULED ? '—' : numberFormat(c.uc_total_contacts)}</td>
                       <td>
-                        {s ? <DeliveryBar s={s} /> : (
+                        {s ? <><DeliveryBar s={s} /><BarCounts s={s} /></> : (
                           <span className="small text-muted">{campaignIsTracked(c) ? 'Not sent yet' : 'Not tracked (sent before campaign tracking)'}</span>
                         )}
                       </td>
                       <td className="text-end">{s ? pct(s.delivered, s.sent) : '—'}</td>
                       <td className="text-end">{s ? pct(s.read, s.delivered) : '—'}</td>
                       <td className={`text-end ${s && s.failed ? 'text-danger' : ''}`}>{s ? numberFormat(s.failed) : '—'}</td>
-                      <td><StatusBadge campaign={c} s={s} /></td>
+                      <td><StatusBadge campaign={c} s={s} /><EtaNote eta={etas.get(c.uc_id)} now={t} /></td>
                       <td className="text-end">
                         <Link href={`/campaigns/${c.uc_id}`} className="btn btn-sm btn-soft-primary">View</Link>
                       </td>

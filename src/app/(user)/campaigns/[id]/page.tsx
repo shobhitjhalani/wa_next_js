@@ -9,10 +9,11 @@ import { one, query, value } from '@/lib/db';
 import { campaignGroupIds, campaignIsTracked, campaignSendAt, campaignStatusLabel, campaignTitle } from '@/lib/format';
 import { sp } from '@/lib/http';
 import { campaignStats } from '@/lib/services/campaigns';
+import { campaignEtas } from '@/lib/services/campaign-eta';
 import { limit, numberFormat } from '@/lib/text';
-import { phpDate } from '@/lib/time';
+import { now, phpDate } from '@/lib/time';
 import type { CampaignRow, MessageRow } from '@/lib/types';
-import { barSegments, DeliveryBar, errorText, pct, recipientStatus, recipientWhere, StatusBadge } from '../shared';
+import { barSegments, DeliveryBar, errorText, EtaNote, pct, recipientStatus, recipientWhere, StatusBadge } from '../shared';
 import { cancelCampaignAction, resendFailedAction } from './actions';
 import { AutoReload } from './AutoReload';
 import { CAMPAIGN_OWNER_SQL } from '@/lib/types';
@@ -59,6 +60,7 @@ export default async function CampaignPage({ params, searchParams }: { params: P
       : Promise.resolve([]),
   ]);
   const stats = statsMap[campaign.uc_id] ?? null;
+  const eta = (stats?.pending ?? 0) > 0 ? (await campaignEtas(user, [campaign])).get(campaign.uc_id) : undefined;
 
   const failureReasons = stats && stats.failed
     ? (await query<{ m_status_response: string | null; n: number }>(
@@ -69,7 +71,7 @@ export default async function CampaignPage({ params, searchParams }: { params: P
     : [];
 
   const status = campaignStatusLabel(campaign, stats);
-  const canCancel = status === 'Scheduled' || (status === 'Sending' && (stats?.pending ?? 0) > 0);
+  const canCancel = status === 'Scheduled' || ((status === 'Sending' || status === 'In Queue') && (stats?.pending ?? 0) > 0);
   const canResend = tracked && (status === 'Sending' || status === 'Completed') && (stats?.failed ?? 0) > 0;
   const pastedNumbers = campaign.uc_payload?.numbers?.length ?? 0;
 
@@ -92,7 +94,7 @@ export default async function CampaignPage({ params, searchParams }: { params: P
   return (
     <>
       <PageTitle title="Campaign" home="/dashboard" />
-      {(status === 'Sending' || status === 'Scheduled') && <AutoReload />}
+      {(status === 'Sending' || status === 'In Queue' || status === 'Scheduled') && <AutoReload />}
 
       <div className="card">
         <div className="card-body d-flex flex-wrap gap-3 align-items-start">
@@ -101,6 +103,7 @@ export default async function CampaignPage({ params, searchParams }: { params: P
               <h4 className="mb-0">{campaignTitle(campaign)}</h4>
               <StatusBadge campaign={campaign} s={stats} />
             </div>
+            {eta && <div className="mb-1"><EtaNote eta={eta} now={now()} /></div>}
             <div className="text-muted small d-flex flex-wrap gap-3">
               <span><i className="ri-file-list-3-line" /> {campaign.uc_template}</span>
               <span><i className="ri-calendar-line" />{' '}

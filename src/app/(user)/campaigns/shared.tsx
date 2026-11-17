@@ -1,4 +1,6 @@
 import { campaignStatusLabel } from '@/lib/format';
+import { durationText, sendRatePerMinute, sendWindowText, type CampaignEta } from '@/lib/services/campaign-eta';
+import { phpDate } from '@/lib/time';
 import { decodeEntities, jsonParse, numberFormat } from '@/lib/text';
 import type { CampaignRow, CampaignStats, MessageRow } from '@/lib/types';
 import { CAMPAIGN_OWNER_SQL } from '@/lib/types';
@@ -39,8 +41,22 @@ export function DeliveryBar({ s, large = false }: { s: CampaignStats; large?: bo
   );
 }
 
+/** The bar's figures written out underneath it (non-zero segments only). */
+export function BarCounts({ s }: { s: CampaignStats }) {
+  const items = barSegments(s).filter(([, , n]) => n > 0);
+  if (!items.length) return null;
+  return (
+    <div className="bar-counts">
+      {items.map(([key, label, n]) => (
+        <span key={key} title={label}><span className={`legend-dot seg-${key}`} />{label} <b>{numberFormat(n)}</b></span>
+      ))}
+    </div>
+  );
+}
+
 const STATUS_STYLE: Record<string, [string, string]> = {
   Scheduled: ['info', 'ri-time-line'],
+  'In Queue': ['primary', 'ri-hourglass-2-line'],
   Sending: ['warning', 'ri-loader-4-line'],
   Completed: ['success', 'ri-check-double-line'],
   Cancelled: ['secondary', 'ri-close-circle-line'],
@@ -51,6 +67,19 @@ export function StatusBadge({ campaign, s }: { campaign: Pick<CampaignRow, 'uc_s
   const label = campaignStatusLabel(campaign, s);
   const [tone, icon] = STATUS_STYLE[label];
   return <span className={`badge bg-${tone}-subtle text-${tone === 'light' ? 'body' : tone}`}><i className={icon} /> {label}</span>;
+}
+
+/** Tentative finish of a campaign still sending (from the sending limit). */
+export function EtaNote({ eta, now }: { eta: CampaignEta | undefined; now: number }) {
+  if (!eta) return null;
+  const sameDay = phpDate('Ymd', eta.finishAt) === phpDate('Ymd', now);
+  return (
+    <div className="small text-muted mt-1" title={`${numberFormat(eta.ahead)} message(s) to send at up to ${numberFormat(sendRatePerMinute())} a minute, ${sendWindowText()}`}>
+      <i className="ri-timer-line" /> ~{durationText(eta.finishAt - now)} · by {phpDate(sameDay ? 'h:i A' : 'd M, h:i A', eta.finishAt)}
+      {eta.quotaLeft !== null && <div className="text-warning">Template limit: only {numberFormat(eta.quotaLeft)} more can be sent</div>}
+      {eta.expires && <div className="text-danger">Some messages may pass the 24-hour limit and will not be sent</div>}
+    </div>
+  );
 }
 
 type Recipient = Pick<MessageRow, 'm_status' | 'm_message_id' | 'm_delivery_status'>;

@@ -1,5 +1,5 @@
 import Link from 'next/link';
-import { requireAdminCan } from '@/lib/auth';
+import { requireRight } from '@/lib/admin-access';
 import { config } from '@/lib/config';
 import { like, query, value } from '@/lib/db';
 import { sp } from '@/lib/http';
@@ -14,7 +14,8 @@ type Params = Record<string, string | string[] | undefined>;
 
 /** Team members (TeamController::index). */
 export default async function TeamsPage({ searchParams }: { searchParams: Promise<Params> }) {
-  const me = await requireAdminCan('employee');
+  const access = await requireRight('employee');
+  const me = access.admin;
   const params = await searchParams;
   const q = sp(params, 'q');
   const page = pageParam(params.page);
@@ -41,7 +42,7 @@ export default async function TeamsPage({ searchParams }: { searchParams: Promis
             <input type="text" className="form-control" name="q" defaultValue={q} placeholder="Search name" aria-label="Search" />
             <button className="btn btn-secondary">Search</button>
           </form>
-          <Link href="/wamaster/teams/create" className="btn btn-primary"><i className="ri-add-line" /> Add Team Member</Link>
+          {access.can('employee', 'add') && <Link href="/wamaster/teams/create" className="btn btn-primary"><i className="ri-add-line" /> Add Team Member</Link>}
         </div>
         <div className="card-body">
           <div className="table-responsive">
@@ -59,8 +60,8 @@ export default async function TeamsPage({ searchParams }: { searchParams: Promis
                     <td>{Number(m.emp_m_type) === SUPER_ADMIN ? 'Super Admin' : 'Team Member'}</td>
                     <td><span className={`badge ${Number(m.emp_status) === 1 ? 'bg-success' : 'bg-secondary'}`}>{Number(m.emp_status) === 1 ? 'Active' : 'Inactive'}</span></td>
                     <td className="text-nowrap text-end">
-                      <Link href={`/wamaster/teams/${m.emp_id}/edit`} className="btn btn-sm btn-soft-secondary" aria-label="Edit"><i className="ri-pencil-fill" /></Link>
-                      {m.emp_id !== me.emp_id && (
+                      {access.can('employee', 'edit') && <Link href={`/wamaster/teams/${m.emp_id}/edit`} className="btn btn-sm btn-soft-secondary" aria-label="Edit"><i className="ri-pencil-fill" /></Link>}
+                      {m.emp_id !== me.emp_id && access.can('employee', 'delete') && (
                         <>
                           {' '}
                           <form action={deleteMember.bind(null, m.emp_id)} className="d-inline">

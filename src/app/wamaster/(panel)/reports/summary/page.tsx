@@ -1,5 +1,5 @@
 import Link from 'next/link';
-import { requireAdmin } from '@/lib/auth';
+import { MESSAGE_REPORTS, requireRight, visibleUserIds } from '@/lib/admin-access';
 import { config } from '@/lib/config';
 import { query } from '@/lib/db';
 import { numberFormat, ucfirst } from '@/lib/text';
@@ -10,16 +10,16 @@ import { dateInput, dateRange, filled, input, intParam, waUsers, type Params } f
 
 /** Per-user message summary (ReportController::summary). */
 export default async function SummaryPage({ searchParams }: { searchParams: Promise<Params> }) {
-  await requireAdmin();
-  const sp = await searchParams;
+  await requireRight(MESSAGE_REPORTS);
+  const [sp, visible] = await Promise.all([searchParams, visibleUserIds()]);
   const dtInput = dateInput(sp, true);
   const range = dateRange(dtInput);
   const queFrom = dayStart() - config.queTime;
   const userId = filled(sp, 'user_id') ? intParam(sp, 'user_id') : null;
 
   // One scan of the date range (js_message_created_idx) for sent / error / incoming
-  const args: unknown[] = [userId];
-  const rangeSql = range ? `AND m_created_on BETWEEN $2 AND $3` : '';
+  const args: unknown[] = [userId, visible];
+  const rangeSql = range ? `AND m_created_on BETWEEN $3 AND $4` : '';
   if (range) args.push(range[0], range[1]);
   const [activity, que, allUsers] = await Promise.all([
     query<{ m_user_id: number; col: string; n: number }>(
@@ -31,6 +31,7 @@ export default async function SummaryPage({ searchParams }: { searchParams: Prom
          FROM js_message
         WHERE m_dstatus = 0 ${rangeSql}
           AND ($1::int IS NULL OR m_user_id = $1)
+          AND ($2::int[] IS NULL OR m_user_id = ANY($2::int[]))
           AND (m_is_incoming = 1 OR (m_is_incoming = 2 AND m_status = 3))
         GROUP BY 1, 2`,
       args,
@@ -39,14 +40,16 @@ export default async function SummaryPage({ searchParams }: { searchParams: Prom
     query<{ m_user_id: number; n: number }>(
       `SELECT m_user_id, SUM(n)::int AS n FROM (
          SELECT m_user_id, COUNT(*) AS n FROM js_message
-          WHERE m_status = 1 AND m_is_incoming = 2 AND m_dstatus = 0 AND m_created_on >= $1 AND ($2::int IS NULL OR m_user_id = $2) GROUP BY 1
+          WHERE m_status = 1 AND m_is_incoming = 2 AND m_dstatus = 0 AND m_created_on >= $1 AND ($2::int IS NULL OR m_user_id = $2)
+            AND ($3::int[] IS NULL OR m_user_id = ANY($3::int[])) GROUP BY 1
          UNION ALL
          SELECT m_user_id, COUNT(*) FROM js_message
-          WHERE m_status = 6 AND m_is_incoming = 2 AND m_dstatus = 0 AND m_created_on >= $1 AND ($2::int IS NULL OR m_user_id = $2) GROUP BY 1
+          WHERE m_status = 6 AND m_is_incoming = 2 AND m_dstatus = 0 AND m_created_on >= $1 AND ($2::int IS NULL OR m_user_id = $2)
+            AND ($3::int[] IS NULL OR m_user_id = ANY($3::int[])) GROUP BY 1
        ) q GROUP BY 1`,
-      [queFrom, userId],
+      [queFrom, userId, visible],
     ),
-    waUsers(),
+    waUsers(visible),
   ]);
 
   // Same row / column order as the Laravel arrays: sent rows first, then Que, Error, Incoming

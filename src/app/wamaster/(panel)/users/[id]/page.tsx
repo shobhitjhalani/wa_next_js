@@ -1,6 +1,6 @@
 import Link from 'next/link';
 import { notFound } from 'next/navigation';
-import { requireAdmin } from '@/lib/auth';
+import { canSeeUser, requireUserRight, userModule } from '@/lib/admin-access';
 import { config } from '@/lib/config';
 import { one, query, value } from '@/lib/db';
 import { masterCodeOptions, masterName, masterOptions } from '@/lib/models';
@@ -68,10 +68,10 @@ async function waSummary(userId: number): Promise<Record<string, Record<string, 
 
 /** User details (Admin\UserController::show + admin/users/show.blade.php). */
 export default async function UserShowPage({ params }: { params: Promise<{ id: string }> }) {
-  await requireAdmin();
   const { id: rawId } = await params;
   if (!/^\d{1,9}$/.test(rawId)) notFound();
   const id = Number(rawId);
+  const { access } = await requireUserRight(id);
   const user = await one<UserRow & { parent_name: string | null; parent_company: string | null; parent_id: number | null }>(
     `SELECT u.*, p.u_id AS parent_id, p.u_name AS parent_name, p.u_company_name AS parent_company
        FROM js_user u LEFT JOIN js_user p ON p.u_id = u.u_parent_id AND u.u_parent_id > 0
@@ -80,6 +80,8 @@ export default async function UserShowPage({ params }: { params: Promise<{ id: s
   );
   if (!user) notFound();
   const isWa = Number(user.u_type) === USER_TYPE.WHATSAPP;
+  const canEdit = access.can(userModule(user.u_type), 'edit');
+  const canAddWa = access.can(userModule(USER_TYPE.WHATSAPP), 'add');
 
   const [stateName, summary, recharges, templates, plans, gateways, children, emails, sheets, sheetTypes, keys] = await Promise.all([
     masterName(user.u_state),
@@ -97,7 +99,11 @@ export default async function UserShowPage({ params }: { params: Promise<{ id: s
       : Promise.resolve([]),
     isWa ? listPlans(true) : Promise.resolve([]),
     isWa ? masterOptions(config.masters.paymentGateway) : Promise.resolve([]),
-    !isWa ? query<{ u_id: number; u_username: string | null }>('SELECT u_id, u_username FROM js_user WHERE u_parent_id = $1 AND u_dstatus = 0 ORDER BY u_id', [id]) : Promise.resolve([]),
+    !isWa
+      ? query<{ u_id: number; u_username: string | null; u_type: number; u_assign_to: number }>(
+        'SELECT u_id, u_username, u_type, u_assign_to FROM js_user WHERE u_parent_id = $1 AND u_dstatus = 0 ORDER BY u_id', [id])
+        .then((rows) => rows.filter((c) => canSeeUser(access, c)))
+      : Promise.resolve([]),
     !isWa
       ? query<{ ue_id: number; ue_email_id: string | null; ue_sheet_limit: number; ue_status: number }>(
         'SELECT ue_id, ue_email_id, ue_sheet_limit, ue_status FROM js_user_emails WHERE ue_user_id = $1 AND ue_dstatus = 0 ORDER BY ue_id', [id])
@@ -129,8 +135,8 @@ export default async function UserShowPage({ params }: { params: Promise<{ id: s
     <>
       <PageTitle title={user.u_name ?? ''} home="/wamaster/dashboard" />
       <div className="d-flex flex-wrap gap-2 mb-3">
-        <Link href={`/wamaster/users/${id}/edit`} className="btn btn-primary"><i className="ri-pencil-line" /> Edit</Link>
-        {isWa && (
+        {canEdit && <Link href={`/wamaster/users/${id}/edit`} className="btn btn-primary"><i className="ri-pencil-line" /> Edit</Link>}
+        {isWa && canEdit && (
           <>
             <form action={syncUserTemplates.bind(null, id)}><button className="btn btn-soft-primary"><i className="ri-refresh-line" /> Sync Templates</button></form>
             {user.u_wa_phone_id && (
@@ -191,7 +197,7 @@ export default async function UserShowPage({ params }: { params: Promise<{ id: s
             </div>
           </div>
 
-          {isWa && (
+          {isWa && canEdit && (
             <div className="card">
               <div className="card-header"><h5 className="card-title mb-0">Recharge</h5></div>
               <div className="card-body">
@@ -299,18 +305,20 @@ export default async function UserShowPage({ params }: { params: Promise<{ id: s
                   )) : (
                     <p className="text-muted mb-0">None</p>
                   )}
-                  <Link href="/wamaster/users/create?ut=2" className="btn btn-sm btn-soft-primary ms-2">Add WhatsApp user</Link>
+                  {canAddWa && <Link href="/wamaster/users/create?ut=2" className="btn btn-sm btn-soft-primary ms-2">Add WhatsApp user</Link>}
                 </div>
               </div>
 
               <div className="card">
                 <div className="card-header d-flex align-items-center">
                   <h5 className="card-title mb-0 flex-grow-1">Google Sheet Emails</h5>
-                  <ActionForm action={addEmail.bind(null, id)} className="d-flex gap-2" showAlert={false} resetOnSuccess>
-                    <input type="email" name="email" className="form-control form-control-sm" placeholder="email@gmail.com" required aria-label="Email" />
-                    <input type="number" name="sheet_limit" className="form-control form-control-sm" style={{ width: '90px' }} placeholder="Limit" aria-label="Sheet limit" />
-                    <SubmitButton className="btn btn-sm btn-primary">Add</SubmitButton>
-                  </ActionForm>
+                  {canEdit && (
+                    <ActionForm action={addEmail.bind(null, id)} className="d-flex gap-2" showAlert={false} resetOnSuccess>
+                      <input type="email" name="email" className="form-control form-control-sm" placeholder="email@gmail.com" required aria-label="Email" />
+                      <input type="number" name="sheet_limit" className="form-control form-control-sm" style={{ width: '90px' }} placeholder="Limit" aria-label="Sheet limit" />
+                      <SubmitButton className="btn btn-sm btn-primary">Add</SubmitButton>
+                    </ActionForm>
+                  )}
                 </div>
                 <div className="card-body table-responsive">
                   <table className="table table-sm table-striped align-middle mb-0">
@@ -320,8 +328,8 @@ export default async function UserShowPage({ params }: { params: Promise<{ id: s
                         <tr key={e.ue_id}>
                           <td>{e.ue_email_id}</td>
                           <td>{e.ue_sheet_limit}</td>
-                          <td><form action={toggleEmail.bind(null, id, e.ue_id)}><button className={`badge border-0 ${Number(e.ue_status) === 1 ? 'bg-success' : 'bg-secondary'}`}>{Number(e.ue_status) === 1 ? 'Active' : 'Inactive'}</button></form></td>
-                          <td><form action={deleteEmail.bind(null, id, e.ue_id)}><ConfirmButton message="Delete?" className="btn btn-sm btn-soft-danger" aria-label="Delete"><i className="ri-delete-bin-fill" /></ConfirmButton></form></td>
+                          <td>{canEdit ? <form action={toggleEmail.bind(null, id, e.ue_id)}><button className={`badge border-0 ${Number(e.ue_status) === 1 ? 'bg-success' : 'bg-secondary'}`}>{Number(e.ue_status) === 1 ? 'Active' : 'Inactive'}</button></form> : <span className={`badge ${Number(e.ue_status) === 1 ? 'bg-success' : 'bg-secondary'}`}>{Number(e.ue_status) === 1 ? 'Active' : 'Inactive'}</span>}</td>
+                          <td>{canEdit && <form action={deleteEmail.bind(null, id, e.ue_id)}><ConfirmButton message="Delete?" className="btn btn-sm btn-soft-danger" aria-label="Delete"><i className="ri-delete-bin-fill" /></ConfirmButton></form>}</td>
                         </tr>
                       )) : (
                         <tr><td colSpan={4} className="text-muted text-center">No emails.</td></tr>
@@ -364,8 +372,8 @@ export default async function UserShowPage({ params }: { params: Promise<{ id: s
                           <td>{sheetName(s.us_sheet_type)}</td>
                           <td>{date(s.us_created_on)}</td>
                           <td>{date(s.us_valid_till)}</td>
-                          <td><form action={toggleSheet.bind(null, id, s.us_id)}><button className={`badge border-0 ${Number(s.us_status) === 1 ? 'bg-success' : 'bg-secondary'}`}>{Number(s.us_status) === 1 ? 'Active' : 'Inactive'}</button></form></td>
-                          <td><form action={deleteSheet.bind(null, id, s.us_id)}><ConfirmButton message="Delete?" className="btn btn-sm btn-soft-danger" aria-label="Delete"><i className="ri-delete-bin-fill" /></ConfirmButton></form></td>
+                          <td>{canEdit ? <form action={toggleSheet.bind(null, id, s.us_id)}><button className={`badge border-0 ${Number(s.us_status) === 1 ? 'bg-success' : 'bg-secondary'}`}>{Number(s.us_status) === 1 ? 'Active' : 'Inactive'}</button></form> : <span className={`badge ${Number(s.us_status) === 1 ? 'bg-success' : 'bg-secondary'}`}>{Number(s.us_status) === 1 ? 'Active' : 'Inactive'}</span>}</td>
+                          <td>{canEdit && <form action={deleteSheet.bind(null, id, s.us_id)}><ConfirmButton message="Delete?" className="btn btn-sm btn-soft-danger" aria-label="Delete"><i className="ri-delete-bin-fill" /></ConfirmButton></form>}</td>
                         </tr>
                       )) : (
                         <tr><td colSpan={6} className="text-muted text-center">No sheets.</td></tr>
@@ -378,7 +386,7 @@ export default async function UserShowPage({ params }: { params: Promise<{ id: s
               <div className="card">
                 <div className="card-header d-flex align-items-center">
                   <h5 className="card-title mb-0 flex-grow-1">Data Extractor Keys</h5>
-                  <form action={generateKey.bind(null, id)}><button className="btn btn-sm btn-primary">Generate Key</button></form>
+                  {canEdit && <form action={generateKey.bind(null, id)}><button className="btn btn-sm btn-primary">Generate Key</button></form>}
                 </div>
                 <div className="card-body table-responsive">
                   <table className="table table-sm table-striped align-middle mb-0">
@@ -390,12 +398,12 @@ export default async function UserShowPage({ params }: { params: Promise<{ id: s
                           <td>{date(k.dek_valid_till)}</td>
                           <td>{Number(k.dek_is_login) ? 'Yes' : 'No'}</td>
                           <td>{date(k.dek_last_login, 'd-m-Y H:i')}</td>
-                          <td className="text-nowrap">
+                          <td className="text-nowrap">{canEdit && <>
                             {Number(k.dek_is_login) ? (
                               <><form action={logoutKey.bind(null, id, k.dek_id)} className="d-inline"><button className="btn btn-sm btn-soft-warning">Logout</button></form>{' '}</>
                             ) : null}
                             <form action={deleteKey.bind(null, id, k.dek_id)} className="d-inline"><ConfirmButton message="Delete key?" className="btn btn-sm btn-soft-danger" aria-label="Delete"><i className="ri-delete-bin-fill" /></ConfirmButton></form>
-                          </td>
+                          </>}</td>
                         </tr>
                       )) : (
                         <tr><td colSpan={5} className="text-muted text-center">No keys.</td></tr>

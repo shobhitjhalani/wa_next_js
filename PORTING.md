@@ -36,6 +36,7 @@ the same URL. A page and a route handler can't share a path segment — e.g. `/c
 |---|---|
 | `lib/db.ts` | `query`, `one`, `value`, `exec`, `tx`, `insert`, `insertMany`, `update`, `cursor`, `like()` (escape LIKE input), `placeholders()`. bigint/numeric come back as `number`; `timestamp` columns as `"Y-m-d H:i:s"` strings. |
 | `lib/auth.ts` | `requireUser()`, `requireAiUser()`, `getUser()`, `requireAdmin()`, `requireAdminCan('masters'\|'employee'\|'super')`, `getAdmin()` (`.isSuperAdmin`), `clientIp()`. Request-cached. |
+| `lib/admin-access.ts` | Admin team rights: `requireRight(page, right)`, `requireUserRight(userId, right)` (404 if not assigned to the member), `getAccess().can()`, `visibleUserIds()` (null = all; filter every admin user/message/report query with `($n::int[] IS NULL OR col = ANY($n::int[]))`), `assignFilter()`. |
 | `lib/actions.ts` | `flash(type, msg)`, `ActionResult`, `ok()`, `fail()`, `invalid(errors)`, FormData readers `fStr fRaw fInt fBool fAll fInts fFile fFiles fileExt isEmail`. |
 | `lib/config.ts` | `config` (= Laravel `config('wa.*')`, camelCased: `config.queTime`, `config.masters.waPlan`, `config.messageStatus`, `config.payment.*`, …), `url(path)` absolute URL. |
 | `lib/time.ts` | `now()` (unix s), `dayStart()`, `monthStart()`, `addDays()`, `phpDate(fmt, ts)` (PHP `date()`), `parseDate()` (`strtotime` for d-m-Y / Y-m-d / datetime-local), `parseDateRange()` (= `DateRange::parse`, end exclusive), `todayString()`, `shortTime()`, `timestampToUnix()`. |

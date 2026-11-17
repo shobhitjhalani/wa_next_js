@@ -805,3 +805,29 @@ CREATE TABLE IF NOT EXISTS wa_settings (
   updated_by integer,                    -- js_employee.emp_id
   updated_at timestamptz NOT NULL DEFAULT now()
 );
+
+-- ------------------------------------------------------------ team rights: users & reports
+
+-- Team members (emp_m_type 1) only reach what js_employee_rights grants (src/lib/admin-access.ts):
+--   user_wa / user_gs (WhatsApp / Corporate users): View, Add, Edit, Delete, All
+--     without "All" a member sees only the users assigned to them (js_user.u_assign_to)
+--   reports_messages: View, Edit (bulk delete / re-queue)   reports_recharges: View
+-- Reports, messages and the dashboard only cover the users the member can see.
+-- Added once; existing team members keep what they could do before, limited to their own users.
+DO $$
+BEGIN
+  IF NOT EXISTS (SELECT 1 FROM js_modules WHERE mo_code = 'rpm') THEN
+    UPDATE js_modules SET mo_action = 'View,Add,Edit,Delete,All', mo_status = 1 WHERE mo_code IN ('uwa', 'ugs');
+    UPDATE js_modules SET mo_name = 'Corporate / Google Sheet Users' WHERE mo_code = 'ugs';
+    INSERT INTO js_modules (mo_id, mo_name, mo_code, mo_page, mo_action, mo_group, mo_display, mo_status) VALUES
+      ((SELECT COALESCE(MAX(mo_id), 0) + 1 FROM js_modules), 'Message Reports', 'rpm', 'reports_messages', 'View,Edit', 4, 1, 1),
+      ((SELECT COALESCE(MAX(mo_id), 0) + 2 FROM js_modules), 'Recharge Reports', 'rpr', 'reports_recharges', 'View', 4, 1, 1);
+    INSERT INTO js_employee_rights (er_emp_id, er_page_action, er_created_on)
+    SELECT e.emp_id, r.code, EXTRACT(EPOCH FROM now())::int
+      FROM js_employee e
+     CROSS JOIN (VALUES ('uwa_4'), ('uwa_1'), ('uwa_2'), ('uwa_6'), ('ugs_4'), ('ugs_1'), ('ugs_2'), ('ugs_6'),
+                        ('rpm_4'), ('rpm_2'), ('rpr_4')) r(code)
+     WHERE e.emp_dstatus = 0 AND e.emp_m_type <> 4
+       AND NOT EXISTS (SELECT 1 FROM js_employee_rights x WHERE x.er_emp_id = e.emp_id AND x.er_page_action = r.code AND x.er_dstatus = 0);
+  END IF;
+END $$;

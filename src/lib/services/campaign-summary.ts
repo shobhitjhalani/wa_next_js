@@ -51,11 +51,13 @@ export function readSummaryFilter(params: Record<string, string | string[] | und
 const empty = (): Counts => ({ sent: 0, delivered: 0, read: 0, failed: 0, error: 0, queue: 0, total: 0, all: 0 });
 
 /** Whose campaigns: one user (user panel), or for admins optionally a user and / or a corporate account's users. */
-export interface SummaryScope { userId?: number | null; parentId?: number | null }
+/** userIds: only these users' campaigns (admin team member's visible users); null / absent = no limit. */
+export interface SummaryScope { userId?: number | null; parentId?: number | null; userIds?: number[] | null }
 
 export async function campaignSummary(scope: SummaryScope, f: SummaryFilter): Promise<{ rows: SummaryRow[]; totals: Counts; untracked: number }> {
   const args: unknown[] = [CAMPAIGN.SCHEDULED];
   let where = 'c.uc_status <> $1';
+  if (scope.userIds) { args.push(scope.userIds); where += ` AND c.uc_user_id = ANY($${args.length}::int[])`; }
   if (scope.userId) { args.push(scope.userId); where += ` AND c.uc_user_id = $${args.length}`; }
   if (scope.parentId) { args.push(scope.parentId); where += ` AND u.u_parent_id = $${args.length}`; }
   if (f.q !== '') { args.push('%' + like(f.q) + '%'); where += ` AND (c.uc_name ILIKE $${args.length} OR c.uc_template ILIKE $${args.length})`; }

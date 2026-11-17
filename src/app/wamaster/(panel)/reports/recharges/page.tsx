@@ -1,5 +1,5 @@
 import Link from 'next/link';
-import { requireAdmin } from '@/lib/auth';
+import { RECHARGE_REPORTS, requireRight, visibleUserIds } from '@/lib/admin-access';
 import { config } from '@/lib/config';
 import { one, query } from '@/lib/db';
 import { masterOptions } from '@/lib/models';
@@ -15,8 +15,8 @@ type Row = RechargeRow & { u_username: string | null; u_company_name: string | n
 
 /** Recharges of the financial year (ReportController::recharges). */
 export default async function RechargesPage({ searchParams }: { searchParams: Promise<Params> }) {
-  await requireAdmin();
-  const sp = await searchParams;
+  await requireRight(RECHARGE_REPORTS);
+  const [sp, ids] = await Promise.all([searchParams, visibleUserIds()]);
   const page = pageParam(sp.page);
   const perPage = config.site.pageSize;
   const year = config.site.fYear;
@@ -27,14 +27,15 @@ export default async function RechargesPage({ searchParams }: { searchParams: Pr
   const lastMonthStart = monthStart(Math.floor(prev.getTime() / 1000));
   const userId = filled(sp, 'user_id') ? intParam(sp, 'user_id') : null;
 
-  const base = 'r.ur_dstatus = 0 AND r.ur_year = $1 AND ($2::int IS NULL OR r.ur_user_id = $2)';
-  const listArgs: unknown[] = [year, userId, range?.[0] ?? null, range?.[1] ?? null];
-  const listWhere = `${base} AND ($3::int IS NULL OR r.ur_created_on BETWEEN $3 AND $4)`;
+  // $2 = selected user, $3 = users this staff member can see (null = all)
+  const base = 'r.ur_dstatus = 0 AND r.ur_year = $1 AND ($2::int IS NULL OR r.ur_user_id = $2) AND ($3::int[] IS NULL OR r.ur_user_id = ANY($3::int[]))';
+  const listArgs: unknown[] = [year, userId, ids, range?.[0] ?? null, range?.[1] ?? null];
+  const listWhere = `${base} AND ($4::int IS NULL OR r.ur_created_on BETWEEN $4 AND $5)`;
 
   const [recharges, total, sums, allUsers, gateways] = await Promise.all([
     query<Row>(
       `SELECT r.*, u.u_username, u.u_company_name, u.u_name, u.u_id IS NOT NULL AS has_user, p.mv_name AS plan_name
-         FROM (SELECT r.* FROM js_user_recharge r WHERE ${listWhere} ORDER BY r.ur_id DESC LIMIT $5 OFFSET $6) r
+         FROM (SELECT r.* FROM js_user_recharge r WHERE ${listWhere} ORDER BY r.ur_id DESC LIMIT $6 OFFSET $7) r
          LEFT JOIN js_user u ON u.u_id = r.ur_user_id
          LEFT JOIN js_master_value p ON p.mv_id = r.ur_plan_id
         ORDER BY r.ur_id DESC`,
@@ -43,13 +44,13 @@ export default async function RechargesPage({ searchParams }: { searchParams: Pr
     one<{ n: number }>(`SELECT COUNT(*)::int AS n FROM js_user_recharge r WHERE ${listWhere}`, listArgs),
     one<{ yt: number; yn: number; mt: number; mn: number; lt: number; ln: number }>(
       `SELECT COALESCE(SUM(ur_amount), 0) AS yt, COUNT(*)::int AS yn,
-              COALESCE(SUM(ur_amount) FILTER (WHERE ur_created_on >= $3), 0) AS mt, COUNT(*) FILTER (WHERE ur_created_on >= $3)::int AS mn,
-              COALESCE(SUM(ur_amount) FILTER (WHERE ur_created_on BETWEEN $4 AND $3 - 1), 0) AS lt,
-              COUNT(*) FILTER (WHERE ur_created_on BETWEEN $4 AND $3 - 1)::int AS ln
+              COALESCE(SUM(ur_amount) FILTER (WHERE ur_created_on >= $4), 0) AS mt, COUNT(*) FILTER (WHERE ur_created_on >= $4)::int AS mn,
+              COALESCE(SUM(ur_amount) FILTER (WHERE ur_created_on BETWEEN $5 AND $4 - 1), 0) AS lt,
+              COUNT(*) FILTER (WHERE ur_created_on BETWEEN $5 AND $4 - 1)::int AS ln
          FROM js_user_recharge r WHERE ${base} AND ur_generate_invoice = 1`,
-      [year, userId, mStart, lastMonthStart],
+      [year, userId, ids, mStart, lastMonthStart],
     ),
-    waUsers(),
+    waUsers(ids),
     masterOptions(config.masters.paymentGateway),
   ]);
   const gatewayName = new Map(gateways.map((g) => [Number(g.value), g.label]));

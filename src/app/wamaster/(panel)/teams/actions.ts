@@ -3,8 +3,8 @@
 import { revalidatePath } from 'next/cache';
 import { forbidden, notFound, redirect } from 'next/navigation';
 import { fAll, flash, fRaw, fStr, invalid, isEmail, type ActionResult } from '@/lib/actions';
-import { requireAdminCan } from '@/lib/auth';
-import { exec, insert, insertMany, one, tx, update, value } from '@/lib/db';
+import { requireRight } from '@/lib/admin-access';
+import { exec, insert, insertMany, one, query, tx, update, value } from '@/lib/db';
 import { hashPassword } from '@/lib/password';
 import { config } from '@/lib/config';
 import { now } from '@/lib/time';
@@ -14,10 +14,12 @@ const len = (s: string) => Array.from(s).length;
 
 /** Store / update a team member and their page rights (TeamController::save). */
 export async function saveMember(id: number | null, _prev: ActionResult | null, fd: FormData): Promise<ActionResult> {
-  const me = await requireAdminCan('employee');
+  const me = (await requireRight('employee', id === null ? 'add' : 'edit')).admin;
   if (id !== null && !Number.isInteger(id)) notFound();
-  const member = id ? await one<{ emp_id: number; emp_code: string | null }>('SELECT emp_id, emp_code FROM js_employee WHERE emp_id = $1 AND emp_dstatus = 0', [id]) : null;
+  const member = id ? await one<{ emp_id: number; emp_code: string | null; emp_m_type: number }>('SELECT emp_id, emp_code, emp_m_type FROM js_employee WHERE emp_id = $1 AND emp_dstatus = 0', [id]) : null;
   if (id && !member) notFound();
+  // Only a super admin may change a super admin's account
+  if (member && Number(member.emp_m_type) === SUPER_ADMIN && !me.isSuperAdmin) forbidden();
 
   const name = fStr(fd, 'name');
   const mobile = fStr(fd, 'mobile');
@@ -28,7 +30,7 @@ export async function saveMember(id: number | null, _prev: ActionResult | null, 
   const mType = fStr(fd, 'm_type');
   const status = fStr(fd, 'status');
   const address = fStr(fd, 'address');
-  const rights = fAll(fd, 'rights[]').map((r) => r.trim()).filter((r) => r !== '');
+  let rights = fAll(fd, 'rights[]').map((r) => r.trim()).filter((r) => r !== '');
 
   const errors: Record<string, string> = {};
   if (!name) errors.name = 'The name field is required.';
@@ -62,6 +64,14 @@ export async function saveMember(id: number | null, _prev: ActionResult | null, 
 
   // Only a super admin may create or promote super admins
   if (Number(mType) === SUPER_ADMIN && !me.isSuperAdmin) forbidden();
+  // A team member can only grant (or take away) rights they have themselves; the member's other rights stay
+  if (!me.isSuperAdmin) {
+    const codes = async (empId: number) => (await query<{ er_page_action: string }>(
+      'SELECT er_page_action FROM js_employee_rights WHERE er_emp_id = $1 AND er_dstatus = 0', [empId])).map((r) => r.er_page_action);
+    const own = new Set(await codes(me.emp_id));
+    const kept = member ? (await codes(member.emp_id)).filter((c) => !own.has(c)) : [];
+    rights = [...new Set([...rights.filter((r) => own.has(r)), ...kept])];
+  }
 
   const ts = now();
   const row = {
@@ -101,8 +111,10 @@ export async function saveMember(id: number | null, _prev: ActionResult | null, 
 
 /** Soft-delete a team member (TeamController::destroy). */
 export async function deleteMember(id: number): Promise<void> {
-  const me = await requireAdminCan('employee');
+  const me = (await requireRight('employee', 'delete')).admin;
   if (!Number.isInteger(id)) notFound();
+  const target = await value<number>('SELECT emp_m_type FROM js_employee WHERE emp_id = $1 AND emp_dstatus = 0', [id]);
+  if (Number(target) === SUPER_ADMIN && !me.isSuperAdmin) forbidden();
   if (id === me.emp_id) {
     await flash('error', 'You cannot delete yourself.');
   } else {

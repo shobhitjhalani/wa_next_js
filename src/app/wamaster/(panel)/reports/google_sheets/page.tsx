@@ -1,5 +1,5 @@
 import Link from 'next/link';
-import { requireAdmin } from '@/lib/auth';
+import { MESSAGE_REPORTS, requireRight, visibleUserIds } from '@/lib/admin-access';
 import { config } from '@/lib/config';
 import { like, query, value } from '@/lib/db';
 import { masterCodeOptions } from '@/lib/models';
@@ -24,14 +24,15 @@ interface SheetRow {
 
 /** Activated Google Sheets (ReportController::sheets). */
 export default async function GoogleSheetsPage({ searchParams }: { searchParams: Promise<Params> }) {
-  await requireAdmin();
-  const sp = await searchParams;
+  await requireRight(MESSAGE_REPORTS);
+  const [sp, ids] = await Promise.all([searchParams, visibleUserIds()]);
   const page = pageParam(sp.page);
   const perPage = config.site.pageSize;
   const args: unknown[] = [
     filled(sp, 'user_id') ? intParam(sp, 'user_id') : null,
     filled(sp, 'sheet_id') ? like(input(sp, 'sheet_id') ?? '') : null,
     filled(sp, 'st') ? intParam(sp, 'st') : null,
+    ids,
   ];
   const from = `FROM js_user_active_sheets s
     JOIN js_user u ON u.u_id = s.us_user_id
@@ -39,18 +40,21 @@ export default async function GoogleSheetsPage({ searchParams }: { searchParams:
    WHERE s.us_dstatus = 0
      AND ($1::int IS NULL OR s.us_user_id = $1)
      AND ($2::text IS NULL OR s.us_sheet_id ILIKE '%' || $2 || '%')
-     AND ($3::int IS NULL OR s.us_status = $3)`;
+     AND ($3::int IS NULL OR s.us_status = $3)
+     AND ($4::int[] IS NULL OR s.us_user_id = ANY($4::int[]))`;
 
   const [sheets, count, total, sheetTypes, corps] = await Promise.all([
     query<SheetRow>(
       `SELECT s.us_id, s.us_user_id, s.us_sheet_type, s.us_sheet_id, s.us_created_on, s.us_status, u.u_company_name, u.u_name, u.u_code, e.ue_email_id
-       ${from} ORDER BY s.us_id DESC LIMIT $4 OFFSET $5`,
+       ${from} ORDER BY s.us_id DESC LIMIT $5 OFFSET $6`,
       [...args, perPage, (page - 1) * perPage],
     ),
     value<number>(`SELECT COUNT(*)::int ${from}`, args),
-    value<number>('SELECT COUNT(*)::int FROM js_user_active_sheets WHERE us_dstatus = 0 AND us_status = 1'),
+    value<number>(
+      'SELECT COUNT(*)::int FROM js_user_active_sheets WHERE us_dstatus = 0 AND us_status = 1 AND ($1::int[] IS NULL OR us_user_id = ANY($1::int[]))',
+      [ids]),
     masterCodeOptions(config.masters.sheetType),
-    corporates(),
+    corporates(ids),
   ]);
   const typeName = new Map(sheetTypes.map((t) => [String(t.value), t.label]));
 

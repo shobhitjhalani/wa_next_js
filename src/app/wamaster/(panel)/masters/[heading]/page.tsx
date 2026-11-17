@@ -1,5 +1,5 @@
 import Link from 'next/link';
-import { requireAdminCan } from '@/lib/auth';
+import { requireRight } from '@/lib/admin-access';
 import { config } from '@/lib/config';
 import { like, query, value } from '@/lib/db';
 import { sp } from '@/lib/http';
@@ -15,7 +15,7 @@ type Params = Record<string, string | string[] | undefined>;
 
 /** Data master values of one heading (MasterController::index). */
 export default async function MastersPage({ params, searchParams }: { params: Promise<{ heading: string }>; searchParams: Promise<Params> }) {
-  await requireAdminCan('masters');
+  const access = await requireRight('masters');
   const [{ heading }, sparams] = await Promise.all([params, searchParams]);
   const head = await findHeading(heading);
   const fields = masterFields(head.mh_id);
@@ -46,7 +46,7 @@ export default async function MastersPage({ params, searchParams }: { params: Pr
             <input type="text" className="form-control" name="q" defaultValue={q} placeholder="Search name" aria-label="Search" />
             <button className="btn btn-secondary">Search</button>
           </form>
-          <Link href={`${base}/create`} className="btn btn-primary"><i className="ri-add-line" /> Add {head.mh_name}</Link>
+          {access.can('masters', 'add') && <Link href={`${base}/create`} className="btn btn-primary"><i className="ri-add-line" /> Add {head.mh_name}</Link>}
         </div>
         <div className="card-body">
           <div className="table-responsive">
@@ -72,10 +72,12 @@ export default async function MastersPage({ params, searchParams }: { params: Pr
                     })}
                     <td><span className={`badge ${Number(row.mv_status) === 1 ? 'bg-success' : 'bg-secondary'}`}>{Number(row.mv_status) === 1 ? 'Active' : 'Inactive'}</span></td>
                     <td className="text-nowrap text-end">
-                      <Link href={`${base}/${row.mv_id}/edit`} className="btn btn-sm btn-soft-secondary" aria-label="Edit"><i className="ri-pencil-fill" /></Link>{' '}
-                      <form action={deleteMaster.bind(null, head.mh_id, row.mv_id)} className="d-inline">
-                        <ConfirmButton message="Delete this record?" className="btn btn-sm btn-soft-danger" aria-label="Delete"><i className="ri-delete-bin-fill" /></ConfirmButton>
-                      </form>
+                      {access.can('masters', 'edit') && <><Link href={`${base}/${row.mv_id}/edit`} className="btn btn-sm btn-soft-secondary" aria-label="Edit"><i className="ri-pencil-fill" /></Link>{' '}</>}
+                      {access.can('masters', 'delete') && (
+                        <form action={deleteMaster.bind(null, head.mh_id, row.mv_id)} className="d-inline">
+                          <ConfirmButton message="Delete this record?" className="btn btn-sm btn-soft-danger" aria-label="Delete"><i className="ri-delete-bin-fill" /></ConfirmButton>
+                        </form>
+                      )}
                     </td>
                   </tr>
                 )) : (

@@ -1,5 +1,5 @@
 import Link from 'next/link';
-import { requireAdmin } from '@/lib/auth';
+import { getAccess, MESSAGE_REPORTS, RECHARGE_REPORTS, USERS_WA, visibleUserIds } from '@/lib/admin-access';
 import { config } from '@/lib/config';
 import { one, query, value } from '@/lib/db';
 import { numberFormat, ucfirst } from '@/lib/text';
@@ -9,7 +9,10 @@ import { PageTitle } from '@/components/PageTitle';
 
 /** Admin dashboard (Admin\DashboardController::index + admin/dashboard.blade.php). */
 export default async function AdminDashboardPage() {
-  const me = await requireAdmin();
+  const [access, ids] = await Promise.all([getAccess(), visibleUserIds()]);
+  const me = access.admin;
+  // Team members only see figures for the users they can see (ids; null = everyone)
+  const canRecharges = access.can(RECHARGE_REPORTS);
   const today = dayStart();
   const queFrom = today - config.queTime;
   const year = config.site.fYear;
@@ -31,49 +34,56 @@ export default async function AdminDashboardPage() {
                      WHEN m_message_id <> '' THEN 's:' || COALESCE(NULLIF(m_delivery_status, ''), 'sent')
                 END AS col
            FROM js_message
-          WHERE m_dstatus = 0 AND m_created_on >= $1
+          WHERE m_dstatus = 0 AND m_created_on >= $1 AND ($3::int[] IS NULL OR m_user_id = ANY($3::int[]))
             AND ((m_is_incoming = 2 AND m_status IN (1, 6))
                  OR (m_created_date = $2 AND (m_is_incoming = 1 OR (m_is_incoming = 2 AND m_status = 3))))
        ) t WHERE col IS NOT NULL
        GROUP BY m_user_id, col ORDER BY m_user_id`,
-      [queFrom, today],
+      [queFrom, today, ids],
     ),
     // Both use js_message_sent_updated_idx (partial index on m_updated_on for sent outgoing messages)
     value<number>(
       `SELECT COUNT(*)::int FROM js_message
-        WHERE m_is_incoming = 2 AND m_dstatus = 0 AND m_status = 3 AND m_delivery_status IN ('read', 'sent', 'delivered') AND m_updated_on >= $1`,
-      [today],
+        WHERE m_is_incoming = 2 AND m_dstatus = 0 AND m_status = 3 AND m_delivery_status IN ('read', 'sent', 'delivered') AND m_updated_on >= $1
+          AND ($2::int[] IS NULL OR m_user_id = ANY($2::int[]))`,
+      [today, ids],
     ),
     value<number>(
       `SELECT m_updated_on FROM js_message WHERE m_is_incoming = 2 AND m_dstatus = 0 AND m_status = 3 AND m_updated_on > 0
+          AND ($1::int[] IS NULL OR m_user_id = ANY($1::int[]))
         ORDER BY m_updated_on DESC LIMIT 1`,
+      [ids],
     ),
-    value<number>('SELECT COUNT(*)::int FROM js_message WHERE m_is_incoming = 2 AND m_dstatus = 0 AND m_status = 6'),
     value<number>(
-      'SELECT COUNT(*)::int FROM js_user WHERE u_dstatus = 0 AND u_type = $1 AND u_status = 1 AND u_wa_plan_status = 1',
-      [USER_TYPE.WHATSAPP],
+      'SELECT COUNT(*)::int FROM js_message WHERE m_is_incoming = 2 AND m_dstatus = 0 AND m_status = 6 AND ($1::int[] IS NULL OR m_user_id = ANY($1::int[]))',
+      [ids]),
+    value<number>(
+      'SELECT COUNT(*)::int FROM js_user WHERE u_dstatus = 0 AND u_type = $1 AND u_status = 1 AND u_wa_plan_status = 1 AND ($2::int[] IS NULL OR u_id = ANY($2::int[]))',
+      [USER_TYPE.WHATSAPP, ids],
     ),
-    one<Record<'yt' | 'yn' | 'mt' | 'mn' | 'lt' | 'ln', number>>(
+    !canRecharges ? Promise.resolve(null) : one<Record<'yt' | 'yn' | 'mt' | 'mn' | 'lt' | 'ln', number>>(
       `SELECT COALESCE(SUM(ur_amount), 0) AS yt, COUNT(*)::int AS yn,
               COALESCE(SUM(ur_amount) FILTER (WHERE ur_created_on BETWEEN $2 AND $3), 0) AS mt,
               COUNT(*) FILTER (WHERE ur_created_on BETWEEN $2 AND $3)::int AS mn,
               COALESCE(SUM(ur_amount) FILTER (WHERE ur_created_on BETWEEN $4 AND $5), 0) AS lt,
               COUNT(*) FILTER (WHERE ur_created_on BETWEEN $4 AND $5)::int AS ln
-         FROM js_user_recharge WHERE ur_dstatus = 0 AND ur_year = $1 AND ur_generate_invoice = 1`,
-      [year, mStart, now(), lastMonthStart, mStart - 1],
+         FROM js_user_recharge WHERE ur_dstatus = 0 AND ur_year = $1 AND ur_generate_invoice = 1
+          AND ($6::int[] IS NULL OR ur_user_id = ANY($6::int[]))`,
+      [year, mStart, now(), lastMonthStart, mStart - 1, ids],
     ),
     query<{ u_id: number; u_username: string | null; u_valid_till: number }>(
       `SELECT u_id, u_username, u_valid_till FROM js_user
         WHERE u_dstatus = 0 AND u_type = $1 AND u_status = 1 AND u_wa_plan_status = 2 AND u_valid_till > 0
+          AND ($2::int[] IS NULL OR u_id = ANY($2::int[]))
         ORDER BY u_valid_till`,
-      [USER_TYPE.WHATSAPP],
+      [USER_TYPE.WHATSAPP, ids],
     ),
     // Users with a template message limit (0 = unlimited), fewest messages left first
     query<{ u_id: number; u_username: string | null; u_company_name: string | null; u_status: number; u_msg_limit: number; u_msg_used: number }>(
       `SELECT u_id, u_username, u_company_name, u_status, u_msg_limit, u_msg_used FROM js_user
-        WHERE u_dstatus = 0 AND u_type = $1 AND u_msg_limit > 0
+        WHERE u_dstatus = 0 AND u_type = $1 AND u_msg_limit > 0 AND ($2::int[] IS NULL OR u_id = ANY($2::int[]))
         ORDER BY GREATEST(u_msg_limit - u_msg_used, 0), u_msg_used::float / u_msg_limit DESC, u_username`,
-      [USER_TYPE.WHATSAPP],
+      [USER_TYPE.WHATSAPP, ids],
     ),
   ]);
 
@@ -107,11 +117,13 @@ export default async function AdminDashboardPage() {
     : new Map<number, { u_id: number; u_username: string | null; u_last_wa_send: number }>();
 
   const lastSent = Number(lastSentAt ?? 0);
+  const reportLink = (href: string) => (access.can(MESSAGE_REPORTS) ? href : '');
+  const canEditWa = access.can(USERS_WA, 'edit');
   const cards: [string, number, string, string, string][] = [
-    ['Sent Today', sentToday ?? 0, 'ri-send-plane-line', 'success', '/wamaster/reports/messages/send'],
-    ['Pending in Queue', pending, 'ri-time-line', 'warning', '/wamaster/reports/messages/que'],
-    ['In Process', inProcess ?? 0, 'ri-loader-4-line', 'info', '/wamaster/reports/messages/in_process'],
-    ['Active WA Users', connectedUsers ?? 0, 'ri-user-follow-line', 'primary', '/wamaster/users?ut=2'],
+    ['Sent Today', sentToday ?? 0, 'ri-send-plane-line', 'success', reportLink('/wamaster/reports/messages/send')],
+    ['Pending in Queue', pending, 'ri-time-line', 'warning', reportLink('/wamaster/reports/messages/que')],
+    ['In Process', inProcess ?? 0, 'ri-loader-4-line', 'info', reportLink('/wamaster/reports/messages/in_process')],
+    ['Active WA Users', connectedUsers ?? 0, 'ri-user-follow-line', 'primary', access.can(USERS_WA) ? '/wamaster/users?ut=2' : ''],
   ];
   const revenueRows: [string, number, number][] = [
     ['Total Collection', revenue?.yt ?? 0, revenue?.yn ?? 0],
@@ -134,7 +146,7 @@ export default async function AdminDashboardPage() {
                   <div className="flex-grow-1">
                     <p className="text-uppercase fw-medium text-muted mb-1">{label}</p>
                     <h4 className="fs-22 fw-semibold mb-2">{numberFormat(val)}</h4>
-                    <Link href={link} className="small">View</Link>
+                    {link && <Link href={link} className="small">View</Link>}
                   </div>
                   <div className="avatar-sm flex-shrink-0">
                     <span className={`avatar-title bg-${color}-subtle rounded fs-3`}><i className={`${icon} text-${color}`} /></span>
@@ -183,7 +195,7 @@ export default async function AdminDashboardPage() {
           </div>
         </div>
         <div className="col-xl-4">
-          <div className="card">
+          {canRecharges && <div className="card">
             <div className="card-header"><h4 className="card-title mb-0">Revenue ({year})</h4></div>
             <div className="card-body">
               {revenueRows.map(([label, total, n]) => (
@@ -194,7 +206,7 @@ export default async function AdminDashboardPage() {
               ))}
               <Link href="/wamaster/reports/recharges" className="btn btn-sm btn-soft-primary mt-3">Recharge report</Link>
             </div>
-          </div>
+          </div>}
           <div className="card">
             <div className="card-header"><h4 className="card-title mb-0">Users Expired</h4></div>
             <div className="card-body p-0">
@@ -259,7 +271,7 @@ export default async function AdminDashboardPage() {
                             <span className="small text-muted" style={{ width: 36 }}>{pct}%</span>
                           </div>
                         </td>
-                        <td className="text-end"><Link href={`/wamaster/users/${u.u_id}/edit`} className="btn btn-sm btn-soft-primary">Change</Link></td>
+                        <td className="text-end">{canEditWa && <Link href={`/wamaster/users/${u.u_id}/edit`} className="btn btn-sm btn-soft-primary">Change</Link>}</td>
                       </tr>
                     );
                   })}

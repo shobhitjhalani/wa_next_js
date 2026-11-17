@@ -3,7 +3,7 @@
 import { revalidatePath } from 'next/cache';
 import { notFound, redirect } from 'next/navigation';
 import { flash, fRaw, invalid, type ActionResult } from '@/lib/actions';
-import { requireAdminCan } from '@/lib/auth';
+import { requireRight } from '@/lib/admin-access';
 import { exec, insert, one, update } from '@/lib/db';
 import { now } from '@/lib/time';
 import { randomString } from '@/lib/text';
@@ -21,7 +21,7 @@ function slug(s: string): string {
 
 /** Store / update a master value (MasterController::save). */
 export async function saveMaster(heading: number, id: number | null, _prev: ActionResult | null, fd: FormData): Promise<ActionResult> {
-  await requireAdminCan('masters');
+  await requireRight('masters', id === null ? 'add' : 'edit');
   if (!Number.isInteger(heading) || (id !== null && !Number.isInteger(id))) notFound();
   const head = await one<{ mh_id: number }>('SELECT mh_id FROM js_master_heading WHERE mh_id = $1', [heading]);
   if (!head) notFound();
@@ -81,7 +81,7 @@ export async function saveMaster(heading: number, id: number | null, _prev: Acti
 
 /** Soft-delete a master value (MasterController::destroy). */
 export async function deleteMaster(heading: number, id: number): Promise<void> {
-  await requireAdminCan('masters');
+  await requireRight('masters', 'delete');
   if (!Number.isInteger(heading) || !Number.isInteger(id)) notFound();
   await exec('UPDATE js_master_value SET mv_dstatus = 1 WHERE mv_id = $1 AND mv_type = $2 AND mv_dstatus = 0', [id, heading]);
   await flash('success', 'Record Successfully Deleted');

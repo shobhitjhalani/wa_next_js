@@ -2,6 +2,7 @@ import Link from 'next/link';
 import { config } from '@/lib/config';
 import { query } from '@/lib/db';
 import { masterOptions } from '@/lib/models';
+import { getAccess, visibleUserIds } from '@/lib/admin-access';
 import { USER_TYPE, type UserRow } from '@/lib/types';
 import { ActionForm, SubmitButton } from '@/components/ActionForm';
 import { saveUser } from './actions';
@@ -19,13 +20,19 @@ const FLAG_LABELS: Record<(typeof FLAGS)[number], string> = {
 
 /** Add / edit user form (admin/users/form.blade.php). `user` is null when adding. */
 export async function UserForm({ user, type }: { user: UserRow | null; type: number }) {
-  const [parents, states, countries, staff] = await Promise.all([
+  const ids = await visibleUserIds();
+  const [parents, states, countries, staff, access] = await Promise.all([
     query<{ u_id: number; u_name: string | null; u_company_name: string | null }>(
-      'SELECT u_id, u_name, u_company_name FROM js_user WHERE u_dstatus = 0 AND u_type = $1 ORDER BY u_name', [USER_TYPE.CORPORATE]),
+      `SELECT u_id, u_name, u_company_name FROM js_user
+        WHERE u_dstatus = 0 AND u_type = $1 AND ($2::int[] IS NULL OR u_id = ANY($2::int[]) OR u_id = $3)
+        ORDER BY u_name`, [USER_TYPE.CORPORATE, ids, Number(user?.u_parent_id) || 0]),
     masterOptions(config.masters.state),
     masterOptions(config.masters.country),
     query<{ emp_id: number; emp_name: string | null }>('SELECT emp_id, emp_name FROM js_employee WHERE emp_dstatus = 0 AND emp_status = 1 ORDER BY emp_name'),
+    getAccess(),
   ]);
+  // Members who only see their own users always assign them to themselves (enforced in saveUser)
+  const ownOnly = !access.seesAll(type);
   const isWa = type === USER_TYPE.WHATSAPP;
   const u = (user ?? { u_type: type, u_status: 1 }) as Partial<UserRow> & Record<string, unknown>;
   const v = (key: string): string => {
@@ -85,10 +92,14 @@ export async function UserForm({ user, type }: { user: UserRow | null; type: num
           </div>
           <div className="col-md-4">
             <label className="form-label" htmlFor="assign_to">Assign To</label>
-            <select className="form-select" id="assign_to" name="assign_to" defaultValue={v('assign_to')}>
-              <option value="">—</option>
-              {staff.map((s) => <option key={s.emp_id} value={s.emp_id}>{s.emp_name}</option>)}
-            </select>
+            {ownOnly ? (
+              <input className="form-control" id="assign_to" value={access.admin.emp_name ?? ''} readOnly />
+            ) : (
+              <select className="form-select" id="assign_to" name="assign_to" defaultValue={v('assign_to')}>
+                <option value="">—</option>
+                {staff.map((s) => <option key={s.emp_id} value={s.emp_id}>{s.emp_name}</option>)}
+              </select>
+            )}
           </div>
           <div className="col-md-4"><label className="form-label" htmlFor="balance">Previous Balance</label><input type="number" className="form-control" id="balance" name="balance" defaultValue={v('balance')} /></div>
           {!isWa && (

@@ -1,5 +1,6 @@
 import { NextResponse, type NextRequest } from 'next/server';
 import { getAdmin } from '@/lib/auth';
+import { getAccess, MESSAGE_REPORTS, visibleUserIds } from '@/lib/admin-access';
 import { csvFromRows } from '@/lib/http';
 import { campaignSummary, readSummaryFilter, STATUS_COLUMNS } from '@/lib/services/campaign-summary';
 import { int } from '@/lib/text';
@@ -9,9 +10,11 @@ import { redirectTo } from '@/lib/redirect';
 /** GET /wamaster/reports/templates/export — the admin Campaign Summary as CSV. */
 export async function GET(req: NextRequest) {
   if (!(await getAdmin())) return redirectTo('/wamaster');
+  if (!(await getAccess()).can(MESSAGE_REPORTS)) return new NextResponse('Forbidden', { status: 403 });
 
   const q = req.nextUrl.searchParams;
   const scope = {
+    userIds: await visibleUserIds(),
     userId: q.get('user_id')?.trim() ? int(q.get('user_id')) : null,
     parentId: q.get('parent_id')?.trim() ? int(q.get('parent_id')) : null,
   };

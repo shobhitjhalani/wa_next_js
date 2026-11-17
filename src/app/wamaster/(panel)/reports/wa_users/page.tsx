@@ -1,5 +1,5 @@
 import Link from 'next/link';
-import { requireAdmin } from '@/lib/auth';
+import { MESSAGE_REPORTS, requireRight, visibleUserIds } from '@/lib/admin-access';
 import { config } from '@/lib/config';
 import { query, value } from '@/lib/db';
 import { numberFormat } from '@/lib/text';
@@ -13,24 +13,24 @@ type Row = UserRow & { parent_company: string | null; parent_name: string | null
 
 /** WhatsApp user activity: sent today, in queue, last send (ReportController::waUsersActivity). */
 export default async function WaUsersPage({ searchParams }: { searchParams: Promise<Params> }) {
-  await requireAdmin();
-  const sp = await searchParams;
+  await requireRight(MESSAGE_REPORTS);
+  const [sp, visible] = await Promise.all([searchParams, visibleUserIds()]);
   const page = pageParam(sp.page);
   const perPage = config.site.pageSize;
   const today = dayStart();
   const queFrom = today - config.queTime;
 
-  const where = 'u_dstatus = 0 AND u_type = $1 AND u_status = 1';
+  const where = 'u_dstatus = 0 AND u_type = $1 AND u_status = 1 AND ($2::int[] IS NULL OR u_id = ANY($2::int[]))';
   const [users, total] = await Promise.all([
     query<Row>(
       `SELECT u.u_id, u.u_code, u.u_username, u.u_valid_till, u.u_wa_plan_status, u.u_wa_no, u.u_last_wa_send,
               p.u_company_name AS parent_company, p.u_name AS parent_name
-         FROM (SELECT * FROM js_user WHERE ${where} ORDER BY u_name, u_id LIMIT $2 OFFSET $3) u
+         FROM (SELECT * FROM js_user WHERE ${where} ORDER BY u_name, u_id LIMIT $3 OFFSET $4) u
          LEFT JOIN js_user p ON p.u_id = u.u_parent_id
         ORDER BY u.u_name, u.u_id`,
-      [USER_TYPE.WHATSAPP, perPage, (page - 1) * perPage],
+      [USER_TYPE.WHATSAPP, visible, perPage, (page - 1) * perPage],
     ),
-    value<number>(`SELECT COUNT(*)::int FROM js_user WHERE ${where}`, [USER_TYPE.WHATSAPP]),
+    value<number>(`SELECT COUNT(*)::int FROM js_user WHERE ${where}`, [USER_TYPE.WHATSAPP, visible]),
   ]);
   const ids = users.map((u) => u.u_id);
 

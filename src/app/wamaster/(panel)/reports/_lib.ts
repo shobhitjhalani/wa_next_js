@@ -31,14 +31,18 @@ export function dateRange(value: string): [number, number] | null {
 /** Laravel compared request ids against int columns; non-numeric input matched nothing. */
 export const intParam = (params: Params, key: string) => int(input(params, key));
 
-/** WhatsApp users for the filter dropdowns (u_id → u_username). */
-export function waUsers(): Promise<{ u_id: number; u_username: string | null }[]> {
-  return query('SELECT u_id, u_username FROM js_user WHERE u_dstatus = 0 AND u_type = $1 ORDER BY u_username', [USER_TYPE.WHATSAPP]);
+/** WhatsApp users for the filter dropdowns (u_id → u_username); `ids` = visibleUserIds() (null = all). */
+export function waUsers(ids: number[] | null): Promise<{ u_id: number; u_username: string | null }[]> {
+  return query(
+    'SELECT u_id, u_username FROM js_user WHERE u_dstatus = 0 AND u_type = $1 AND ($2::int[] IS NULL OR u_id = ANY($2::int[])) ORDER BY u_username',
+    [USER_TYPE.WHATSAPP, ids]);
 }
 
-/** Corporate accounts (u_id → u_name). */
-export function corporates(): Promise<{ u_id: number; u_name: string | null }[]> {
-  return query('SELECT u_id, u_name FROM js_user WHERE u_dstatus = 0 AND u_type = $1 ORDER BY u_name', [USER_TYPE.CORPORATE]);
+/** Corporate accounts (u_id → u_name); `ids` = visibleUserIds() (null = all). */
+export function corporates(ids: number[] | null): Promise<{ u_id: number; u_name: string | null }[]> {
+  return query(
+    'SELECT u_id, u_name FROM js_user WHERE u_dstatus = 0 AND u_type = $1 AND ($2::int[] IS NULL OR u_id = ANY($2::int[])) ORDER BY u_name',
+    [USER_TYPE.CORPORATE, ids]);
 }
 
 /** Message report types (ReportController::MESSAGE_REPORTS). */
@@ -58,9 +62,10 @@ export const MESSAGE_REPORTS: Record<string, string> = {
  *  date range → js_message_created_idx     (m_created_on)
  *  user       → js_message_user_dir_status_idx (m_user_id, m_is_incoming, …)
  * Returns the conditions without the status filters (dst / st) separately so
- * the "send" stats can count on the same scan.
+ * the "send" stats can count on the same scan. `ids` (visibleUserIds()) limits the
+ * messages to the users the staff member may see; null = every user.
  */
-export function messageWhere(params: Params, type: string): { where: string; statusWhere: string; args: unknown[]; ranged: boolean } {
+export function messageWhere(params: Params, type: string, ids: number[] | null): { where: string; statusWhere: string; args: unknown[]; ranged: boolean } {
   const args: unknown[] = [];
   const p = (v: unknown) => { args.push(v); return `$${args.length}`; };
   const c: string[] = ['m_is_incoming = 2', 'm_dstatus = 0'];
@@ -71,6 +76,7 @@ export function messageWhere(params: Params, type: string): { where: string; sta
 
   const range = dateRange(dateInput(params, ['send', 'error', 'failed'].includes(type)));
   if (range) c.push(`m_created_on BETWEEN ${p(range[0])} AND ${p(range[1])}`);
+  if (ids) c.push(`m_user_id = ANY(${p(ids)}::int[])`);
   if (filled(params, 'user_id')) c.push(`m_user_id = ${p(intParam(params, 'user_id'))}`);
   if (filled(params, 'mobile_no')) c.push(`m_mobile_no = ${p(input(params, 'mobile_no'))}`);
   if (filled(params, 'sheet_id')) c.push(`m_sheet_id = ${p(input(params, 'sheet_id'))}`);

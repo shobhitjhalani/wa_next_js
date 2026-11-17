@@ -1,5 +1,5 @@
 import { notFound } from 'next/navigation';
-import { requireAdmin } from '@/lib/auth';
+import { MESSAGE_REPORTS as MESSAGE_RIGHT, requireRight, visibleUserIds } from '@/lib/admin-access';
 import { config } from '@/lib/config';
 import { one, query, value } from '@/lib/db';
 import { isErrorMessage, messageStatusLabel, messageSummary } from '@/lib/format';
@@ -20,15 +20,15 @@ const COLS = `m_id, m_user_id, m_created_on, m_in_process_on, m_mobile_no, m_msg
 
 /** Admin message reports: send, que, error, failed, in_process (ReportController::messages). */
 export default async function MessageReportPage({ params, searchParams }: { params: Promise<{ type: string }>; searchParams: Promise<Params> }) {
-  await requireAdmin();
-  const [{ type }, sp] = await Promise.all([params, searchParams]);
+  const access = await requireRight(MESSAGE_RIGHT);
+  const [{ type }, sp, ids] = await Promise.all([params, searchParams, visibleUserIds()]);
   const title = MESSAGE_REPORTS[type];
   if (!title) notFound();
 
   const tableDefaults = { sorts: Object.keys(MESSAGE_SORTS) as MessageSort[], sort: 'date' as MessageSort, dir: 'desc' as const, perPage: config.site.pageSize };
   const table = tableState(sp, tableDefaults);
   const { page, perPage } = table;
-  const { where, statusWhere, args, ranged } = messageWhere(sp, type);
+  const { where, statusWhere, args, ranged } = messageWhere(sp, type, ids);
   const order = messageTableOrder(ranged, table.sort, table.dir);
   const n = args.length;
 
@@ -49,8 +49,8 @@ export default async function MessageReportPage({ params, searchParams }: { para
                 COUNT(*) FILTER (WHERE m_status = 3 AND m_message_id <> '' AND m_msg_type = 'template')::int AS tsent
            FROM js_message WHERE ${where}`, args)
       : value<number>(`SELECT COUNT(*)::int FROM js_message WHERE ${where} AND ${statusWhere}`, args).then((total) => ({ total: total ?? 0 })),
-    waUsers(),
-    filled(sp, 'user_id')
+    waUsers(ids),
+    filled(sp, 'user_id') && (!ids || ids.includes(intParam(sp, 'user_id')))
       ? query<{ ut_name: string }>('SELECT ut_name FROM js_user_templates WHERE ut_user_id = $1 AND ut_dstatus = 0 ORDER BY ut_name', [intParam(sp, 'user_id')])
       : Promise.resolve([]),
   ]);
@@ -60,7 +60,7 @@ export default async function MessageReportPage({ params, searchParams }: { para
     ? { Pending: counts.pending, Error: counts.error, Sent: counts.sent, 'Template Sent': counts.tsent }
     : null;
   const dtInput = dateInput(sp, ['send', 'error', 'failed'].includes(type));
-  const bulk = ['que', 'error', 'failed', 'in_process'].includes(type);
+  const bulk = ['que', 'error', 'failed', 'in_process'].includes(type) && access.can(MESSAGE_RIGHT, 'edit');
   const userId = input(sp, 'user_id') ?? '';
   const template = input(sp, 'template') ?? '';
 

@@ -1,6 +1,6 @@
 import type { Metadata } from 'next';
 import Link from 'next/link';
-import { requireAdmin } from '@/lib/auth';
+import { MESSAGE_REPORTS, requireRight, visibleUserIds } from '@/lib/admin-access';
 import { campaignSummary, readSummaryFilter, STATUS_COLUMNS, type SummaryRow } from '@/lib/services/campaign-summary';
 import { numberFormat } from '@/lib/text';
 import { phpDate } from '@/lib/time';
@@ -26,14 +26,15 @@ const TABLE = { sorts: Object.keys(SORTS), sort: 'date', dir: 'desc' as const, p
 
 /** Campaign Summary across users: each campaign's messages by status (replaces the template × status report). */
 export default async function CampaignSummaryReportPage({ searchParams }: { searchParams: Promise<Params> }) {
-  await requireAdmin();
-  const sp = await searchParams;
+  await requireRight(MESSAGE_REPORTS);
+  const [sp, ids] = await Promise.all([searchParams, visibleUserIds()]);
   const filter = readSummaryFilter(sp);
   const scope = {
+    userIds: ids,
     userId: filled(sp, 'user_id') ? intParam(sp, 'user_id') : null,
     parentId: filled(sp, 'parent_id') ? intParam(sp, 'parent_id') : null,
   };
-  const [{ rows: allRows, totals, untracked }, allUsers, parents] = await Promise.all([campaignSummary(scope, filter), waUsers(), corporates()]);
+  const [{ rows: allRows, totals, untracked }, allUsers, parents] = await Promise.all([campaignSummary(scope, filter), waUsers(ids), corporates(ids)]);
   const table = tableState(sp, TABLE);
   const offset = (table.page - 1) * table.perPage;
   const sorted = table.sort === 'date' && table.dir === 'desc' ? allRows : sortRows(allRows, SORTS[table.sort], table.dir);

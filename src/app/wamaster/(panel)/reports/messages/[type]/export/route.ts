@@ -1,4 +1,5 @@
 import { getAdmin } from '@/lib/auth';
+import { getAccess, MESSAGE_REPORTS as MESSAGE_RIGHT, visibleUserIds } from '@/lib/admin-access';
 import { messageStatusLabel } from '@/lib/format';
 import { csvResponse } from '@/lib/http';
 import { decodeEntities } from '@/lib/text';
@@ -13,10 +14,11 @@ export async function GET(req: Request, ctx: { params: Promise<{ type: string }>
   if (!admin) return redirectTo('/wamaster', 302);
   const { type } = await ctx.params;
   if (!MESSAGE_REPORTS[type]) return new Response('Not Found', { status: 404 });
+  if (!(await getAccess()).can(MESSAGE_RIGHT)) return new Response('Forbidden', { status: 403 });
 
   const params: Params = {};
   for (const [k, v] of new URL(req.url).searchParams) if (!(k in params)) params[k] = v;
-  const { where, statusWhere, args, ranged } = messageWhere(params, type);
+  const { where, statusWhere, args, ranged } = messageWhere(params, type, await visibleUserIds());
 
   return csvResponse<MessageRow & { u_username: string | null } & Record<string, unknown>>(
     `wa_${type}_${phpDate('d_m_y')}.csv`,

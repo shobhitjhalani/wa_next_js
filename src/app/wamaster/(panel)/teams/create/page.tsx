@@ -1,7 +1,7 @@
-import { requireAdminCan } from '@/lib/auth';
+import { requireRight } from '@/lib/admin-access';
 import { TeamForm } from '../_form';
 
 export default async function CreateTeamMemberPage() {
-  await requireAdminCan('employee');
+  await requireRight('employee', 'add');
   return <TeamForm member={null} />;
 }

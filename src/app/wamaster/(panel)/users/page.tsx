@@ -1,5 +1,5 @@
 import Link from 'next/link';
-import { requireAdmin } from '@/lib/auth';
+import { assignFilter, requireRight, userModule } from '@/lib/admin-access';
 import { config } from '@/lib/config';
 import { like, query, value } from '@/lib/db';
 import { sp } from '@/lib/http';
@@ -15,10 +15,12 @@ type SP = Promise<Record<string, string | string[] | undefined>>;
 
 /** Client accounts list (Admin\UserController::index + admin/users/index.blade.php). ut=1 corporate, ut=2 WhatsApp. */
 export default async function UsersPage({ searchParams }: { searchParams: SP }) {
-  await requireAdmin();
   const params = await searchParams;
   const utRaw = sp(params, 'ut');
   const type = utRaw === '' ? USER_TYPE.WHATSAPP : parseInt(utRaw, 10) || 0;
+  const access = await requireRight(userModule(type));
+  const mod = userModule(type);
+  const [canAdd, canEdit, canDelete] = [access.can(mod, 'add'), access.can(mod, 'edit'), access.can(mod, 'delete')];
   const q = sp(params, 'q');
   const statusRaw = sp(params, 'status');
   const status = statusRaw === '' ? null : /^\d+$/.test(statusRaw) ? parseInt(statusRaw, 10) : -1;
@@ -28,8 +30,9 @@ export default async function UsersPage({ searchParams }: { searchParams: SP }) 
   const where = `u.u_dstatus = 0 AND u.u_type = $1
     AND ($2 = '' OR u.u_name ILIKE '%' || $2 || '%' OR u.u_username ILIKE '%' || $2 || '%'
          OR u.u_company_name ILIKE '%' || $2 || '%' OR u.u_mobile_no ILIKE '%' || $2 || '%')
-    AND ($3::int IS NULL OR u.u_status = $3::int)`;
-  const args = [type, like(q), status];
+    AND ($3::int IS NULL OR u.u_status = $3::int)
+    AND ($4::int IS NULL OR u.u_assign_to = $4::int)`;
+  const args = [type, like(q), status, assignFilter(access, type)];
 
   const [typeName, total, users] = await Promise.all([
     masterName(type),
@@ -44,7 +47,7 @@ export default async function UsersPage({ searchParams }: { searchParams: SP }) 
          FROM js_user u LEFT JOIN js_user p ON p.u_id = u.u_parent_id AND u.u_parent_id > 0
         WHERE ${where}
         ORDER BY u.u_created_on DESC, u.u_id DESC
-        LIMIT $4 OFFSET $5`,
+        LIMIT $5 OFFSET $6`,
       [...args, perPage, (page - 1) * perPage],
     ),
   ]);
@@ -66,7 +69,7 @@ export default async function UsersPage({ searchParams }: { searchParams: SP }) 
             <button className="btn btn-secondary">Search</button>
           </form>
           <a href={`/wamaster/users/export?ut=${type}`} className="btn btn-soft-info"><i className="ri-download-2-line" /> Export</a>
-          <Link href={`/wamaster/users/create?ut=${type}`} className="btn btn-primary"><i className="ri-add-line" /> Add User</Link>
+          {canAdd && <Link href={`/wamaster/users/create?ut=${type}`} className="btn btn-primary"><i className="ri-add-line" /> Add User</Link>}
         </div>
         <div className="card-body">
           <div className="table-responsive">
@@ -94,16 +97,22 @@ export default async function UsersPage({ searchParams }: { searchParams: SP }) 
                       </>
                     )}
                     <td>
-                      <form action={toggleUserStatus.bind(null, u.u_id)}>
-                        <button className={`badge border-0 ${Number(u.u_status) === 1 ? 'bg-success' : 'bg-secondary'}`} title="Toggle status">{Number(u.u_status) === 1 ? 'Active' : 'Inactive'}</button>
-                      </form>
+                      {canEdit ? (
+                        <form action={toggleUserStatus.bind(null, u.u_id)}>
+                          <button className={`badge border-0 ${Number(u.u_status) === 1 ? 'bg-success' : 'bg-secondary'}`} title="Toggle status">{Number(u.u_status) === 1 ? 'Active' : 'Inactive'}</button>
+                        </form>
+                      ) : (
+                        <span className={`badge ${Number(u.u_status) === 1 ? 'bg-success' : 'bg-secondary'}`}>{Number(u.u_status) === 1 ? 'Active' : 'Inactive'}</span>
+                      )}
                     </td>
                     <td className="text-nowrap">
                       <Link href={`/wamaster/users/${u.u_id}`} className="btn btn-sm btn-soft-primary" title="View" aria-label="View"><i className="ri-eye-line" /></Link>{' '}
-                      <Link href={`/wamaster/users/${u.u_id}/edit`} className="btn btn-sm btn-soft-secondary" title="Edit" aria-label="Edit"><i className="ri-pencil-fill" /></Link>{' '}
-                      <form action={destroyUser.bind(null, u.u_id)} className="d-inline">
-                        <ConfirmButton message="Delete this user?" className="btn btn-sm btn-soft-danger" title="Delete" aria-label="Delete"><i className="ri-delete-bin-fill" /></ConfirmButton>
-                      </form>
+                      {canEdit && <><Link href={`/wamaster/users/${u.u_id}/edit`} className="btn btn-sm btn-soft-secondary" title="Edit" aria-label="Edit"><i className="ri-pencil-fill" /></Link>{' '}</>}
+                      {canDelete && (
+                        <form action={destroyUser.bind(null, u.u_id)} className="d-inline">
+                          <ConfirmButton message="Delete this user?" className="btn btn-sm btn-soft-danger" title="Delete" aria-label="Delete"><i className="ri-delete-bin-fill" /></ConfirmButton>
+                        </form>
+                      )}
                     </td>
                   </tr>
                 )) : (

@@ -4,7 +4,7 @@ import { revalidatePath } from 'next/cache';
 import { redirect } from 'next/navigation';
 import { fail, fAll, fBool, flash, fRaw, fStr, invalid, isEmail, ok, type ActionResult } from '@/lib/actions';
 import { categoriesValue } from '@/lib/template-categories';
-import { requireAdmin } from '@/lib/auth';
+import { requireRight, requireUserRight, userModule, type Right } from '@/lib/admin-access';
 import { exec, insert, one, tx, update, value } from '@/lib/db';
 import { hashPassword } from '@/lib/password';
 import { registerNumber, subscribeApp } from '@/lib/services/meta';
@@ -15,7 +15,15 @@ import { addDays, now, phpDate } from '@/lib/time';
 import { USER_TYPE, type UserRow } from '@/lib/types';
 import { FLAGS, WA_FLAG_FIELDS } from './flags';
 
-/** Server Actions for /wamaster/users (Admin\UserController). Every action re-checks the admin session. */
+/**
+ * Server Actions for /wamaster/users (Admin\UserController). Every action re-checks the admin session
+ * and the member's right on that user (src/lib/admin-access.ts): users not assigned to them are not found.
+ */
+
+/** The signed-in member, after checking `right` on user `id`. */
+async function staffFor(id: number, right: Right) {
+  return (await requireUserRight(id, right)).access.admin;
+}
 
 // ------------------------------------------------------------------ validation (Laravel default messages)
 
@@ -99,11 +107,15 @@ const showPath = (id: number) => `/wamaster/users/${id}`;
 
 /** store() when id = 0, update() otherwise (UserController::save). */
 export async function saveUser(id: number, _prev: ActionResult | null, fd: FormData): Promise<ActionResult> {
-  const me = await requireAdmin();
+  const access = id ? (await requireUserRight(id, 'edit')).access : null;
   const existing = id ? await aliveUser(id) : null;
   if (id && !existing) return fail('User not found.');
   const utRaw = fStr(fd, 'ut');
   const type = existing ? Number(existing.u_type) : (utRaw === '' ? USER_TYPE.WHATSAPP : parseInt(utRaw, 10) || 0);
+  const acc = access ?? await requireRight(userModule(type), 'add');
+  const me = acc.admin;
+  // A member who only sees their own users can't hand a user to someone else
+  if (!acc.seesAll(type)) fd.set('assign_to', String(me.emp_id));
 
   // Only fields present in the form are validated and saved (like $request->validate()).
   const errors: Record<string, string> = {};
@@ -185,7 +197,7 @@ export async function saveUser(id: number, _prev: ActionResult | null, fd: FormD
 // ------------------------------------------------------------------ list actions
 
 export async function toggleUserStatus(id: number): Promise<void> {
-  await requireAdmin();
+  await staffFor(id, 'edit');
   const n = await exec('UPDATE js_user SET u_status = CASE WHEN u_status = 1 THEN 2 ELSE 1 END WHERE u_id = $1 AND u_dstatus = 0', [id]);
   if (n) await flash('success', 'Record Successfully Updated');
   revalidatePath('/wamaster/users');
@@ -193,7 +205,7 @@ export async function toggleUserStatus(id: number): Promise<void> {
 }
 
 export async function destroyUser(id: number): Promise<void> {
-  await requireAdmin();
+  await staffFor(id, 'delete');
   const type = await value<number>('UPDATE js_user SET u_dstatus = 1 WHERE u_id = $1 AND u_dstatus = 0 RETURNING u_type', [id]);
   if (type === null) {
     await flash('error', 'User not found.');
@@ -208,7 +220,7 @@ export async function destroyUser(id: number): Promise<void> {
 
 /** Manual recharge by staff (User::fun_recharge). */
 export async function rechargeUser(id: number, _prev: ActionResult | null, fd: FormData): Promise<ActionResult> {
-  const me = await requireAdmin();
+  const me = await staffFor(id, 'edit');
   const rules: Record<string, Rule> = {
     plan_id: { required: true, integer: true },
     payment_amount: { numeric: true, min: 0 },
@@ -244,7 +256,7 @@ export async function rechargeUser(id: number, _prev: ActionResult | null, fd: F
 }
 
 export async function syncUserTemplates(id: number): Promise<void> {
-  await requireAdmin();
+  await staffFor(id, 'edit');
   const user = await aliveUser(id);
   if (!user) return;
   const count = await syncTemplates(user);
@@ -253,7 +265,7 @@ export async function syncUserTemplates(id: number): Promise<void> {
 }
 
 export async function registerUserNumber(id: number): Promise<void> {
-  await requireAdmin();
+  await staffFor(id, 'edit');
   const user = await aliveUser(id);
   if (!user) return;
   const res = await registerNumber(user);
@@ -267,7 +279,7 @@ export async function registerUserNumber(id: number): Promise<void> {
 // ------------------------------------------------------------------ Google-sheet emails, sheets, extractor keys
 
 export async function addEmail(id: number, _prev: ActionResult | null, fd: FormData): Promise<ActionResult> {
-  const me = await requireAdmin();
+  const me = await staffFor(id, 'edit');
   const email = fStr(fd, 'email');
   const limitRaw = fStr(fd, 'sheet_limit');
   const errors: Record<string, string> = {};
@@ -297,21 +309,21 @@ export async function addEmail(id: number, _prev: ActionResult | null, fd: FormD
 }
 
 export async function toggleEmail(id: number, emailId: number): Promise<void> {
-  await requireAdmin();
+  await staffFor(id, 'edit');
   const n = await exec('UPDATE js_user_emails SET ue_status = CASE WHEN ue_status = 1 THEN 2 ELSE 1 END WHERE ue_id = $2 AND ue_user_id = $1', [id, emailId]);
   if (n) await flash('success', 'Record Successfully Updated');
   revalidatePath(showPath(id));
 }
 
 export async function deleteEmail(id: number, emailId: number): Promise<void> {
-  await requireAdmin();
+  await staffFor(id, 'edit');
   await exec('DELETE FROM js_user_emails WHERE ue_id = $2 AND ue_user_id = $1', [id, emailId]);
   await flash('success', 'Record Successfully Deleted');
   revalidatePath(showPath(id));
 }
 
 export async function toggleSheet(id: number, sheetId: number): Promise<void> {
-  await requireAdmin();
+  await staffFor(id, 'edit');
   const n = await exec(
     'UPDATE js_user_active_sheets SET us_status = CASE WHEN us_status = 1 THEN 2 ELSE 1 END, us_updated_on = $3 WHERE us_id = $2 AND us_user_id = $1',
     [id, sheetId, now()]);
@@ -320,14 +332,14 @@ export async function toggleSheet(id: number, sheetId: number): Promise<void> {
 }
 
 export async function deleteSheet(id: number, sheetId: number): Promise<void> {
-  await requireAdmin();
+  await staffFor(id, 'edit');
   await exec('UPDATE js_user_active_sheets SET us_status = 2, us_dstatus = 1 WHERE us_id = $2 AND us_user_id = $1', [id, sheetId]);
   await flash('success', 'Record Successfully Deleted');
   revalidatePath(showPath(id));
 }
 
 export async function generateKey(id: number): Promise<void> {
-  const me = await requireAdmin();
+  const me = await staffFor(id, 'edit');
   if (!(await aliveUser(id))) return;
   await insert('js_user_data_extractor_keys', {
     dek_user_id: id,
@@ -341,14 +353,14 @@ export async function generateKey(id: number): Promise<void> {
 }
 
 export async function logoutKey(id: number, keyId: number): Promise<void> {
-  await requireAdmin();
+  await staffFor(id, 'edit');
   await exec('UPDATE js_user_data_extractor_keys SET dek_is_login = 0, dek_last_login = 0 WHERE dek_id = $2 AND dek_user_id = $1', [id, keyId]);
   await flash('success', 'Key logged out');
   revalidatePath(showPath(id));
 }
 
 export async function deleteKey(id: number, keyId: number): Promise<void> {
-  await requireAdmin();
+  await staffFor(id, 'edit');
   await exec('UPDATE js_user_data_extractor_keys SET dek_dstatus = 1 WHERE dek_id = $2 AND dek_user_id = $1', [id, keyId]);
   await flash('success', 'Key deleted');
   revalidatePath(showPath(id));

@@ -2,13 +2,13 @@
 
 import { redirect } from 'next/navigation';
 import { fAll, flash, fStr } from '@/lib/actions';
-import { requireAdmin } from '@/lib/auth';
+import { MESSAGE_REPORTS, requireRight, visibleUserIds } from '@/lib/admin-access';
 import { exec } from '@/lib/db';
 import { now } from '@/lib/time';
 
 /** Delete or re-queue selected outgoing messages (ReportController::bulk, POST /wamaster/reports/messages/bulk). */
 export async function bulkMessages(fd: FormData): Promise<void> {
-  await requireAdmin();
+  await requireRight(MESSAGE_REPORTS, 'edit');
   const backRaw = fStr(fd, 'back');
   const back = /^\/wamaster\/reports\/messages\/[a-z_]+(\?[^\\]*)?$/.test(backRaw) && !backRaw.startsWith('//') ? backRaw : '/wamaster/reports/messages/que';
 
@@ -25,11 +25,15 @@ export async function bulkMessages(fd: FormData): Promise<void> {
   }
 
   const ids = [...new Set(raw.map(Number).filter((n) => Number.isSafeInteger(n) && n > 0))];
+  // Only messages of users this staff member can see (null = everyone)
+  const users = await visibleUserIds();
   const n = cstatus === '1'
-    ? await exec('UPDATE js_message SET m_dstatus = 1, m_updated_on = $2 WHERE m_id = ANY($1::bigint[]) AND m_is_incoming = 2', [ids, now()])
+    ? await exec(
+      `UPDATE js_message SET m_dstatus = 1, m_updated_on = $2
+        WHERE m_id = ANY($1::bigint[]) AND m_is_incoming = 2 AND ($3::int[] IS NULL OR m_user_id = ANY($3::int[]))`, [ids, now(), users])
     : await exec(
       `UPDATE js_message SET m_status = 1, m_delivery_status = NULL, m_error_codes = NULL, m_status_response = NULL, m_message_id = NULL, m_updated_on = $2
-        WHERE m_id = ANY($1::bigint[]) AND m_is_incoming = 2`, [ids, now()]);
+        WHERE m_id = ANY($1::bigint[]) AND m_is_incoming = 2 AND ($3::int[] IS NULL OR m_user_id = ANY($3::int[]))`, [ids, now(), users]);
 
   await flash('success', `${n} messages ${cstatus === '1' ? 'deleted' : 're-queued'}`);
   redirect(back);

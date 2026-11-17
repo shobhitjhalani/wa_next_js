@@ -1,5 +1,5 @@
 import Link from 'next/link';
-import { requireAdmin } from '@/lib/auth';
+import { RECHARGE_REPORTS, requireRight, visibleUserIds } from '@/lib/admin-access';
 import { config } from '@/lib/config';
 import { query, value } from '@/lib/db';
 import { int } from '@/lib/text';
@@ -11,24 +11,24 @@ import { input, type Params } from '../_lib';
 
 /** WhatsApp users whose plan expires within N days or has already expired (ReportController::rechargesPending). */
 export default async function RechargesPendingPage({ searchParams }: { searchParams: Promise<Params> }) {
-  await requireAdmin();
-  const sp = await searchParams;
+  await requireRight(RECHARGE_REPORTS);
+  const [sp, ids] = await Promise.all([searchParams, visibleUserIds()]);
   const raw = input(sp, 'days');
   const days = raw === undefined ? 7 : int(raw);
   const page = pageParam(sp.page);
   const perPage = config.site.pageSize;
   const limitTs = dayStart() + days * 86400;
 
-  const where = 'u_dstatus = 0 AND u_type = $1 AND u_status = 1 AND u_valid_till <= $2';
+  const where = 'u_dstatus = 0 AND u_type = $1 AND u_status = 1 AND u_valid_till <= $2 AND ($3::int[] IS NULL OR u_id = ANY($3::int[]))';
   const [users, total] = await Promise.all([
     query<UserRow & { plan_name: string | null }>(
       `SELECT u.u_id, u.u_last_recharge, u.u_company_name, u.u_username, u.u_mobile_no, u.u_email_id, u.u_valid_till, p.mv_name AS plan_name
-         FROM (SELECT * FROM js_user WHERE ${where} ORDER BY u_valid_till, u_id LIMIT $3 OFFSET $4) u
+         FROM (SELECT * FROM js_user WHERE ${where} ORDER BY u_valid_till, u_id LIMIT $4 OFFSET $5) u
          LEFT JOIN js_master_value p ON p.mv_id = u.u_active_plan AND u.u_active_plan <> 0
         ORDER BY u.u_valid_till, u.u_id`,
-      [USER_TYPE.WHATSAPP, limitTs, perPage, (page - 1) * perPage],
+      [USER_TYPE.WHATSAPP, limitTs, ids, perPage, (page - 1) * perPage],
     ),
-    value<number>(`SELECT COUNT(*)::int FROM js_user WHERE ${where}`, [USER_TYPE.WHATSAPP, limitTs]),
+    value<number>(`SELECT COUNT(*)::int FROM js_user WHERE ${where}`, [USER_TYPE.WHATSAPP, limitTs, ids]),
   ]);
   const t = now();
 

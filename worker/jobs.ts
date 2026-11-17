@@ -16,12 +16,14 @@ import { expirePlans as expireUserPlans } from '@/lib/services/plans';
 import { adminReportHtml, userReportHtml } from '@/lib/services/report-mail';
 import { adminSummary, userTemplateReport } from '@/lib/services/reports';
 import { claimAndSend, expiryCutoff, inSendWindow, mapLimit } from '@/lib/services/sender';
+import { refreshSendSettings } from '@/lib/services/settings';
 import { processStatusQueue } from '@/lib/services/webhook';
 
 export type Log = (msg: string) => void;
 
 /** wa:send-queue — claim queued messages per active user and send them (07:00–23:00 unless forced). */
 export async function sendQueue(opts: { user?: number; force?: boolean } = {}, log: Log = console.log): Promise<number> {
+  await refreshSendSettings(); // admin sending limits (/wamaster/settings)
   if (!opts.force && !inSendWindow()) {
     log('Outside sending window.');
     return 0;

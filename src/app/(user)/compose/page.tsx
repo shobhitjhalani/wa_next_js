@@ -10,6 +10,7 @@ import { allowedCategories } from '@/lib/template-categories';
 import { storeCampaign } from './actions';
 import { ComposeForm } from './ComposeForm';
 import { COMPOSE_TEMPLATE_COLUMNS, type ComposeTemplate } from './TemplateParts';
+import { refreshSendSettings } from '@/lib/services/settings';
 
 export const metadata: Metadata = { title: 'New Campaign' };
 
@@ -24,6 +25,7 @@ function random(n: number): string {
 /** New campaign: template, audience, schedule (User\ComposeController::create). */
 export default async function ComposePage({ searchParams }: { searchParams: Params }) {
   const user = await requireUser();
+  await refreshSendSettings();
   const params = await searchParams;
   const tm = sp(params, 'tm');
   const tmId = tm === '' ? null : parseInt(tm, 10) || 0;

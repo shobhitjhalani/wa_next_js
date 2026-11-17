@@ -9,12 +9,14 @@ import { messageStatusLabel } from '@/lib/format';
 import { config } from '@/lib/config';
 import { expiryCutoff, inSendWindow, sendNow, sendWindowLabel } from '@/lib/services/sender';
 import type { MessageRow } from '@/lib/types';
+import { refreshSendSettings } from '@/lib/services/settings';
 
 type StatusFields = Pick<MessageRow, 'm_status' | 'm_message_id' | 'm_delivery_status' | 'm_status_response'>;
 
 /** Re-queue a single message and send it now (legacy send_wa.php, POST /send_wa/{id}); campaign messages only inside the sending window. */
 export async function resendMessage(id: number): Promise<void> {
   const user = await requireUser();
+  await refreshSendSettings();
   const msg = await one<{ m_campaign_id: number | null; m_created_on: number }>(
     'SELECT m_campaign_id, m_created_on FROM js_message WHERE m_id = $1 AND m_user_id = $2 AND m_is_incoming = 2', [id, user.u_id]);
   if (!msg) notFound();

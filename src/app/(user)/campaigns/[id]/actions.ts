@@ -9,6 +9,7 @@ import { inSendWindow, sendWindowLabel } from '@/lib/services/sender';
 import { templateQuota } from '@/lib/services/template-limit';
 import { numberFormat } from '@/lib/text';
 import { CAMPAIGN } from '@/lib/types';
+import { refreshSendSettings } from '@/lib/services/settings';
 
 /** POST campaigns/{id}/cancel (CampaignController::cancel). */
 export async function cancelCampaignAction(id: number): Promise<void> {
@@ -30,6 +31,7 @@ export async function cancelCampaignAction(id: number): Promise<void> {
 /** "Resend Failed": queue every failed message of the campaign again. */
 export async function resendFailedAction(id: number): Promise<void> {
   const user = await requireUser();
+  await refreshSendSettings();
   const campaign = await one<{ uc_id: number; uc_status: number }>('SELECT uc_id, uc_status FROM js_user_campaign WHERE uc_id = $1 AND uc_user_id = $2', [id, user.u_id]);
   if (!campaign) {
     await flash('error', 'Campaign not found.');

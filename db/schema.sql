@@ -797,3 +797,11 @@ CREATE TABLE IF NOT EXISTS wa_backup_runs (
   finished_at timestamptz
 );
 CREATE INDEX IF NOT EXISTS wa_backup_runs_queued_idx ON wa_backup_runs (id) WHERE status = 'queued';
+
+-- App settings changed from the admin panel (e.g. /wamaster/settings sending limits); .env holds the defaults
+CREATE TABLE IF NOT EXISTS wa_settings (
+  key text PRIMARY KEY,
+  value text NOT NULL,
+  updated_by integer,                    -- js_employee.emp_id
+  updated_at timestamptz NOT NULL DEFAULT now()
+);

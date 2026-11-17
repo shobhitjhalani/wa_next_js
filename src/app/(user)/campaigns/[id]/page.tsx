@@ -17,6 +17,7 @@ import { barSegments, DeliveryBar, errorText, EtaNote, pct, recipientStatus, rec
 import { cancelCampaignAction, resendFailedAction } from './actions';
 import { AutoReload } from './AutoReload';
 import { CAMPAIGN_OWNER_SQL } from '@/lib/types';
+import { refreshSendSettings } from '@/lib/services/settings';
 
 export const metadata: Metadata = { title: 'Campaign' };
 
@@ -32,6 +33,7 @@ type Recipient = Pick<MessageRow, 'm_id' | 'm_mobile_no' | 'm_status' | 'm_messa
 /** Campaign detail: stats tiles, delivery progress, failure reasons and recipients (CampaignController::show). */
 export default async function CampaignPage({ params, searchParams }: { params: Promise<{ id: string }>; searchParams: Params }) {
   const user = await requireUser();
+  await refreshSendSettings();
   const { id: idParam } = await params;
   if (!/^\d+$/.test(idParam)) notFound();
   const campaign = await one<CampaignRow>('SELECT * FROM js_user_campaign WHERE uc_id = $1 AND uc_user_id = $2', [parseInt(idParam, 10), user.u_id]);

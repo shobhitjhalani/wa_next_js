@@ -10,6 +10,7 @@ import type { MessageRow, TemplateRow } from '@/lib/types';
 import { allowedCategories } from '@/lib/template-categories';
 import { bubbles, cleanMobile, contact, convRow, messageById, sameOrigin } from '../inbox';
 import type { SendResponse, TemplateListResponse } from '../types';
+import { refreshSendSettings } from '@/lib/services/settings';
 
 const MAX_FILE = 16384 * 1024;
 const MAX_PARAM = 1024;
@@ -21,6 +22,7 @@ function invalid(message: string, status = 422) {
 /** GET /chat/template — the approved templates the inbox popup can send. */
 export async function GET() {
   const user = await getUser();
+  await refreshSendSettings();
   if (!user) return invalid('Unauthenticated.', 401);
   const templates = await query<{ ut_id: number; ut_name: string }>(
     `SELECT ut_id, ut_name FROM js_user_templates WHERE ut_user_id = $1 AND ut_dstatus = 0 AND ut_status = 1
@@ -42,6 +44,7 @@ export async function GET() {
  */
 export async function POST(req: Request) {
   const user = await getUser();
+  await refreshSendSettings();
   if (!user) return invalid('Unauthenticated.', 401);
   if (!sameOrigin(req)) return invalid('CSRF token mismatch.', 419);
 

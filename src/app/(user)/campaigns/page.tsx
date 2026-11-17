@@ -14,6 +14,7 @@ import { numberFormat } from '@/lib/text';
 import { now, parseDateRange, phpDate, todayString } from '@/lib/time';
 import { CAMPAIGN, type CampaignRow, type CampaignStats } from '@/lib/types';
 import { BarCounts, DeliveryBar, EtaNote, pct, StatusBadge } from './shared';
+import { refreshSendSettings } from '@/lib/services/settings';
 
 export const metadata: Metadata = { title: 'Campaigns' };
 
@@ -24,6 +25,7 @@ const PER_PAGE = 20;
 /** Campaign dashboard: totals for the period + campaign list with delivery bars (CampaignController::index). */
 export default async function CampaignsPage({ searchParams }: { searchParams: Params }) {
   const user = await requireUser();
+  await refreshSendSettings();
   const params = await searchParams;
   const page = pageParam(params.page);
   // Absent → today only; present but empty → all time (Laravel input() default semantics)

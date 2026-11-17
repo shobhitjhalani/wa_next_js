@@ -20,7 +20,7 @@ export default async function UserLayout({ children }: { children: React.ReactNo
       label: 'Contacts', icon: 'ri-contacts-book-line', children: [
         { label: 'All Contacts', href: '/contacts', match: ['/contacts', '/contacts/export'] },
         { label: 'Groups', href: '/groups' },
-        { label: 'Upload Contacts', href: '/contacts/upload', match: ['/contacts/upload'] },
+        { label: 'Add / Upload Contacts', href: '/contacts/upload', match: ['/contacts/upload'] },
       ],
     },
     {

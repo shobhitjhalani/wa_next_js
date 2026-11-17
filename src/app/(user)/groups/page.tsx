@@ -62,7 +62,8 @@ export default async function GroupsPage({ searchParams }: { searchParams: Param
                     <td className="small text-muted">{g.ug_created_on ? phpDate('d M Y', timestampToUnix(g.ug_created_on)) : ''}</td>
                     <td className="text-end">
                       <Link href={`/compose?group=${g.ug_id}`} className={`btn btn-sm btn-success${g.contacts_count ? '' : ' disabled'}`}><i className="ri-megaphone-line" /> Send Campaign</Link>{' '}
-                      <Link href={`/contacts/upload?group=${g.ug_id}`} className="btn btn-sm btn-soft-primary" title="Upload contacts into this group"><i className="ri-upload-2-line" /></Link>{' '}
+                      <Link href={`/contacts/upload?group=${g.ug_id}`} className="btn btn-sm btn-soft-primary" title="Upload contacts into this group" aria-label={`Upload contacts into ${g.up_group_name}`}><i className="ri-upload-2-line" /></Link>{' '}
+                      <Link href={`/contacts/upload?group=${g.ug_id}&mode=manual`} className="btn btn-sm btn-soft-primary" title="Add contacts manually to this group" aria-label={`Add contacts manually to ${g.up_group_name}`}><i className="ri-user-add-line" /></Link>{' '}
                       <button type="button" className="btn btn-sm btn-soft-secondary" data-bs-toggle="modal" data-bs-target="#rename_modal"
                         data-id={g.ug_id} data-name={g.up_group_name} title="Rename" aria-label={`Rename ${g.up_group_name}`}><i className="ri-pencil-line" /></button>{' '}
                       <form action={deleteGroup.bind(null, g.ug_id)} className="d-inline">

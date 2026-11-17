@@ -9,17 +9,36 @@ import { importContacts, ImportError, type ImportResult } from '@/lib/services/c
 import { now } from '@/lib/time';
 
 const MAX_KB = 20480;
+const MAX_MANUAL = 500;
 
-/** Upload contacts from CSV / TXT / XLSX (ContactController::upload). */
+const csvCell = (v: string) => (/[",\r\n]/.test(v) ? `"${v.replace(/"/g, '""')}"` : v);
+
+/** Manually typed rows (mobile[] / name[]) as a CSV with a header, so they go through the same import as a file. */
+function manualCsv(fd: FormData): { bytes: Buffer; count: number } {
+  const mobiles = fd.getAll('m_mobile').map((v) => String(v).trim());
+  const names = fd.getAll('m_name').map((v) => String(v).trim());
+  const lines = ['Mobile,Name'];
+  mobiles.forEach((m, i) => {
+    if (m !== '' || (names[i] ?? '') !== '') lines.push(csvCell(m) + ',' + csvCell(names[i] ?? ''));
+  });
+  return { bytes: Buffer.from(lines.join('\n'), 'utf8'), count: lines.length - 1 };
+}
+
+/** Upload contacts from CSV / TXT / XLSX, or add typed-in contacts (ContactController::upload). */
 export async function uploadContacts(_prev: ActionResult | null, fd: FormData): Promise<ActionResult> {
   const user = await requireUser();
-  const file = fFile(fd, 'file');
+  const manual = fStr(fd, 'source') === 'manual';
+  const file = manual ? null : fFile(fd, 'file');
+  const typed = manual ? manualCsv(fd) : null;
   const mode = fStr(fd, 'group_mode');
   const groupIdRaw = fStr(fd, 'group_id');
   const groupName = fStr(fd, 'group_name');
 
   const errors: Record<string, string> = {};
-  if (!file) errors.file = 'The file field is required.';
+  if (typed) {
+    if (!typed.count) errors.m_mobile = 'Enter at least one mobile number.';
+    else if (typed.count > MAX_MANUAL) errors.m_mobile = `Enter at most ${MAX_MANUAL} contacts at a time — upload a file for more.`;
+  } else if (!file) errors.file = 'The file field is required.';
   else if (file.size > MAX_KB * 1024) errors.file = `The file field must not be greater than ${MAX_KB} kilobytes.`;
   else if (!['csv', 'txt', 'xlsx'].includes(fileExt(file))) errors.file = 'Upload a .csv, .txt or .xlsx file. For .xls files, save as .xlsx or CSV first.';
 
@@ -50,7 +69,7 @@ export async function uploadContacts(_prev: ActionResult | null, fd: FormData): 
 
   let result: ImportResult;
   try {
-    result = await importContacts(user.u_id, { bytes: Buffer.from(await file!.arrayBuffer()), extension: fileExt(file!) }, group?.ug_id ?? null, fBool(fd, 'overwrite_names'));
+    result = await importContacts(user.u_id, typed ? { bytes: typed.bytes, extension: 'csv' } : { bytes: Buffer.from(await file!.arrayBuffer()), extension: fileExt(file!) }, group?.ug_id ?? null, fBool(fd, 'overwrite_names'));
   } catch (e) {
     if (mode === 'new' && group) {
       await exec('DELETE FROM js_user_groups_contact WHERE group_id = $1', [group.ug_id]);

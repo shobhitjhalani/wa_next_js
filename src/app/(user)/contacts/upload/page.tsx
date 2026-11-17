@@ -7,7 +7,7 @@ import { sp } from '@/lib/http';
 import { uploadContacts } from './actions';
 import { UploadForm } from './UploadForm';
 
-export const metadata: Metadata = { title: 'Upload Contacts' };
+export const metadata: Metadata = { title: 'Add / Upload Contacts' };
 
 type Params = Promise<Record<string, string | string[] | undefined>>;
 
@@ -23,18 +23,18 @@ export default async function UploadContactsPage({ searchParams }: { searchParam
 
   return (
     <>
-      <PageTitle title="Upload Contacts" home="/dashboard" />
+      <PageTitle title="Add / Upload Contacts" home="/dashboard" />
       <div className="row g-4">
         <div className="col-lg-7">
           <div className="card">
             <div className="card-body">
-              <UploadForm action={uploadContacts} groups={groups} selectedGroup={selected} />
+              <UploadForm action={uploadContacts} groups={groups} selectedGroup={selected} initialSource={sp(params, 'mode') === 'manual' ? 'manual' : 'file'} />
             </div>
           </div>
         </div>
         <div className="col-lg-5">
           <div className="card">
-            <div className="card-header"><h5 className="card-title mb-0">File Format</h5></div>
+            <div className="card-header"><h5 className="card-title mb-0">File Format &amp; Numbers</h5></div>
             <div className="card-body">
               <p className="mb-2">One contact per row. A header row is optional; columns named <code>Mobile</code> (or Phone / Number / WhatsApp) and <code>Name</code> are found automatically, in any order.</p>
               <div className="table-responsive mb-3">

@@ -28,7 +28,7 @@ const truthy = (v: string) => ['1', 'true', 'on', 'yes'].includes(v.toLowerCase(
 const PATH = '/templates';
 /** Sortable columns → SQL (whitelist; ut_id breaks ties so paging is stable). */
 const SORTS = {
-  created: 'ut_id', name: 'ut_name', category: 'ut_template_category', type: 'ut_template_type', language: 'ut_language',
+  created: 'ut_id', name: 'ut_name', category: 'ut_template_category', language: 'ut_language',
 } as const;
 
 /** Approved templates (User\TemplateController::index); ?sync=1 re-fetches them from Meta. */
@@ -110,13 +110,11 @@ export default async function TemplatesPage({ searchParams }: { searchParams: Pa
             <table className="table align-middle table-nowrap table-striped mb-0">
               <thead className="table-light">
                 <tr>
-                  <th />
                   <th>#</th>
                   <SortTh {...th} column="created" first="desc">Created</SortTh>
                   <SortTh {...th} column="name">Template Name</SortTh>
                   <th>Content</th>
                   <SortTh {...th} column="category">Category</SortTh>
-                  <SortTh {...th} column="type">Type</SortTh>
                   <SortTh {...th} column="language">Language</SortTh>
                   <th />
                 </tr>
@@ -126,18 +124,17 @@ export default async function TemplatesPage({ searchParams }: { searchParams: Pa
                   const canSend = categoryAllowed(user.u_template_categories, t.ut_template_category);
                   return (
                   <tr key={t.ut_id}>
-                    <td>{canSend
-                      ? <Link className="btn btn-success btn-sm" href={`/compose?tm=${t.ut_id}`}>Send Template</Link>
-                      : <span className="badge bg-secondary-subtle text-secondary" title={categoryRefusal(user.u_template_categories)}>Category not enabled</span>}</td>
                     <td>{offset + i + 1}</td>
                     <td>{t.ut_created_on ? phpDate('d M y H:i', t.ut_created_on) : ''}</td>
                     <td>{t.ut_name}</td>
                     <td className="msg-content small"><div className="msg-content-box">{limit(decodeEntities(t.ut_message ?? ''), 160)}</div></td>
                     <td>{t.ut_template_category}</td>
-                    <td><span className="badge bg-info-subtle text-info">{t.ut_template_type}</span></td>
                     <td>{t.ut_language}</td>
                     <td>
-                      <div className="d-flex gap-1">
+                      <div className="d-flex gap-1 align-items-center">
+                        {canSend
+                          ? <Link className="btn btn-success btn-sm" href={`/compose?tm=${t.ut_id}`}>Send Template</Link>
+                          : <span className="badge bg-secondary-subtle text-secondary" title={categoryRefusal(user.u_template_categories)}>Category not enabled</span>}
                         <TemplateViewButton
                           id={t.ut_id} name={t.ut_name ?? ''} category={t.ut_template_category} language={t.ut_language}
                           sendHref={canSend ? `/compose?tm=${t.ut_id}` : null}
@@ -159,7 +156,7 @@ export default async function TemplatesPage({ searchParams }: { searchParams: Pa
                   </tr>
                   );
                 }) : (
-                  <tr><td colSpan={9} className="text-center text-muted py-4">
+                  <tr><td colSpan={7} className="text-center text-muted py-4">
                     {table.q ? 'No templates match this search.' : 'No approved templates. Use “Sync from WhatsApp” after creating templates in WhatsApp Manager.'}
                   </td></tr>
                 )}

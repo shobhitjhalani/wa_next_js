@@ -7,7 +7,7 @@ import { requireUser } from '@/lib/auth';
 import { like, one, query } from '@/lib/db';
 import { campaignGroupIds, campaignIsTracked, campaignSendAt, campaignTitle } from '@/lib/format';
 import { sp } from '@/lib/http';
-import { campaignStats } from '@/lib/services/campaigns';
+import { API_CAMPAIGN_SQL, campaignStats, campaignStatsInRange } from '@/lib/services/campaigns';
 import { campaignEtas, sendRatePerMinute, sendWindowText } from '@/lib/services/campaign-eta';
 import { RefreshButton } from '@/components/RefreshButton';
 import { numberFormat } from '@/lib/text';
@@ -36,8 +36,11 @@ export default async function CampaignsPage({ searchParams }: { searchParams: Pa
   const base: unknown[] = [user.u_id];
   const where = ['uc_user_id = $1'];
   if (range) {
-    base.push(phpDate('Y-m-d H:i:s', range[0]), phpDate('Y-m-d H:i:s', range[1]));
-    where.push(`uc_created_on >= $${base.length - 1} AND uc_created_on < $${base.length}`);
+    base.push(phpDate('Y-m-d H:i:s', range[0]), phpDate('Y-m-d H:i:s', range[1]), range[0], range[1]);
+    const n = base.length;
+    // Created in the range, or an API campaign (one per template, kept for good) with messages in the range
+    where.push(`((uc_created_on >= $${n - 3} AND uc_created_on < $${n - 2})
+      OR (${API_CAMPAIGN_SQL} AND EXISTS (SELECT 1 FROM js_message WHERE m_campaign_id = uc_id AND m_user_id = $1 AND m_created_on >= $${n - 1} AND m_created_on < $${n})))`);
   }
   if (q !== '') {
     base.push('%' + like(q) + '%');
@@ -56,13 +59,17 @@ export default async function CampaignsPage({ searchParams }: { searchParams: Pa
 
   const groupIds = [...new Set(campaigns.flatMap(campaignGroupIds))];
   // Every campaign on this page that has stats is in `tracked`, so one stats pass serves both
-  const [stats, groupRows] = await Promise.all([
+  const isApi = (c: CampaignRow) => String(c.uc_unique_code ?? '').startsWith('api-');
+  const [stats, groupRows, apiStats] = await Promise.all([
     campaignStats(tracked),
     groupIds.length
       ? query<{ ug_id: number; up_group_name: string }>('SELECT ug_id, up_group_name FROM js_user_groups WHERE ug_user_id = $1 AND ug_id = ANY($2::int[])', [user.u_id, groupIds])
       : Promise.resolve([]),
+    // API campaigns: only the messages of the selected dates (daily counts)
+    range ? campaignStatsInRange(tracked.filter(isApi), range[0], range[1]) : Promise.resolve({} as Record<number, CampaignStats>),
   ]);
   const groupNames = new Map(groupRows.map((g) => [g.ug_id, g.up_group_name]));
+  Object.assign(stats, apiStats);
   // Tentative finish of the campaigns on this page that still have queued messages
   const etas = await campaignEtas(user, campaigns.filter((c) => (stats[c.uc_id]?.pending ?? 0) > 0));
   const t = now();
@@ -153,7 +160,7 @@ export default async function CampaignsPage({ searchParams }: { searchParams: Pa
                         </div>
                       </td>
                       <td className="small">{phpDate('d M Y, H:i', campaignSendAt(c))}</td>
-                      <td className="text-end">{Number(c.uc_status) === CAMPAIGN.SCHEDULED ? '—' : numberFormat(c.uc_total_contacts)}</td>
+                      <td className="text-end">{Number(c.uc_status) === CAMPAIGN.SCHEDULED ? '—' : numberFormat(isApi(c) && s ? s.total : c.uc_total_contacts)}{isApi(c) && <div className="small text-muted">via API</div>}</td>
                       <td>
                         {s ? <><DeliveryBar s={s} /><BarCounts s={s} /></> : (
                           <span className="small text-muted">{campaignIsTracked(c) ? 'Not sent yet' : 'Not tracked (sent before campaign tracking)'}</span>

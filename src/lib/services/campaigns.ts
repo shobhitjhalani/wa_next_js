@@ -180,6 +180,17 @@ export async function audience(userId: number, groupIds: number[], numbers: stri
   return [send, rows.length - send.length];
 }
 
+/** Per-campaign message figures (CampaignStats columns) over js_message. */
+const STATS_COLUMNS = `
+            COUNT(*) FILTER (WHERE m_status <> 8)::int AS total,
+            COUNT(*) FILTER (WHERE m_status IN (1, 6))::int AS pending,
+            COUNT(*) FILTER (WHERE m_status = 3 AND COALESCE(m_message_id, '') <> '')::int AS sent,
+            COUNT(*) FILTER (WHERE m_status = 3 AND COALESCE(m_message_id, '') <> '' AND m_delivery_status IN ('delivered', 'read'))::int AS delivered,
+            COUNT(*) FILTER (WHERE m_status = 3 AND COALESCE(m_message_id, '') <> '' AND m_delivery_status = 'read')::int AS read,
+            COUNT(*) FILTER (WHERE m_status = 3 AND (COALESCE(m_message_id, '') = '' OR m_delivery_status = 'failed'))::int AS failed,
+            COUNT(*) FILTER (WHERE m_status = 3 AND COALESCE(m_message_id, '') <> '' AND m_delivery_status = 'failed')::int AS delivery_failed,
+            COUNT(*) FILTER (WHERE m_status IN (4, 5, 9))::int AS skipped`;
+
 /**
  * Delivery figures per campaign id: total, pending, sent, delivered, read,
  * failed, skipped (+ replied when withReplies). Cached on the campaign once
@@ -204,15 +215,7 @@ export async function campaignStats(campaigns: CampaignRow[], withReplies = fals
   if (!refresh.length) return stats;
 
   const rows = await query<CampaignStats & { m_campaign_id: number }>(
-    `SELECT m_campaign_id,
-            COUNT(*) FILTER (WHERE m_status <> 8)::int AS total,
-            COUNT(*) FILTER (WHERE m_status IN (1, 6))::int AS pending,
-            COUNT(*) FILTER (WHERE m_status = 3 AND COALESCE(m_message_id, '') <> '')::int AS sent,
-            COUNT(*) FILTER (WHERE m_status = 3 AND COALESCE(m_message_id, '') <> '' AND m_delivery_status IN ('delivered', 'read'))::int AS delivered,
-            COUNT(*) FILTER (WHERE m_status = 3 AND COALESCE(m_message_id, '') <> '' AND m_delivery_status = 'read')::int AS read,
-            COUNT(*) FILTER (WHERE m_status = 3 AND (COALESCE(m_message_id, '') = '' OR m_delivery_status = 'failed'))::int AS failed,
-            COUNT(*) FILTER (WHERE m_status = 3 AND COALESCE(m_message_id, '') <> '' AND m_delivery_status = 'failed')::int AS delivery_failed,
-            COUNT(*) FILTER (WHERE m_status IN (4, 5, 9))::int AS skipped
+    `SELECT m_campaign_id, ${STATS_COLUMNS}
        FROM js_message WHERE m_campaign_id = ANY($1::int[]) AND ${CAMPAIGN_OWNER_SQL} GROUP BY m_campaign_id`,
     [refresh.map((c) => c.uc_id)],
   );
@@ -281,4 +284,28 @@ export async function apiCampaignId(userId: number, template: string | null | un
 export async function addApiMessages(campaignId: number, count = 1): Promise<void> {
   if (!campaignId || count <= 0) return;
   await exec('UPDATE js_user_campaign SET uc_total_contacts = uc_total_contacts + $2, uc_stats_at = 0 WHERE uc_id = $1', [campaignId, count]);
+}
+
+/** Campaigns that collect API messages (apiCampaignId) — they keep getting messages, so a date range applies to their messages. */
+export const API_CAMPAIGN_SQL = "uc_unique_code LIKE 'api-%'";
+
+/** Figures of these campaigns counting only messages created in [from, to) (unix seconds); not cached. */
+export async function campaignStatsInRange(campaigns: CampaignRow[], from: number, to: number): Promise<Record<number, CampaignStats>> {
+  const out: Record<number, CampaignStats> = {};
+  if (!campaigns.length) return out;
+  const rows = await query<CampaignStats & { m_campaign_id: number }>(
+    `SELECT m_campaign_id, ${STATS_COLUMNS}
+       FROM js_message WHERE m_campaign_id = ANY($1::int[]) AND ${CAMPAIGN_OWNER_SQL} AND m_created_on >= $2 AND m_created_on < $3
+      GROUP BY m_campaign_id`,
+    [campaigns.map((c) => c.uc_id), from, to],
+  );
+  const byId = new Map(rows.map((r) => [r.m_campaign_id, r]));
+  for (const c of campaigns) {
+    const r = byId.get(c.uc_id);
+    out[c.uc_id] = {
+      total: r?.total ?? 0, pending: r?.pending ?? 0, sent: r?.sent ?? 0, delivered: r?.delivered ?? 0, read: r?.read ?? 0,
+      failed: r?.failed ?? 0, delivery_failed: r?.delivery_failed ?? 0, skipped: r?.skipped ?? 0,
+    };
+  }
+  return out;
 }

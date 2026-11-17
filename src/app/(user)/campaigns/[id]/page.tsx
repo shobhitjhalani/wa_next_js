@@ -74,13 +74,11 @@ export default async function CampaignPage({ params, searchParams }: { params: P
 
   const status = campaignStatusLabel(campaign, stats);
   const canCancel = status === 'Scheduled' || ((status === 'Sending' || status === 'In Queue') && (stats?.pending ?? 0) > 0);
-  const canResend = tracked && (status === 'Sending' || status === 'Completed') && (stats?.failed ?? 0) > 0;
+  // Only messages with delivery status "failed" (accepted by WhatsApp, then failed) can be resent
+  const resendable = stats?.delivery_failed ?? 0;
+  const canResend = tracked && (status === 'Sending' || status === 'Completed') && resendable > 0;
   const pastedNumbers = campaign.uc_payload?.numbers?.length ?? 0;
 
-  const again = new URLSearchParams();
-  if (campaign.uc_template_id) again.set('tm', String(campaign.uc_template_id));
-  for (const g of groupIds) again.append('group', String(g));
-  const againQs = again.toString();
 
   const filterHref = (key: string) => {
     const qs = new URLSearchParams();
@@ -120,14 +118,13 @@ export default async function CampaignPage({ params, searchParams }: { params: P
             {tracked && status !== 'Scheduled' && (
               <a href={`/campaigns/${campaign.uc_id}/export`} className="btn btn-soft-info"><i className="ri-download-2-line" /> Export</a>
             )}
-            <Link href={`/compose${againQs ? '?' + againQs : ''}`} className="btn btn-soft-primary"><i className="ri-repeat-line" /> Send Again</Link>
             {canResend && (
               <form action={resendFailedAction.bind(null, campaign.uc_id)}>
                 <ConfirmButton
-                  message={`Send the ${numberFormat(stats?.failed ?? 0)} failed message(s) again? They are queued as new messages and count towards your template messages.`}
+                  message={`Send the ${numberFormat(resendable)} message(s) with delivery status "failed" again? They are queued as new messages and count towards your template messages.`}
                   className="btn btn-soft-warning"
                 >
-                  <i className="ri-restart-line" /> Resend Failed ({numberFormat(stats?.failed ?? 0)})
+                  <i className="ri-restart-line" /> Resend Failed ({numberFormat(resendable)})
                 </ConfirmButton>
               </form>
             )}

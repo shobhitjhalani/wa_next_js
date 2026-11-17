@@ -95,6 +95,8 @@ export async function dispatchCampaign(campaignId: number): Promise<number> {
 
 /** Failed recipients of a campaign: API error, or WhatsApp reported the delivery as failed. */
 export const FAILED_SQL = "m_status = 3 AND (COALESCE(m_message_id, '') = '' OR m_delivery_status = 'failed')";
+/** Only messages WhatsApp accepted and then reported as failed (delivery status "failed") can be resent. */
+export const RESENDABLE_SQL = "m_status = 3 AND COALESCE(m_message_id, '') <> '' AND m_delivery_status = 'failed'";
 
 /** Columns a resent copy keeps from the failed message. */
 const COPY_COLUMNS = [
@@ -115,7 +117,7 @@ export async function resendFailed(campaignId: number, userId: number): Promise<
     const res = await db.query(
       `WITH old AS (
          UPDATE js_message SET m_status = 8, m_updated_on = $3
-          WHERE m_campaign_id = $1 AND m_user_id = $2 AND m_is_incoming = 2 AND m_dstatus = 0 AND ${FAILED_SQL}
+          WHERE m_campaign_id = $1 AND m_user_id = $2 AND m_is_incoming = 2 AND m_dstatus = 0 AND ${RESENDABLE_SQL}
          RETURNING *
        )
        INSERT INTO js_message (${COPY_COLUMNS}, m_unique_id, m_status, m_created_on, m_created_date)

@@ -42,7 +42,7 @@ export async function resendFailedAction(id: number): Promise<void> {
   } else {
     const queued = await resendFailed(campaign.uc_id, user.u_id);
     await flash(queued ? 'success' : 'error', !queued
-      ? 'There are no failed messages to resend.'
+      ? 'There are no messages with delivery status "failed" to resend.'
       : `${numberFormat(queued)} failed message(s) queued again.` + (inSendWindow() ? '' : ` They go out when the sending window opens (${sendWindowLabel()}).`));
   }
   refresh();

@@ -132,10 +132,7 @@ export default async function CampaignsPage({ searchParams }: { searchParams: Pa
                   <th>Campaign</th>
                   <th>Send Time</th>
                   <th className="text-end">Recipients</th>
-                  <th style={{ minWidth: '180px' }}>Delivery</th>
-                  <th className="text-end">Delivered</th>
-                  <th className="text-end">Read</th>
-                  <th className="text-end">Failed</th>
+                  <th style={{ minWidth: '260px' }}>Delivery</th>
                   <th>Status</th>
                   <th />
                 </tr>
@@ -160,9 +157,6 @@ export default async function CampaignsPage({ searchParams }: { searchParams: Pa
                           <span className="small text-muted">{campaignIsTracked(c) ? 'Not sent yet' : 'Not tracked (sent before campaign tracking)'}</span>
                         )}
                       </td>
-                      <td className="text-end">{s ? pct(s.delivered, s.sent) : '—'}</td>
-                      <td className="text-end">{s ? pct(s.read, s.delivered) : '—'}</td>
-                      <td className={`text-end ${s && s.failed ? 'text-danger' : ''}`}>{s ? numberFormat(s.failed) : '—'}</td>
                       <td><StatusBadge campaign={c} s={s} /><EtaNote eta={etas.get(c.uc_id)} now={t} /></td>
                       <td className="text-end">
                         <Link href={`/campaigns/${c.uc_id}`} className="btn btn-sm btn-soft-primary">View</Link>
@@ -170,7 +164,7 @@ export default async function CampaignsPage({ searchParams }: { searchParams: Pa
                     </tr>
                   );
                 }) : (
-                  <tr><td colSpan={9} className="text-center text-muted py-5">No campaigns in this period. <Link href="/compose">Create your first campaign</Link>.</td></tr>
+                  <tr><td colSpan={6} className="text-center text-muted py-5">No campaigns in this period. <Link href="/compose">Create your first campaign</Link>.</td></tr>
                 )}
               </tbody>
             </table>

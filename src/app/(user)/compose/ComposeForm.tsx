@@ -6,7 +6,7 @@ import { ActionForm, FieldError, useActionForm } from '@/components/ActionForm';
 import { SearchSelect } from '@/components/SearchSelect';
 import type { ActionResult } from '@/lib/actions';
 import { GroupContactsModal } from './GroupContactsModal';
-import { TemplateInputs, TemplatePreview, type ComposeTemplate } from './TemplateParts';
+import { TemplateInputs, TemplatePreview, type ComposeTemplate, type PreviewFill } from './TemplateParts';
 
 /**
  * New campaign form: searchable template picker with live preview + parameter inputs;
@@ -21,6 +21,30 @@ type Tab = 'groups' | 'manual' | 'file';
 type FileInfo = { state: 'none' } | { state: 'reading'; name: string } | { state: 'ok'; name: string; valid: number; invalid: number; duplicates: number } | { state: 'error'; name: string; message: string };
 
 const fmt = (n: number) => n.toLocaleString('en-US');
+
+/**
+ * The values entered for the template (parameters, header / card files) for the previews.
+ * Attached files get an object URL, reused while the same file stays attached; URLs of
+ * files no longer attached are revoked.
+ */
+function readFill(root: HTMLElement | null, urls: Map<File, string>): PreviewFill {
+  const values = (sel: string) => [...(root?.querySelectorAll<HTMLInputElement>(sel) ?? [])].map((i) => i.value);
+  const used = new Set<File>();
+  const file = (input: HTMLInputElement | null | undefined) => {
+    const f = input?.files?.[0];
+    if (!f) return null;
+    used.add(f);
+    if (!urls.has(f)) urls.set(f, URL.createObjectURL(f));
+    return { url: urls.get(f)!, name: f.name };
+  };
+  const cards: PreviewFill['cards'] = [];
+  for (let c = 0; root?.querySelector(`[name="cards[${c}][media]"]`); c++) {
+    cards.push({ media: file(root.querySelector<HTMLInputElement>(`[name="cards[${c}][media]"]`)), params: values(`[name="cards[${c}][params][]"]`) });
+  }
+  const fill = { params: values('[name="body_parameters[]"]'), header: file(root?.querySelector<HTMLInputElement>('#img_value')), cards };
+  for (const [f, url] of urls) if (!used.has(f)) { URL.revokeObjectURL(url); urls.delete(f); }
+  return fill;
+}
 
 function pastedNumbers(text: string): number {
   return new Set(text.split(/[\n,;]+/).map((s) => s.replace(/\D/g, '')).filter((s) => s.length >= 10)).size;
@@ -48,6 +72,7 @@ export function ComposeForm({ action, templates, selected, groups, preselectedGr
   const [scheduleAt, setScheduleAt] = useState('');
   const [noAudience, setNoAudience] = useState(false);
   const [review, setReview] = useState(false);
+  const [fill, setFill] = useState<PreviewFill | null>(null);
   const request = useRef(0);
   const fileRef = useRef<HTMLInputElement>(null);
   const formRef = useRef<HTMLDivElement>(null);
@@ -55,6 +80,12 @@ export function ComposeForm({ action, templates, selected, groups, preselectedGr
   const [viewGroup, setViewGroup] = useState<Group | null>(null);
   const closeViewGroup = useCallback(() => setViewGroup(null), []);
   const closeReview = useCallback(() => setReview(false), []);
+  const fileUrls = useRef(new Map<File, string>());
+  const inputsRef = useRef<HTMLDivElement>(null);
+  const refreshFill = useCallback(() => setFill(readFill(inputsRef.current, fileUrls.current)), []);
+  // A new template remounts its inputs empty: reset the previews; free all file URLs on leave
+  useEffect(() => { refreshFill(); }, [template, refreshFill]);
+  useEffect(() => () => { for (const url of fileUrls.current.values()) URL.revokeObjectURL(url); }, []);
 
   const templateOptions = useMemo(() => templates.map((t) => ({ value: String(t.ut_id), label: t.ut_name })), [templates]);
   const needle = groupQuery.trim().toLowerCase();
@@ -150,7 +181,7 @@ export function ComposeForm({ action, templates, selected, groups, preselectedGr
                   <div className="form-text text-danger">No templates yet — <a href="/templates?sync=1">sync from WhatsApp</a>.</div>
                 )}
               </div>
-              <div id="header_div">
+              <div id="header_div" ref={inputsRef} onInput={refreshFill} onChange={refreshFill}>
                 {template && <TemplateInputs key={template.ut_id} template={template} />}
               </div>
             </div>
@@ -300,7 +331,7 @@ export function ComposeForm({ action, templates, selected, groups, preselectedGr
           <div className="card sticky-lg-top" style={{ top: 90 }}>
             <div className="card-header"><h5 className="card-title mb-0">Template Preview</h5></div>
             <div className="card-body" id="template_content">
-              {template ? <TemplatePreview template={template} /> : <p className="text-muted mb-0">Select a template to preview it.</p>}
+              {template ? <TemplatePreview template={template} fill={fill ?? undefined} /> : <p className="text-muted mb-0">Select a template to preview it.</p>}
             </div>
             <ul className="list-group list-group-flush small">
               <li className="list-group-item d-flex"><span className="text-muted me-auto">Total data</span><strong>{fmt(total)}</strong></li>
@@ -312,7 +343,7 @@ export function ComposeForm({ action, templates, selected, groups, preselectedGr
 
       {review && (
         <ReviewModal
-          onClose={closeReview} template={template} templateName={templateOptions.find((o) => o.value === templateId)?.label ?? ''}
+          onClose={closeReview} template={template} fill={fill} templateName={templateOptions.find((o) => o.value === templateId)?.label ?? ''}
           total={total} sources={sources} schedule={later ? scheduleText : 'Now'} later={later}
         />
       )}
@@ -321,8 +352,8 @@ export function ComposeForm({ action, templates, selected, groups, preselectedGr
 }
 
 /** Review popup: template, total data and send time; "Click to Send" submits the campaign form. */
-function ReviewModal({ onClose, template, templateName, total, sources, schedule, later }: {
-  onClose: () => void; template: ComposeTemplate | null; templateName: string; total: number; sources: string; schedule: string; later: boolean;
+function ReviewModal({ onClose, template, fill, templateName, total, sources, schedule, later }: {
+  onClose: () => void; template: ComposeTemplate | null; fill: PreviewFill | null; templateName: string; total: number; sources: string; schedule: string; later: boolean;
 }) {
   const { pending } = useActionForm();
   useEffect(() => {
@@ -345,7 +376,7 @@ function ReviewModal({ onClose, template, templateName, total, sources, schedule
               <div className="row g-4">
                 <div className="col-md-6">
                   <p className="text-muted small text-uppercase mb-2">Template</p>
-                  <div className="tpl-view-body rounded p-3">{template ? <TemplatePreview template={template} /> : <p className="mb-0">{templateName}</p>}</div>
+                  <div className="tpl-view-body rounded p-3">{template ? <TemplatePreview template={template} fill={fill ?? undefined} /> : <p className="mb-0">{templateName}</p>}</div>
                 </div>
                 <div className="col-md-6">
                   <dl className="mb-0">

@@ -16,10 +16,23 @@ export type ComposeTemplate = Pick<TemplateRow,
 export const COMPOSE_TEMPLATE_COLUMNS =
   'ut_id, ut_name, ut_template_type, ut_header_type, ut_header, ut_message, ut_parameters, ut_footer, ut_buttons, ut_cards';
 
+/** Values entered on the form, shown in the review preview: {{n}} values, attached header / card files (object URLs). */
+export interface PreviewFill {
+  params: string[];
+  header?: { url: string; name: string } | null;
+  cards?: { media?: { url: string; name: string } | null; params: string[] }[];
+}
+
+/** Replace {{n}} with the n-th value; empty values keep the placeholder. */
+function fillVars(text: string, values: string[] | undefined): string {
+  if (!values?.length) return text;
+  return text.replace(/\{\{\s*(\d+)\s*\}\}/g, (m, n) => values[Number(n) - 1]?.trim() || m);
+}
+
 const BUTTON_ICONS: Record<string, string> = { URL: 'ri-external-link-line', PHONE_NUMBER: 'ri-phone-line', FLOW: 'ri-survey-line', COPY_CODE: 'ri-file-copy-line' };
 
-export function TemplatePreview({ template }: { template: ComposeTemplate }) {
-  const message = decodeEntities(template.ut_message ?? '');
+export function TemplatePreview({ template, fill }: { template: ComposeTemplate; fill?: PreviewFill }) {
+  const message = fillVars(decodeEntities(template.ut_message ?? ''), fill?.params);
   if (template.ut_template_type === 'carousel') {
     return (
       <>
@@ -28,9 +41,9 @@ export function TemplatePreview({ template }: { template: ComposeTemplate }) {
           {templateCards(template).map((card, i) => (
             <div className="wh-card" key={i}>
               <div className="media-wrap">
-                <HeaderMedia type={card.header_type === 'VIDEO' ? 'VIDEO' : 'IMAGE'} src={card.header} />
+                <HeaderMedia type={card.header_type === 'VIDEO' ? 'VIDEO' : 'IMAGE'} src={fill?.cards?.[i]?.media?.url ?? card.header} />
               </div>
-              <div className="wh-msg" dangerouslySetInnerHTML={{ __html: waToHtml(card.body ?? '') }} />
+              <div className="wh-msg" dangerouslySetInnerHTML={{ __html: waToHtml(fillVars(card.body ?? '', fill?.cards?.[i]?.params)) }} />
               {(card.buttons ?? []).map((b, j) => (
                 <div className="wh-action" key={j}><i className={BUTTON_ICONS[b.type ?? ''] ?? 'ri-reply-line'} /> {b.text ?? ''}</div>
               ))}
@@ -45,7 +58,7 @@ export function TemplatePreview({ template }: { template: ComposeTemplate }) {
     <div className="wh-card">
       {header && (
         <div className="media-wrap">
-          {header === 'TEXT' ? <strong>{decodeEntities(template.ut_header ?? '')}</strong> : <HeaderMedia type={header} src={template.ut_header} />}
+          {header === 'TEXT' ? <strong>{decodeEntities(template.ut_header ?? '')}</strong> : <HeaderMedia type={header} src={fill?.header?.url ?? template.ut_header} name={fill?.header?.name} />}
         </div>
       )}
       <div className="wh-msg" dangerouslySetInnerHTML={{ __html: waToHtml(message) }} />
@@ -58,13 +71,13 @@ export function TemplatePreview({ template }: { template: ComposeTemplate }) {
 }
 
 /** Header image / video, or a placeholder when there is no sample file (documents, videos synced without a URL). */
-function HeaderMedia({ type, src }: { type: string; src?: string | null }) {
+function HeaderMedia({ type, src, name }: { type: string; src?: string | null; name?: string }) {
   if (src && type === 'IMAGE') return <img src={src} alt="Header image" loading="lazy" />;
   if (src && type === 'VIDEO') return <video controls preload="metadata" src={src} />;
   const icon = { IMAGE: 'ri-image-line', VIDEO: 'ri-video-line', DOCUMENT: 'ri-file-pdf-2-line' }[type] ?? 'ri-attachment-line';
   return (
     <div className="p-3 bg-light rounded text-center text-muted">
-      <i className={`${icon} fs-2`} /><br />{type.charAt(0) + type.slice(1).toLowerCase()}
+      <i className={`${icon} fs-2`} /><br />{name || type.charAt(0) + type.slice(1).toLowerCase()}
     </div>
   );
 }

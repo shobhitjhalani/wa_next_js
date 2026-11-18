@@ -92,6 +92,13 @@ export async function requireAiUser(): Promise<UserRow> {
   return user;
 }
 
+/** Chatbot Flows pages are only available to accounts the admin switched on (u_bot_flow = 1; 403 otherwise). */
+export async function requireBotUser(): Promise<UserRow> {
+  const user = await requireUser();
+  if (Number(user.u_bot_flow) !== 1) forbidden();
+  return user;
+}
+
 export async function startUserSession(user: Pick<UserRow, 'u_id' | 'u_name'>, remember: boolean): Promise<void> {
   const sid = randomUUID();
   const log = await insert<{ ll_id: number }>('js_user_login_log', {

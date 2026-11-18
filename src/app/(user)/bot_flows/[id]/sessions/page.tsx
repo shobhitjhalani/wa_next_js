@@ -3,7 +3,7 @@ import Link from 'next/link';
 import { notFound } from 'next/navigation';
 import { PageTitle } from '@/components/PageTitle';
 import { Pagination, pageParam } from '@/components/Pagination';
-import { requireUser } from '@/lib/auth';
+import { requireBotUser } from '@/lib/auth';
 import { NODE_INFO, type FlowGraph } from '@/lib/bot-flow';
 import { one, query, value } from '@/lib/db';
 import { sp } from '@/lib/http';
@@ -26,7 +26,7 @@ export default async function FlowSessionsPage({ params, searchParams }: {
   params: Promise<{ id: string }>;
   searchParams: Promise<Record<string, string | string[] | undefined>>;
 }) {
-  const user = await requireUser();
+  const user = await requireBotUser();
   const id = Number((await params).id);
   const sParams = await searchParams;
   const flow = Number.isInteger(id) ? await one<{ bf_id: number; bf_name: string; bf_graph: FlowGraph }>(

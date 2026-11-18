@@ -16,6 +16,7 @@ const TYPES: Record<string, number> = {
 export async function POST(req: NextRequest) {
   const user = await getUser();
   if (!user) return Response.json({ message: 'Unauthenticated.' }, { status: 401 });
+  if (Number(user.u_bot_flow) !== 1) return Response.json({ message: 'Chatbot Flows are not enabled for this account.' }, { status: 403 });
   if (!sameOrigin(req)) return Response.json({ message: 'CSRF token mismatch.' }, { status: 419 });
 
   let file: File | null = null;

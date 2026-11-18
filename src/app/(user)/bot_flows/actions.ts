@@ -2,7 +2,7 @@
 
 import { notFound, redirect } from 'next/navigation';
 import { flash, type ActionResult } from '@/lib/actions';
-import { requireUser } from '@/lib/auth';
+import { requireBotUser } from '@/lib/auth';
 import { FLOW_STATUS, sanitizeGraph, starterGraph, validateGraph, type FlowGraph } from '@/lib/bot-flow';
 import { exec, one, value } from '@/lib/db';
 import { testFlow, triggerKeywords, type SessionState, type TestInput, type TestMessage } from '@/lib/services/bot-flows';
@@ -11,7 +11,7 @@ import { now } from '@/lib/time';
 /** Chatbot flows (Flow Builder): create, save from the builder, activate, duplicate, delete. */
 
 export async function createFlow(): Promise<void> {
-  const user = await requireUser();
+  const user = await requireBotUser();
   const t = now();
   const count = (await value<number>('SELECT COUNT(*)::int FROM js_bot_flow WHERE bf_user_id = $1', [user.u_id])) ?? 0;
   const id = await value<number>(
@@ -49,7 +49,7 @@ async function offStatus(userId: number, id: number): Promise<number> {
  * kept as it is — a draft, or paused when it was active before (running conversations stop).
  */
 export async function saveFlow(id: number, input: { name: string; graph: unknown; active: boolean }): Promise<ActionResult> {
-  const user = await requireUser();
+  const user = await requireBotUser();
   const name = String(input.name ?? '').trim().slice(0, 150);
   if (!name) return { ok: false, error: 'Enter a name for the flow.' };
   const graph: FlowGraph = sanitizeGraph(input.graph);
@@ -86,7 +86,7 @@ function stopRunning(userId: number, id: number) {
 
 /** List page: Activate (a draft or paused flow) — it must be complete. */
 export async function activateFlow(id: number, back: string): Promise<void> {
-  const user = await requireUser();
+  const user = await requireBotUser();
   const flow = await one<{ bf_graph: FlowGraph; bf_name: string }>('SELECT bf_graph, bf_name FROM js_bot_flow WHERE bf_id = $1 AND bf_user_id = $2', [id, user.u_id]);
   if (!flow) notFound();
   const problems = await activationProblems(user.u_id, id, sanitizeGraph(flow.bf_graph));
@@ -101,7 +101,7 @@ export async function activateFlow(id: number, back: string): Promise<void> {
 
 /** List page: Pause an active flow — no new conversations, running ones stop. */
 export async function pauseFlow(id: number, back: string): Promise<void> {
-  const user = await requireUser();
+  const user = await requireBotUser();
   const name = await value<string>(
     'UPDATE js_bot_flow SET bf_status = $3, bf_updated_on = $4 WHERE bf_id = $1 AND bf_user_id = $2 RETURNING bf_name', [id, user.u_id, FLOW_STATUS.PAUSED, now()]);
   if (name === null) notFound();
@@ -114,7 +114,7 @@ export async function pauseFlow(id: number, back: string): Promise<void> {
 const safeBack = (back: string) => (/^\/bot_flows(\?[^#\s]*)?$/.test(back) ? back : '/bot_flows');
 
 export async function duplicateFlow(id: number): Promise<void> {
-  const user = await requireUser();
+  const user = await requireBotUser();
   const t = now();
   const newId = await value<number>(
     `INSERT INTO js_bot_flow (bf_user_id, bf_name, bf_keywords, bf_match, bf_graph, bf_status, bf_created_on, bf_updated_on)
@@ -126,7 +126,7 @@ export async function duplicateFlow(id: number): Promise<void> {
 }
 
 export async function deleteFlow(id: number, back = '/bot_flows'): Promise<void> {
-  const user = await requireUser();
+  const user = await requireBotUser();
   await exec(`UPDATE js_bot_session SET bs_status = 4, bs_updated_on = $3 WHERE bs_flow_id = $1 AND bs_user_id = $2 AND bs_status = 1`, [id, user.u_id, now()]);
   await exec('DELETE FROM js_bot_flow WHERE bf_id = $1 AND bf_user_id = $2', [id, user.u_id]);
   await flash('success', 'Flow deleted.');
@@ -135,7 +135,7 @@ export async function deleteFlow(id: number, back = '/bot_flows'): Promise<void>
 
 /** Builder: stop all running conversations of a flow (e.g. after changing it). */
 export async function stopSessions(id: number): Promise<ActionResult> {
-  const user = await requireUser();
+  const user = await requireBotUser();
   const n = await exec(`UPDATE js_bot_session SET bs_status = 4, bs_updated_on = $3 WHERE bs_flow_id = $1 AND bs_user_id = $2 AND bs_status = 1`, [id, user.u_id, now()]);
   return { ok: true, message: `${n} running conversation(s) stopped.` };
 }
@@ -147,7 +147,7 @@ export async function stopSessions(id: number): Promise<ActionResult> {
 export async function runTest(id: number, input: {
   name: string; graph: unknown; state: SessionState | null; message: TestInput; customer: { name: string; mobile: string };
 }): Promise<{ messages: TestMessage[]; state: SessionState | null }> {
-  const user = await requireUser();
+  const user = await requireBotUser();
   if (!(await value<number>('SELECT 1 FROM js_bot_flow WHERE bf_id = $1 AND bf_user_id = $2', [id, user.u_id]))) notFound();
   const message: TestInput = {
     text: String(input.message?.text ?? '').slice(0, 1000),
@@ -177,7 +177,7 @@ const FLOW_CODE_TYPE = 'wa-chatbot-flow';
 
 /** The flow as a code to paste into another account (name, trigger, every step and connection). */
 export async function copyFlowCode(id: number): Promise<string> {
-  const user = await requireUser();
+  const user = await requireBotUser();
   const flow = await one<{ bf_name: string; bf_graph: FlowGraph }>('SELECT bf_name, bf_graph FROM js_bot_flow WHERE bf_id = $1 AND bf_user_id = $2', [id, user.u_id]);
   if (!flow) notFound();
   return JSON.stringify({ type: FLOW_CODE_TYPE, version: 1, name: flow.bf_name, graph: sanitizeGraph(flow.bf_graph) }, null, 2);
@@ -188,7 +188,7 @@ export async function copyFlowCode(id: number): Promise<string> {
  * templates this account doesn't have, keywords its active flows already use.
  */
 export async function pasteFlowCode(code: string): Promise<ActionResult> {
-  const user = await requireUser();
+  const user = await requireBotUser();
   const text = String(code ?? '').trim();
   if (!text) return { ok: false, error: 'Paste the copied flow code first.' };
   if (text.length > 1_000_000) return { ok: false, error: 'This flow code is too large.' };

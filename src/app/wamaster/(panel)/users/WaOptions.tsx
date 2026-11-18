@@ -4,13 +4,14 @@ import { useState } from 'react';
 import { FieldError } from '@/components/ActionForm';
 import { WA_FLAG_FIELDS } from './flags';
 
-type Flag = 'send_wa' | 'wa_enable_incoming' | 'wa_enable_catalogue' | 'send_app' | 'enable_ai' | 'google_sheet' | 'wa_coexistence';
+type Flag = 'send_wa' | 'wa_enable_incoming' | 'wa_enable_catalogue' | 'send_app' | 'enable_ai' | 'bot_flow' | 'google_sheet' | 'wa_coexistence';
 
 const SWITCHES: [Flag, string][] = [
   ['send_wa', 'Send Flow'],
   ['wa_enable_catalogue', 'Catalogue'],
   ['send_app', 'Forward to App URL'],
   ['enable_ai', 'AI'],
+  ['bot_flow', 'Chatbot Flows'],
   ['wa_enable_incoming', 'Incoming Webhook'],
   ['google_sheet', 'Google Sheet'],
   ['wa_coexistence', 'Coexistence (Mobile & Web)'],

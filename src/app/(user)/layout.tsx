@@ -23,7 +23,8 @@ export default async function UserLayout({ children }: { children: React.ReactNo
         { label: 'Add / Upload Contacts', href: '/contacts/upload', match: ['/contacts/upload'] },
       ],
     },
-    { label: 'Chatbot Flows', icon: 'ri-flow-chart', href: '/bot_flows' },
+    // Shown when the admin switched Chatbot Flows on for this account
+    ...(Number(user.u_bot_flow) === 1 ? [{ label: 'Chatbot Flows', icon: 'ri-flow-chart', href: '/bot_flows' } satisfies MenuItem] : []),
     {
       label: 'Incoming', icon: 'ri-chat-3-line', children: [
         { label: 'Inbox', href: '/chat' },

@@ -5,7 +5,7 @@ import { DataTableControls, SortTh, queryString } from '@/components/DataTable';
 import { PageTitle } from '@/components/PageTitle';
 import { Pagination } from '@/components/Pagination';
 import { ConfirmButton } from '@/components/ui';
-import { requireUser } from '@/lib/auth';
+import { requireBotUser } from '@/lib/auth';
 import { FLOW_TABS } from '@/lib/bot-flow';
 import { like, query, value } from '@/lib/db';
 import { sqlDir, tableHref, tableState } from '@/lib/datatable';
@@ -35,7 +35,7 @@ interface Row {
 
 /** Chatbot flows: keyword-triggered conversations built in the Flow Builder; tabs by status, server-side table. */
 export default async function BotFlowsPage({ searchParams }: { searchParams: Promise<Record<string, string | string[] | undefined>> }) {
-  const user = await requireUser();
+  const user = await requireBotUser();
   const params = await searchParams;
 
   const counts = new Map((await query<{ bf_status: number; n: number }>(

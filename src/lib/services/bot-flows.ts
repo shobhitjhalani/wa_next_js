@@ -113,6 +113,8 @@ function liveHost(db: pg.PoolClient, userId: number, mobile: string, flowName: s
 export async function botIncoming(userId: number, mobile: string, name: string | null, message: Record<string, any>): Promise<boolean> {
   const incoming = readIncoming(message);
   if (!mobile) return false;
+  // Only accounts the admin switched Chatbot Flows on for
+  if (!(await one('SELECT 1 FROM js_user WHERE u_id = $1 AND u_bot_flow = 1', [userId]))) return false;
   const outbox: number[] = [];
   const handled = await tx(async (db) => {
     await db.query('SELECT pg_advisory_xact_lock($1::int, hashtext($2))', [userId, 'bot:' + mobile]);
@@ -173,7 +175,10 @@ export async function resumeBotSessions(log: (m: string) => void = () => {}): Pr
         await db.query('SELECT pg_advisory_xact_lock($1::int, hashtext($2))', [d.bs_user_id, 'bot:' + d.bs_mobile]);
         const row = await one<SessionRow>('SELECT * FROM js_bot_session WHERE bs_id = $1 AND bs_status = 1 AND bs_wait_until > 0 FOR UPDATE', [d.bs_id], db);
         if (!row) return;
-        const flow = await one<FlowRow>('SELECT bf_id, bf_name, bf_keywords, bf_match, bf_graph FROM js_bot_flow WHERE bf_id = $1 AND bf_status = 1', [row.bs_flow_id], db);
+        // The flow must still be active, and Chatbot Flows still on for the account
+        const flow = await one<FlowRow>(
+          `SELECT f.bf_id, f.bf_name, f.bf_keywords, f.bf_match, f.bf_graph FROM js_bot_flow f JOIN js_user u ON u.u_id = f.bf_user_id AND u.u_bot_flow = 1
+            WHERE f.bf_id = $1 AND f.bf_status = 1`, [row.bs_flow_id], db);
         const s = fromRow(row);
         if (!flow) {
           s.status = STATUS.STOPPED;

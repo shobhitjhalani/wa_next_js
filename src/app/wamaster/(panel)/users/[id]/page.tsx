@@ -189,6 +189,7 @@ export default async function UserShowPage({ params }: { params: Promise<{ id: s
                     <dt className="col-5">MM Lite</dt><dd className="col-7">{yes(user.u_is_new_no)}</dd>
                     <dt className="col-5">Catalogue</dt><dd className="col-7">{yes(user.u_wa_enable_catalogue)}</dd>
                     <dt className="col-5">AI</dt><dd className="col-7">{yes(user.u_enable_ai)}</dd>
+                    <dt className="col-5">Chatbot Flows</dt><dd className="col-7">{yes(user.u_bot_flow)}</dd>
                     <dt className="col-5">Coexistence</dt><dd className="col-7">{yes(user.u_wa_coexistence)}</dd>
                     <dt className="col-5">Incoming URL</dt><dd className="col-7 text-break">{user.u_wa_incoming_url}</dd>
                   </>

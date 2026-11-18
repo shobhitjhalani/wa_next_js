@@ -47,6 +47,8 @@ export interface UserRow {
   u_template_categories: string | null;
   u_is_new_no: number;
   u_enable_ai: number;
+  /** Chatbot Flows menu / feature: 1 Yes · 2 No (admin switch). */
+  u_bot_flow: number;
   u_enable_calling: number;
   u_calling_url: string | null;
   u_ai_key: string | null;

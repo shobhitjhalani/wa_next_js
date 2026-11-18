@@ -1,4 +1,4 @@
-import { requireUser } from '@/lib/auth';
+import { requireBotUser } from '@/lib/auth';
 import { one, query } from '@/lib/db';
 import { csvFromRows } from '@/lib/http';
 import { phpDate } from '@/lib/time';
@@ -7,7 +7,7 @@ const STATUS: Record<number, string> = { 1: 'Running', 2: 'Completed', 3: 'Expir
 
 /** CSV of a flow's conversations with one column per saved variable. */
 export async function GET(req: Request, { params }: { params: Promise<{ id: string }> }) {
-  const user = await requireUser();
+  const user = await requireBotUser();
   const id = Number((await params).id);
   const flow = Number.isInteger(id) ? await one<{ bf_id: number; bf_name: string }>(
     'SELECT bf_id, bf_name FROM js_bot_flow WHERE bf_id = $1 AND bf_user_id = $2', [id, user.u_id]) : null;

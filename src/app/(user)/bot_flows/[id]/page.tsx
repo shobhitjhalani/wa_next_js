@@ -1,6 +1,6 @@
 import type { Metadata } from 'next';
 import { notFound } from 'next/navigation';
-import { requireUser } from '@/lib/auth';
+import { requireBotUser } from '@/lib/auth';
 import { sanitizeGraph, type FlowGraph } from '@/lib/bot-flow';
 import { one, query, value } from '@/lib/db';
 import { FlowBuilder, type BuilderTemplate } from './FlowBuilder';
@@ -9,7 +9,7 @@ export const metadata: Metadata = { title: 'Flow Builder' };
 
 /** Flow Builder: edit a chatbot flow on a canvas. */
 export default async function FlowBuilderPage({ params }: { params: Promise<{ id: string }> }) {
-  const user = await requireUser();
+  const user = await requireBotUser();
   const id = Number((await params).id);
   if (!Number.isInteger(id) || id <= 0) notFound();
   const [flow, templates, running] = await Promise.all([

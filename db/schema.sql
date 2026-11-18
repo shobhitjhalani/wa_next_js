@@ -887,3 +887,13 @@ CREATE TABLE IF NOT EXISTS js_chat_label_contact (
   PRIMARY KEY (lc_contact_id, lc_label_id)
 );
 CREATE INDEX IF NOT EXISTS js_chat_label_contact_label_idx ON js_chat_label_contact (lc_label_id, lc_contact_id);
+
+-- Admin switch: the account may use Chatbot Flows (1 Yes · 2 No). Added once; accounts that already
+-- had flows keep them (Yes), every other account starts with No.
+DO $$
+BEGIN
+  IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name = 'js_user' AND column_name = 'u_bot_flow') THEN
+    ALTER TABLE js_user ADD COLUMN u_bot_flow smallint NOT NULL DEFAULT 2;
+    UPDATE js_user SET u_bot_flow = 1 WHERE u_id IN (SELECT DISTINCT bf_user_id FROM js_bot_flow);
+  END IF;
+END $$;

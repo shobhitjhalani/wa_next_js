@@ -1,6 +1,10 @@
 'use client';
 
 import { Fragment, useCallback, useEffect, useLayoutEffect, useRef, useState, type CSSProperties, type FormEvent, type MouseEvent } from 'react';
+import './chat-labels.css';
+import { LABEL_COLORS, type ChatLabel } from '@/lib/chat-labels';
+import { chatLabels, markAllChatsRead } from './actions';
+import { LabelChips, LabelMenu } from './ChatLabels';
 import { SendTemplateModal } from './SendTemplateModal';
 import type { Bubble, ConvRow, ListResponse, PollResponse, RenderedTemplate, SendResponse, TemplateHeader, ThreadHeader, ThreadResponse } from './types';
 
@@ -64,7 +68,7 @@ function dayLabel(day: string): string {
 
 export function ChatInbox({ selected, unreadTotal }: { selected: string; unreadTotal: number }) {
   const st = useRef({
-    filter: 'all', q: '', listBefore: null as number | null, listMore: false, listLoading: false, listReq: 0,
+    filter: 'all', q: '', label: null as number | null, listBefore: null as number | null, listMore: false, listLoading: false, listReq: 0,
     mobile: null as string | null, oldest: null as number | null, newest: 0, more: false, olderLoading: false, threadReq: 0,
     windowLeft: 0, windowAt: 0, since: 0, sending: 0, pollTimer: undefined as ReturnType<typeof setTimeout> | undefined,
     searchTimer: undefined as ReturnType<typeof setTimeout> | undefined, alive: false, baseTitle: '',
@@ -74,6 +78,12 @@ export function ChatInbox({ selected, unreadTotal }: { selected: string; unreadT
   const rowsRef = useRef<ConvRow[]>([]);
   const [listState, setListState] = useState<string | null>('Loading…');
   const [unread, setUnread] = useState(unreadTotal);
+  const [labels, setLabels] = useState<ChatLabel[]>([]);
+  const [labelFilter, setLabelFilter] = useState('');
+  const [threadLabels, setThreadLabels] = useState<number[]>([]);
+  const [threadSaved, setThreadSaved] = useState(false); // the open number has a conversation (can be labelled)
+  const [markingRead, setMarkingRead] = useState(false);
+  const labelMap = new Map(labels.map((l) => [l.id, l]));
   const [mobile, setMobile] = useState<string | null>(null);
   const [showThread, setShowThread] = useState(false);
   const [head, setHead] = useState<ThreadHeader | 'loading' | 'error' | null>(null);
@@ -106,7 +116,7 @@ export function ChatInbox({ selected, unreadTotal }: { selected: string; unreadT
     const req = ++st.listReq;
     st.listLoading = true;
     setListState('Loading…');
-    getJSON<ListResponse>(URLS.list, { filter: st.filter, q: st.q, before: st.listBefore ?? undefined })
+    getJSON<ListResponse>(URLS.list, { filter: st.filter, q: st.q, label: st.label ?? undefined, before: st.listBefore ?? undefined })
       .then((res) => {
         if (req !== st.listReq) return; // a newer search/filter replaced this one
         const base = reset ? [] : rowsRef.current;
@@ -116,7 +126,7 @@ export function ChatInbox({ selected, unreadTotal }: { selected: string; unreadT
         st.listBefore = res.before;
         st.listMore = res.more;
         setUnreadTotal(res.unread_total);
-        setListState(next.length ? null : st.q ? 'No conversations match your search.' : 'No conversations here yet.');
+        setListState(next.length ? null : st.q ? 'No conversations match your search.' : st.label ? 'No chats with this label.' : 'No conversations here yet.');
       })
       .catch(() => { if (req === st.listReq) setListState('Could not load conversations.'); })
       .finally(() => { if (req === st.listReq) st.listLoading = false; });
@@ -167,6 +177,8 @@ export function ChatInbox({ selected, unreadTotal }: { selected: string; unreadT
         st.oldest = res.oldest; st.newest = res.newest || 0; st.more = res.more;
         setWindow(res.window_left ?? 0);
         if (res.row) upsertRow(m, res.row);
+        setThreadLabels(res.row?.labels ?? []);
+        setThreadSaved(!!res.row);
         setUnreadTotal(res.unread_total ?? 0);
         setNoMsgs(!res.messages.length);
         scrollAfter.current = 'bottom';
@@ -310,6 +322,45 @@ export function ChatInbox({ selected, unreadTotal }: { selected: string; unreadT
     setTemplateNotice(res.error ? '' : res.notice ?? '');
   }
 
+  // ------------------------------------------------------------ mark all read, labels
+  function markAllRead() {
+    if (!window.confirm(`Mark all ${unread} unread message${unread === 1 ? '' : 's'} in every chat as read?`)) return;
+    setMarkingRead(true);
+    markAllChatsRead()
+      .then((res) => {
+        if (!res.ok) return;
+        setUnreadTotal(res.unread);
+        commitRows(rowsRef.current.map((r) => (r.unread ? { ...r, unread: 0 } : r)));
+        if (st.filter === 'unread') loadList(true);
+      })
+      .catch(() => window.alert('Could not mark the chats as read. Please try again.'))
+      .finally(() => setMarkingRead(false));
+  }
+
+  function pickLabel(value: string) {
+    setLabelFilter(value);
+    st.label = value ? Number(value) : null;
+    loadList(true);
+  }
+
+  /** The open chat's labels changed (Label menu): update its row; drop it when it no longer has the filtered label. */
+  function onChatLabels(ids: number[]) {
+    setThreadLabels(ids);
+    const m = st.mobile;
+    if (!m) return;
+    if (st.label && !ids.includes(st.label)) {
+      commitRows(rowsRef.current.filter((r) => r.mobile !== m));
+      return;
+    }
+    commitRows(rowsRef.current.map((r) => (r.mobile === m ? { ...r, labels: ids } : r)));
+  }
+
+  function onLabelsChanged(next: ChatLabel[]) {
+    setLabels(next);
+    // A deleted label: clear the filter
+    if (st.label && !next.some((l) => l.id === st.label)) pickLabel('');
+  }
+
   // ------------------------------------------------------------ polling
   function setUnreadTotal(n: number) {
     n = Number(n) || 0;
@@ -326,12 +377,15 @@ export function ChatInbox({ selected, unreadTotal }: { selected: string; unreadT
   function poll() {
     const m = st.mobile, req = st.threadReq;
     getJSON<PollResponse>(URLS.poll, {
-      since: st.since, filter: st.filter, q: st.q,
+      since: st.since, filter: st.filter, q: st.q, label: st.label ?? undefined,
       mb: m ?? undefined, after: m ? st.newest : undefined, visible: document.hidden ? 0 : 1,
     })
       .then((res) => {
         st.since = res.now;
-        for (const [mb, row] of Object.entries(res.rows || {})) upsertRow(mb, row);
+        for (const [mb, row] of Object.entries(res.rows || {})) {
+          upsertRow(mb, row);
+          if (mb === st.mobile) { setThreadLabels(row.labels); setThreadSaved(true); }
+        }
         setUnreadTotal(res.unread_total);
         if (!m || m !== st.mobile || req !== st.threadReq) return;
 
@@ -363,6 +417,7 @@ export function ChatInbox({ selected, unreadTotal }: { selected: string; unreadT
     st.baseTitle = document.title.replace(/^\(\d+\) /, '');
     setUnreadTotal(unreadTotal);
     loadList(true);
+    chatLabels().then(setLabels).catch(() => undefined);
     if (selected) openThread(selected);
     schedulePoll();
     const onVisible = () => { if (!document.hidden) { clearTimeout(st.pollTimer); poll(); } };
@@ -397,6 +452,11 @@ export function ChatInbox({ selected, unreadTotal }: { selected: string; unreadT
             <div className="d-flex align-items-center">
               <h5 className="mb-0 me-auto">Chats</h5>
               <span className="badge bg-success-subtle text-success" id="unread_total" hidden={!unread}>{unread} unread</span>
+              {unread > 0 && (
+                <button type="button" className="btn btn-link btn-sm inbox-mark-read ms-2" onClick={markAllRead} disabled={markingRead} title="Mark every unread message as read">
+                  <i className={markingRead ? 'ri-loader-4-line' : 'ri-check-double-line'} /> Mark all read
+                </button>
+              )}
             </div>
             <input type="search" className="form-control" id="inbox_search" placeholder="Search name or number" aria-label="Search conversations" autoComplete="off" onChange={(e) => onSearch(e.target.value)} />
             <div className="btn-group btn-group-sm inbox-filters" role="group" aria-label="Filter conversations">
@@ -407,6 +467,18 @@ export function ChatInbox({ selected, unreadTotal }: { selected: string; unreadT
                 </Fragment>
               ))}
             </div>
+            {labels.length > 0 && (
+              <div className="inbox-label-filter">
+                <i className="ri-price-tag-3-line text-muted" aria-hidden />
+                <select className="form-select form-select-sm" aria-label="Filter by label" value={labelFilter} onChange={(e) => pickLabel(e.target.value)}>
+                  <option value="">All labels</option>
+                  {labels.map((l) => <option key={l.id} value={l.id}>{l.name} ({l.count})</option>)}
+                </select>
+                {labelFilter && labelMap.get(Number(labelFilter)) && (
+                  <span className="lf-dot" style={{ background: LABEL_COLORS[labelMap.get(Number(labelFilter))!.color][0] }} aria-hidden />
+                )}
+              </div>
+            )}
           </div>
           <div
             className="inbox-list"
@@ -419,7 +491,7 @@ export function ChatInbox({ selected, unreadTotal }: { selected: string; unreadT
             }}
           >
             <div id="conv_rows">
-              {rows.map((r) => <ConversationRow key={r.mobile} r={r} active={r.mobile === mobile} onClick={onRowClick} />)}
+              {rows.map((r) => <ConversationRow key={r.mobile} r={r} active={r.mobile === mobile} onClick={onRowClick} labels={labelMap} />)}
             </div>
             <div className="list-state" id="conv_state" hidden={listState === null}>{listState}</div>
           </div>
@@ -446,7 +518,11 @@ export function ChatInbox({ selected, unreadTotal }: { selected: string; unreadT
                     <span className={`window-status${composer?.open ? ' text-success' : ''}`}>{composer?.status ?? ''}</span>
                   </div>
                 </div>
-                <button type="button" className="btn btn-sm btn-soft-success ms-auto" id="thread_template" onClick={openTemplate} title="Send a template message" aria-label="Send Template"><i className="ri-file-list-3-line" /> <span className="d-none d-sm-inline">Send Template</span></button>
+                <div className="thread-labels">
+                  <span className="d-none d-md-inline-flex text-truncate"><LabelChips ids={threadLabels} labels={labelMap} max={3} /></span>
+                  <LabelMenu mobile={head.mobile} chat={threadLabels} labels={labels} disabled={!threadSaved} onLabels={onLabelsChanged} onChat={onChatLabels} />
+                </div>
+                <button type="button" className="btn btn-sm btn-soft-success" id="thread_template" onClick={openTemplate} title="Send a template message" aria-label="Send Template"><i className="ri-file-list-3-line" /> <span className="d-none d-sm-inline">Send Template</span></button>
               </>
             )}
           </div>
@@ -520,7 +596,9 @@ export function ChatInbox({ selected, unreadTotal }: { selected: string; unreadT
 
 // ------------------------------------------------------------------ rows & bubbles
 
-function ConversationRow({ r, active, onClick }: { r: ConvRow; active: boolean; onClick: (e: MouseEvent<HTMLAnchorElement>, mobile: string) => void }) {
+function ConversationRow({ r, active, onClick, labels }: {
+  r: ConvRow; active: boolean; onClick: (e: MouseEvent<HTMLAnchorElement>, mobile: string) => void; labels: Map<number, ChatLabel>;
+}) {
   return (
     <a
       href={URLS.inbox + '?mb=' + encodeURIComponent(r.mobile)}
@@ -543,6 +621,7 @@ function ConversationRow({ r, active, onClick }: { r: ConvRow; active: boolean; 
           {r.live && <span className="conv-live" title="Reply window open" />}
           {r.unread > 0 && <span className="conv-badge">{r.unread > 99 ? '99+' : r.unread}</span>}
         </span>
+        {r.labels.length > 0 && <span className="conv-line conv-labels"><LabelChips ids={r.labels} labels={labels} max={2} small /></span>}
       </span>
     </a>
   );

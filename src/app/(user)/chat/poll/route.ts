@@ -2,7 +2,7 @@ import type { NextRequest } from 'next/server';
 import { getUser } from '@/lib/auth';
 import { contactWindowLeft } from '@/lib/format';
 import { now } from '@/lib/time';
-import { bubbles, changedConversations, cleanMobile, contact, markRead, newMessages, statusChanges, unreadTotal } from '../inbox';
+import { bubbles, changedConversations, cleanMobile, labelParam, contact, markRead, newMessages, statusChanges, unreadTotal } from '../inbox';
 import type { PollResponse } from '../types';
 
 const INT = /^-?\d+$/;
@@ -30,7 +30,7 @@ export async function GET(req: NextRequest) {
 
   const since = parseInt(sinceRaw, 10) - 2; // timestamps are per second; overlap rather than miss
   const after = afterRaw !== '' ? parseInt(afterRaw, 10) : 0;
-  const filter = { filter: p.get('filter') ?? '', q: p.get('q') ?? '' };
+  const filter = { filter: p.get('filter') ?? '', q: p.get('q') ?? '', label: labelParam(p.get('label')) };
   const mobile = cleanMobile(mbRaw);
   const visible = ['1', 'true'].includes((p.get('visible') ?? '').trim());
 

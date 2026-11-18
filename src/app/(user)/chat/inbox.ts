@@ -24,9 +24,12 @@ export const BUBBLE_COLUMNS =
   'm_id, m_is_incoming, m_content, m_msg_type, m_msg_template_name, m_msg_template_para, m_image, m_carousel, m_created_on, ' +
   'm_delivery_status, m_status, m_message_id, m_status_response, m_is_read, m_context_id, m_buttons, m_response_file_name';
 
-const CONV_COLUMNS = 'cl_mobile_no, cl_name, cl_last_msg, cl_last_msg_id, cl_last_preview, cl_last_dir, cl_last_in, cl_unread';
+const CONV_COLUMNS = 'cl_mobile_no, cl_name, cl_last_msg, cl_last_msg_id, cl_last_preview, cl_last_dir, cl_last_in, cl_unread, '
+  // Label ids of the chat (js_chat_label_contact)
+  + "COALESCE((SELECT array_agg(lc.lc_label_id ORDER BY lc.lc_label_id) FROM js_chat_label_contact lc WHERE lc.lc_contact_id = js_user_contact_list.cl_id), '{}') AS labels";
 
-export type ConvSource = Pick<ContactRow, 'cl_mobile_no' | 'cl_name' | 'cl_last_msg' | 'cl_last_msg_id' | 'cl_last_preview' | 'cl_last_dir' | 'cl_last_in' | 'cl_unread'>;
+export type ConvSource = Pick<ContactRow, 'cl_mobile_no' | 'cl_name' | 'cl_last_msg' | 'cl_last_msg_id' | 'cl_last_preview' | 'cl_last_dir' | 'cl_last_in' | 'cl_unread'>
+  & { labels?: number[] };
 export type BubbleSource = Pick<MessageRow, 'm_id' | 'm_is_incoming' | 'm_content' | 'm_msg_type' | 'm_msg_template_name' | 'm_msg_template_para' | 'm_image' | 'm_created_on' | 'm_delivery_status' | 'm_status' | 'm_message_id' | 'm_status_response' | 'm_is_read' | 'm_context_id'>
   & Partial<Pick<MessageRow, 'm_carousel' | 'm_buttons' | 'm_response_file_name'>>;
 
@@ -69,12 +72,24 @@ export function hue(mobile: string): number {
 export interface ConvFilter {
   filter: string;
   q: string;
+  /** Only chats with this label (js_chat_label.lb_id). */
+  label?: number | null;
+}
+
+/** The `label` request value: a label id, or null for all chats. */
+export function labelParam(v: string | null | undefined): number | null {
+  const n = parseInt(String(v ?? ''), 10);
+  return Number.isInteger(n) && n > 0 ? n : null;
 }
 
 /** WHERE clause for the conversation list (params[0] must be the user id). */
 function conversationWhere(f: ConvFilter, params: unknown[]): string {
   let sql = 'cl_user_id = $1 AND cl_last_msg_id > 0';
   if (f.filter === 'unread') sql += ' AND cl_unread > 0';
+  if (f.label) {
+    params.push(f.label);
+    sql += ` AND EXISTS (SELECT 1 FROM js_chat_label_contact lc WHERE lc.lc_contact_id = cl_id AND lc.lc_label_id = $${params.length})`;
+  }
   if (f.filter === 'active') {
     params.push(now() - 86400);
     sql += ` AND cl_last_in >= $${params.length}`;
@@ -129,11 +144,40 @@ export async function contact(userId: number, mobile: string): Promise<ConvSourc
   const row = await one<ConvSource>(`SELECT ${CONV_COLUMNS} FROM js_user_contact_list WHERE cl_user_id = $1 AND cl_mobile_no = $2`, [userId, mobile]);
   return row
     ? { ...row, exists: true }
-    : { cl_mobile_no: mobile, cl_name: null, cl_last_msg: null, cl_last_msg_id: 0, cl_last_preview: null, cl_last_dir: 0, cl_last_in: 0, cl_unread: 0, exists: false };
+    : { cl_mobile_no: mobile, cl_name: null, cl_last_msg: null, cl_last_msg_id: 0, cl_last_preview: null, cl_last_dir: 0, cl_last_in: 0, cl_unread: 0, labels: [], exists: false };
 }
 
 export async function unreadTotal(userId: number): Promise<number> {
   return (await value<number>('SELECT COALESCE(SUM(cl_unread), 0)::int FROM js_user_contact_list WHERE cl_user_id = $1 AND cl_unread > 0', [userId])) ?? 0;
+}
+
+/**
+ * "Mark all read", step 1: every chat's unread count → 0 (what the inbox shows), at once.
+ * Returns how many unread messages there were.
+ */
+export async function clearAllUnread(userId: number): Promise<number> {
+  const before = await unreadTotal(userId);
+  await exec('UPDATE js_user_contact_list SET cl_unread = 0 WHERE cl_user_id = $1 AND cl_unread <> 0', [userId]);
+  return before;
+}
+
+const READ_BATCH = 5000;
+
+/**
+ * "Mark all read", step 2 (after the response): the messages themselves, in batches —
+ * an account can have hundreds of thousands unread, too many for one statement.
+ * SKIP LOCKED lets two overlapping runs share the work instead of waiting on each other.
+ */
+export async function markAllMessagesRead(userId: number): Promise<number> {
+  let total = 0;
+  for (;;) {
+    const n = await exec(
+      `UPDATE js_message SET m_is_read = 1 WHERE m_id IN (
+         SELECT m_id FROM js_message WHERE m_user_id = $1 AND m_is_incoming = 1 AND m_is_read = 2 AND m_dstatus = 0
+          LIMIT ${READ_BATCH} FOR UPDATE SKIP LOCKED)`, [userId]);
+    total += n;
+    if (n < READ_BATCH) return total;
+  }
 }
 
 /** Mark every unread incoming message of the conversation read. */
@@ -159,6 +203,7 @@ export function convRow(c: ConvSource): ConvRow {
     time: shortTime(c.cl_last_msg ? timestampToUnix(c.cl_last_msg) : 0),
     preview: String(c.cl_last_preview ?? ''),
     outgoing: Number(c.cl_last_dir) === 2,
+    labels: (c.labels ?? []).map(Number),
     live: contactWindowLeft(c) > 0,
   };
 }

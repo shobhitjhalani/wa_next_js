@@ -1,18 +1,17 @@
 import Link from 'next/link';
 import { requireUser } from '@/lib/auth';
-import { like, query, value } from '@/lib/db';
+import { query, value } from '@/lib/db';
 import { config } from '@/lib/config';
 import { messageSummary } from '@/lib/format';
 import { sp } from '@/lib/http';
-import { phpDate, parseDateRange } from '@/lib/time';
+import { phpDate } from '@/lib/time';
 import type { MessageRow } from '@/lib/types';
 import { PageTitle } from '@/components/PageTitle';
 import { Pagination, pageParam } from '@/components/Pagination';
 import { DateRangeInput, SelectAll } from '@/components/ui';
 import { markIncoming } from './actions';
+import { incomingFilter } from './filter';
 import { IncomingRow } from './IncomingRow';
-
-const ATTACHMENT_TYPES = ['image', 'document', 'video', 'audio'];
 
 type Row = Pick<MessageRow, 'm_id' | 'm_created_on' | 'm_sender_name' | 'm_mobile_no' | 'm_is_read' | 'm_content' | 'm_msg_type' | 'm_msg_template_name' | 'm_msg_template_para'>;
 
@@ -21,22 +20,16 @@ export async function IncomingListing({ params, attachments }: { params: Record<
   const user = await requireUser();
   const path = attachments ? '/incoming_attachment' : '/incoming';
   const title = attachments ? 'Attachments' : 'Incoming Msg';
-  // Legacy default: show unread only until the user filters
-  const readStatus = params.read_status === undefined ? '2' : sp(params, 'read_status');
-  const range = parseDateRange(sp(params, 'wa_date'));
-  const mobile = sp(params, 'mobile_no');
-  const content = sp(params, 'content');
+  const { where, args, readStatus, mobile, content } = incomingFilter(user.u_id, params, attachments);
   const page = pageParam(params.page);
   const perPage = config.site.pageSize;
-
-  const args: unknown[] = [user.u_id];
-  let where = 'm_user_id = $1 AND m_is_incoming = 1 AND m_dstatus = 0';
-  // Literal list (not a parameter) so the planner can use js_message_attachments_idx
-  if (attachments) where += ` AND m_msg_type IN (${ATTACHMENT_TYPES.map((t) => `'${t}'`).join(', ')})`;
-  if (range) { args.push(range[0], range[1]); where += ` AND m_created_on BETWEEN $${args.length - 1} AND $${args.length}`; }
-  if (readStatus === '1' || readStatus === '2') { args.push(Number(readStatus)); where += ` AND m_is_read = $${args.length}`; }
-  if (mobile !== '') { args.push(mobile); where += ` AND m_mobile_no = $${args.length}`; }
-  if (content !== '') { args.push('%' + like(content) + '%'); where += ` AND m_content ILIKE $${args.length}`; }
+  // Export the same rows the filters show (all pages)
+  const exportQs = new URLSearchParams({
+    read_status: readStatus,
+    ...(sp(params, 'wa_date') ? { wa_date: sp(params, 'wa_date') } : {}),
+    ...(mobile ? { mobile_no: mobile } : {}),
+    ...(content ? { content } : {}),
+  }).toString();
 
   const [total, rows] = await Promise.all([
     value<number>(`SELECT COUNT(*)::int FROM js_message WHERE ${where}`, args),
@@ -65,6 +58,11 @@ export async function IncomingListing({ params, attachments }: { params: Record<
               </select>
             </div>
             <div className="col-auto"><button type="submit" className="btn btn-secondary">Search</button></div>
+            <div className="col-auto ms-auto">
+              <a href={`${path}/export?${exportQs}`} className="btn btn-soft-success" title="Download the messages these filters show as a CSV file">
+                <i className="ri-file-excel-2-line" /> Export{total ? ` (${total.toLocaleString('en-US')})` : ''}
+              </a>
+            </div>
           </form>
         </div>
         <div className="card-body">

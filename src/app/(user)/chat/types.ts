@@ -16,6 +16,7 @@ export interface ConvRow {
   preview: string;
   outgoing: boolean; // last message was ours (reply icon)
   live: boolean; // reply window open
+  labels: number[]; // js_chat_label ids
 }
 
 /** Thread header (_header.blade.php). */

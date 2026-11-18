@@ -1,19 +1,39 @@
 import Link from 'next/link';
+import { DataTableControls, DataTableHidden, SortTh, queryString } from '@/components/DataTable';
 import { assignFilter, requireRight, userModule } from '@/lib/admin-access';
-import { config } from '@/lib/config';
+import { sqlDir, tableState } from '@/lib/datatable';
 import { like, query, value } from '@/lib/db';
 import { sp } from '@/lib/http';
 import { masterName } from '@/lib/models';
 import { phpDate } from '@/lib/time';
 import { USER_TYPE } from '@/lib/types';
 import { PageTitle } from '@/components/PageTitle';
-import { Pagination, pageParam } from '@/components/Pagination';
+import { Pagination } from '@/components/Pagination';
 import { ConfirmButton } from '@/components/ui';
 import { destroyUser, toggleUserStatus } from './actions';
+import { ParentFilter } from './ParentFilter';
 
 type SP = Promise<Record<string, string | string[] | undefined>>;
 
-/** Client accounts list (Admin\UserController::index + admin/users/index.blade.php). ut=1 corporate, ut=2 WhatsApp. */
+const PATH = '/wamaster/users';
+
+/** Sortable columns → SQL (whitelist; u_id breaks ties so paging is stable). */
+const SORTS = {
+  created: 'u.u_created_on',
+  code: 'u.u_code',
+  name: 'lower(u.u_name)',
+  company: 'lower(u.u_company_name)',
+  username: 'lower(u.u_username::text)',
+  parent: "lower(COALESCE(NULLIF(p.u_company_name, ''), p.u_name))",
+  valid: 'u.u_valid_till',
+  status: 'u.u_status',
+} as const;
+const DEFAULTS = { perPage: 25, sort: 'created', dir: 'desc' } as const;
+
+/**
+ * Client accounts list (Admin\UserController::index + admin/users/index.blade.php). ut=1 corporate, ut=2 WhatsApp.
+ * Server-side table: page size, live search and sorting in the URL; status and parent company filters.
+ */
 export default async function UsersPage({ searchParams }: { searchParams: SP }) {
   const params = await searchParams;
   const utRaw = sp(params, 'ut');
@@ -21,20 +41,23 @@ export default async function UsersPage({ searchParams }: { searchParams: SP }) 
   const access = await requireRight(userModule(type));
   const mod = userModule(type);
   const [canAdd, canEdit, canDelete] = [access.can(mod, 'add'), access.can(mod, 'edit'), access.can(mod, 'delete')];
-  const q = sp(params, 'q');
+  const table = tableState(params, { sorts: Object.keys(SORTS) as (keyof typeof SORTS)[], sort: DEFAULTS.sort, dir: DEFAULTS.dir, perPage: DEFAULTS.perPage });
   const statusRaw = sp(params, 'status');
   const status = statusRaw === '' ? null : /^\d+$/.test(statusRaw) ? parseInt(statusRaw, 10) : -1;
-  const page = pageParam(params.page);
-  const perPage = config.site.pageSize;
+  // Parent account: '' = all, 0 = accounts without a parent, else the parent's u_id
+  const parentRaw = sp(params, 'parent');
+  const parent = /^\d+$/.test(parentRaw) ? parseInt(parentRaw, 10) : null;
 
   const where = `u.u_dstatus = 0 AND u.u_type = $1
-    AND ($2 = '' OR u.u_name ILIKE '%' || $2 || '%' OR u.u_username ILIKE '%' || $2 || '%'
-         OR u.u_company_name ILIKE '%' || $2 || '%' OR u.u_mobile_no ILIKE '%' || $2 || '%')
+    AND ($2 = '' OR u.u_name ILIKE '%' || $2 || '%' OR u.u_username ILIKE '%' || $2 || '%' OR u.u_code ILIKE '%' || $2 || '%'
+         OR u.u_company_name ILIKE '%' || $2 || '%' OR u.u_mobile_no ILIKE '%' || $2 || '%' OR u.u_wa_no ILIKE '%' || $2 || '%')
     AND ($3::int IS NULL OR u.u_status = $3::int)
-    AND ($4::int IS NULL OR u.u_assign_to = $4::int)`;
-  const args = [type, like(q), status, assignFilter(access, type)];
+    AND ($4::int IS NULL OR u.u_assign_to = $4::int)
+    AND ($5::int IS NULL OR u.u_parent_id = $5::int)`;
+  const assigned = assignFilter(access, type);
+  const args = [type, like(table.q), status, assigned, parent];
 
-  const [typeName, total, users] = await Promise.all([
+  const [typeName, total, users, parents] = await Promise.all([
     masterName(type),
     value<number>(`SELECT COUNT(*)::int FROM js_user u WHERE ${where}`, args),
     query<{
@@ -46,39 +69,67 @@ export default async function UsersPage({ searchParams }: { searchParams: SP }) 
               u.u_wa_plan_status, u.u_status, p.u_name AS parent_name, p.u_company_name AS parent_company
          FROM js_user u LEFT JOIN js_user p ON p.u_id = u.u_parent_id AND u.u_parent_id > 0
         WHERE ${where}
-        ORDER BY u.u_created_on DESC, u.u_id DESC
-        LIMIT $5 OFFSET $6`,
-      [...args, perPage, (page - 1) * perPage],
+        ORDER BY ${SORTS[table.sort]} ${sqlDir(table.dir)} NULLS LAST, u.u_id ${sqlDir(table.dir)}
+        LIMIT $6 OFFSET $7`,
+      [...args, table.perPage, (table.page - 1) * table.perPage],
+    ),
+    // Parent accounts the users of this type have (only users this admin may see)
+    query<{ id: number; label: string; n: number }>(
+      `SELECT u.u_parent_id AS id,
+              COALESCE(NULLIF(p.u_company_name, ''), NULLIF(p.u_name, ''), p.u_username::text, 'Account #' || u.u_parent_id) AS label,
+              COUNT(*)::int AS n
+         FROM js_user u LEFT JOIN js_user p ON p.u_id = u.u_parent_id AND u.u_parent_id > 0
+        WHERE u.u_dstatus = 0 AND u.u_type = $1 AND ($2::int IS NULL OR u.u_assign_to = $2::int)
+        GROUP BY u.u_parent_id, p.u_company_name, p.u_name, p.u_username
+        ORDER BY u.u_parent_id = 0, lower(COALESCE(NULLIF(p.u_company_name, ''), NULLIF(p.u_name, ''), p.u_username::text, ''))`,
+      [type, assigned],
     ),
   ]);
   const isWa = type === USER_TYPE.WHATSAPP;
+  const th = { path: PATH, params, state: table };
+  const filtered = status !== null || parent !== null;
 
   return (
     <>
       <PageTitle title={typeName || 'Users'} home="/wamaster/dashboard" />
       <div className="card">
         <div className="card-header d-flex flex-wrap gap-2 align-items-center">
-          <form method="get" className="d-flex gap-2 me-auto">
+          <form method="get" className="d-flex flex-wrap gap-2 me-auto align-items-center">
             <input type="hidden" name="ut" value={type} />
-            <input type="text" className="form-control" name="q" defaultValue={q} placeholder="Name, username, company, mobile" aria-label="Search" />
+            <DataTableHidden state={table} defaults={DEFAULTS} />
             <select name="status" className="form-select w-auto" aria-label="Status" defaultValue={statusRaw === '1' || statusRaw === '2' ? statusRaw : ''}>
-              <option value="">All</option>
+              <option value="">All statuses</option>
               <option value="1">Active</option>
               <option value="2">Inactive</option>
             </select>
-            <button className="btn btn-secondary">Search</button>
+            <ParentFilter
+              value={parent === null ? '' : String(parent)}
+              options={[
+                ...parents.map((p) => ({ value: String(p.id), label: `${Number(p.id) === 0 ? 'No parent' : p.label} (${p.n})` })),
+                ...(parent !== null && !parents.some((p) => Number(p.id) === parent) ? [{ value: String(parent), label: `Account #${parent}` }] : []),
+              ]}
+            />
+            <button className="btn btn-secondary"><i className="ri-filter-3-line" /> Filter</button>
+            {filtered && <Link href={`${PATH}?ut=${type}`} className="btn btn-link px-1">Clear</Link>}
           </form>
           <a href={`/wamaster/users/export?ut=${type}`} className="btn btn-soft-info"><i className="ri-download-2-line" /> Export</a>
           {canAdd && <Link href={`/wamaster/users/create?ut=${type}`} className="btn btn-primary"><i className="ri-add-line" /> Add User</Link>}
         </div>
         <div className="card-body">
+          <DataTableControls path={PATH} query={queryString(params)} perPage={table.perPage} q={table.q} total={total ?? 0}
+            placeholder="Search name, username, code, company, mobile…" />
           <div className="table-responsive">
             <table className="table align-middle table-nowrap table-striped mb-0">
               <thead className="table-light">
                 <tr>
-                  <th>Code</th><th>Name</th><th>Company</th><th>Username</th><th>Mobile</th>
-                  {isWa && <><th>Parent</th><th>WA No</th><th>Valid Till</th></>}
-                  <th>Status</th><th />
+                  <SortTh {...th} column="code">Code</SortTh>
+                  <SortTh {...th} column="name">Name</SortTh>
+                  <SortTh {...th} column="company">Company</SortTh>
+                  <SortTh {...th} column="username">Username</SortTh>
+                  <th>Mobile</th>
+                  {isWa && <><SortTh {...th} column="parent">Parent</SortTh><th>WA No</th><SortTh {...th} column="valid" first="desc">Valid Till</SortTh></>}
+                  <SortTh {...th} column="status">Status</SortTh>
+                  <th />
                 </tr>
               </thead>
               <tbody>
@@ -116,12 +167,12 @@ export default async function UsersPage({ searchParams }: { searchParams: SP }) 
                     </td>
                   </tr>
                 )) : (
-                  <tr><td colSpan={10} className="text-center text-muted py-4">No users found.</td></tr>
+                  <tr><td colSpan={10} className="text-center text-muted py-4">{table.q || filtered ? 'No users match these filters.' : 'No users found.'}</td></tr>
                 )}
               </tbody>
             </table>
           </div>
-          <div className="mt-3"><Pagination path="/wamaster/users" params={params} page={page} perPage={perPage} total={total ?? 0} /></div>
+          <Pagination path={PATH} params={params} page={table.page} perPage={table.perPage} total={total ?? 0} always />
         </div>
       </div>
     </>

@@ -23,6 +23,7 @@ export default async function UserLayout({ children }: { children: React.ReactNo
         { label: 'Add / Upload Contacts', href: '/contacts/upload', match: ['/contacts/upload'] },
       ],
     },
+    { label: 'Chatbot Flows', icon: 'ri-flow-chart', href: '/bot_flows' },
     {
       label: 'Incoming', icon: 'ri-chat-3-line', children: [
         { label: 'Inbox', href: '/chat' },

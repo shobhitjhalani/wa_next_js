@@ -7,6 +7,7 @@ import type { MessageRow, UserRow } from '../types';
 import { insertMessage, storeIncoming } from './messages';
 import { LIMITED_TYPES } from './template-limit';
 import { sendPending } from './sender';
+import { botIncoming } from './bot-flows';
 
 /**
  * Meta webhook payloads (port of waapi/webhook.php) and the delivery-status
@@ -139,7 +140,17 @@ async function incomingMessage(user: HookUser, msg: Record<string, any>, contact
     await storeFlowResponse(user, message, response, formJson, msg.context?.id);
   }
 
-  await catalogueAutoReply(user, mobile, content, defer);
+  // Chatbot flows answer first; the catalogue auto-reply only when no flow took the message
+  const name = message.m_sender_name ?? null;
+  defer(async () => {
+    let handled = false;
+    try {
+      handled = await botIncoming(user.u_id, mobile, name, msg);
+    } catch (e) {
+      console.error('[webhook] chatbot flow failed', e);
+    }
+    if (!handled) await catalogueAutoReply(user, mobile, content, runInline);
+  });
 }
 
 /**

@@ -206,6 +206,7 @@ async function send(message: MessageRow, cache: RunCache): Promise<boolean> {
       case 'Authentication': responses = [await sendAuthentication(user, message, to, cache)]; break;
       case 'catalogue':
       case 'product_list': responses = [await sendProductList(user, message, to)]; break;
+      case 'bot': responses = [await sendBotInteractive(user, message, to)]; break;
       default: responses = await sendText(user, message, to, media);
     }
   } catch (e) {
@@ -381,6 +382,16 @@ async function sendText(user: SendUser, m: MessageRow, to: string, media: Media[
   responses.push(await sendMessage(user, { ...base, type: 'text', text: { preview_url: false, body: text } }));
   for (const file of media) responses.push(await sendMessage(user, { ...base, ...mediaPayload(file) }));
   return responses;
+}
+
+/**
+ * Chatbot flow buttons / list (lib/services/bot-flows.ts): the interactive object
+ * is built by the flow and kept in m_carousel; m_content holds its body text for the inbox.
+ */
+async function sendBotInteractive(user: SendUser, m: MessageRow, to: string): Promise<MetaResponse> {
+  const interactive = jsonParse<Payload | null>(m.m_carousel ?? '', null);
+  if (!interactive) return { error: { message: 'Invalid flow message' } };
+  return sendMessage(user, { messaging_product: 'whatsapp', recipient_type: 'individual', to, type: 'interactive', interactive });
 }
 
 // ---------------------------------------------------------------- helpers

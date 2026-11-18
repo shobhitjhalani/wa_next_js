@@ -12,6 +12,7 @@ import { config } from '@/lib/config';
 import { pool } from '@/lib/db';
 import { requestedBackups, scheduledBackup } from '@/lib/services/backup';
 import { checkDiskSpace } from '@/lib/services/disk-alert';
+import { resumeBotSessions } from '@/lib/services/bot-flows';
 import { cleanup, dispatchCampaigns, emailReports, expireMessages, expirePlans, processWebhooks, sendQueue } from './jobs';
 
 /** dailyAt: one 'HH:MM' or several (the job runs once after each of them). */
@@ -30,6 +31,8 @@ export const JOBS: Job[] = [
   { name: 'expire-messages', schedule: { everySeconds: 300 }, run: (log) => expireMessages(log) },
   { name: 'send-queue', schedule: { everySeconds: 60 }, run: (log) => sendQueue({}, log) },
   { name: 'process-webhooks', schedule: { everySeconds: 60 }, run: (log) => processWebhooks(log) },
+  // Chatbot flows: continue conversations after a Wait step, expire ones waiting over 24 h for a reply
+  { name: 'bot-flows', schedule: { everySeconds: 30 }, run: (log) => resumeBotSessions(log) },
   { name: 'expire-plans', schedule: { hourly: true }, run: (log) => expirePlans(log) },
   { name: 'cleanup', schedule: { dailyAt: '02:30' }, run: (log) => cleanup(log) },
   // Email DISK_ALERT_EMAIL when the disk is DISK_ALERT_PERCENT (90) % full — once a day while it stays full

@@ -1,0 +1,45 @@
+/* Chatbot Flows list: status tabs and row actions. Theme colours (--vz-*) keep light / dark mode working. */
+
+.bf-tabs {
+  display: flex; gap: 1.75rem; padding: 0 1.25rem;
+  border-bottom: 1px solid var(--vz-border-color);
+  overflow-x: auto; scrollbar-width: none;
+}
+.bf-tab {
+  display: inline-flex; align-items: center; gap: .5rem; white-space: nowrap;
+  padding: .9rem 0 .8rem; margin-bottom: -1px;
+  border-bottom: 2px solid transparent;
+  color: var(--vz-secondary-color); font-weight: 500; text-decoration: none;
+  transition: color .15s, border-color .15s;
+}
+.bf-tab:hover { color: var(--vz-body-color); }
+.bf-tab.active { color: var(--vz-heading-color, var(--vz-body-color)); border-bottom-color: var(--vz-primary); }
+.bf-dot { width: 8px; height: 8px; border-radius: 50%; flex: none; }
+.bf-count {
+  min-width: 1.5rem; padding: .1rem .5rem; border-radius: 999px; text-align: center;
+  font-size: .72rem; font-weight: 600; line-height: 1.4;
+  background: var(--vz-light); color: var(--vz-secondary-color);
+}
+.bf-tab.active .bf-count { background: var(--vz-primary-bg-subtle); color: var(--vz-primary); }
+
+.bf-table > :not(caption) > * > * { padding-top: .85rem; padding-bottom: .85rem; }
+.bf-table thead th { font-size: .78rem; text-transform: uppercase; letter-spacing: .03em; color: var(--vz-secondary-color); font-weight: 600; }
+.bf-name { font-weight: 600; color: var(--vz-heading-color, var(--vz-body-color)); }
+.bf-name:hover { color: var(--vz-primary); }
+.bf-keyword {
+  display: inline-block; margin: 0 .25rem .25rem 0; padding: .15rem .5rem; border-radius: .35rem;
+  font-size: .75rem; font-family: var(--vz-font-monospace, monospace);
+  background: var(--vz-light); border: 1px solid var(--vz-border-color); color: var(--vz-body-color);
+}
+.bf-actions { display: inline-flex; align-items: center; gap: .5rem; }
+.bf-actions form { margin: 0; }
+.bf-icons { display: inline-flex; border: 1px solid var(--vz-border-color); border-radius: .4rem; overflow: hidden; }
+.bf-icons > *, .bf-icons form > button {
+  display: inline-grid; place-items: center; width: 32px; height: 30px; padding: 0;
+  border: 0; border-left: 1px solid var(--vz-border-color); background: var(--vz-card-bg, #fff);
+  color: var(--vz-secondary-color); font-size: .95rem;
+}
+.bf-icons > :first-child { border-left: 0; }
+.bf-icons > *:hover, .bf-icons form > button:hover { background: var(--vz-light); color: var(--vz-body-color); }
+.bf-icons .bf-danger:hover { color: var(--vz-danger); }
+.bf-main { min-width: 92px; }

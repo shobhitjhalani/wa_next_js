@@ -208,8 +208,11 @@ export async function campaignStats(campaigns: CampaignRow[], withReplies = fals
     // A resend restarts the settling period
     const since = Math.max(Number(c.uc_started_at), Number(c.uc_resent_at ?? 0));
     const settled = since < t - SETTLE_SECONDS && (c.uc_stats?.pending ?? 1) === 0;
-    const fresh = !!c.uc_stats && c.uc_stats_at >= STATS_VALID_FROM && (c.uc_stats_at > t - 30 || (settled && c.uc_stats_at > since + SETTLE_SECONDS));
-    if (fresh && (!withReplies || c.uc_stats?.replied !== undefined)) stats[c.uc_id] = c.uc_stats;
+    const current = (at: number) => at > t - 30 || (settled && at > since + SETTLE_SECONDS);
+    const fresh = !!c.uc_stats && c.uc_stats_at >= STATS_VALID_FROM && current(c.uc_stats_at);
+    // Replies keep arriving after delivery has settled; a count carried forward by the list page is not a recount
+    const repliesFresh = c.uc_stats?.replied !== undefined && current(Number(c.uc_stats.replied_at ?? 0));
+    if (fresh && (!withReplies || repliesFresh)) stats[c.uc_id] = c.uc_stats;
     else refresh.push(c);
   }
   if (!refresh.length) return stats;
@@ -227,8 +230,13 @@ export async function campaignStats(campaigns: CampaignRow[], withReplies = fals
       total: r?.total ?? 0, pending: r?.pending ?? 0, sent: r?.sent ?? 0, delivered: r?.delivered ?? 0, read: r?.read ?? 0,
       failed: r?.failed ?? 0, delivery_failed: r?.delivery_failed ?? 0, skipped: (r?.skipped ?? 0) + Number(c.uc_skipped), // opted out before queueing
     };
-    if (withReplies) s.replied = await replies(c.uc_id);
-    else if (c.uc_stats?.replied !== undefined) s.replied = c.uc_stats.replied;
+    if (withReplies) {
+      s.replied = await replies(c.uc_id);
+      s.replied_at = t;
+    } else if (c.uc_stats?.replied !== undefined) {
+      s.replied = c.uc_stats.replied;
+      if (c.uc_stats.replied_at) s.replied_at = c.uc_stats.replied_at;
+    }
     await exec('UPDATE js_user_campaign SET uc_stats = $2, uc_stats_at = $3 WHERE uc_id = $1', [c.uc_id, JSON.stringify(s), t]);
     stats[c.uc_id] = s;
   }

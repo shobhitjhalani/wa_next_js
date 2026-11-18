@@ -196,6 +196,8 @@ export interface CampaignStats {
   delivery_failed: number;
   skipped: number;
   replied?: number;
+  /** When `replied` was counted (unix s); the list page carries the count forward without recounting. */
+  replied_at?: number;
 }
 
 export interface CampaignRow {

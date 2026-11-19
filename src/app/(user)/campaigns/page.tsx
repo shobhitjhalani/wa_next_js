@@ -11,7 +11,7 @@ import { API_CAMPAIGN_SQL, campaignStats, campaignStatsInRange } from '@/lib/ser
 import { campaignEtas, sendRatePerMinute, sendWindowText } from '@/lib/services/campaign-eta';
 import { RefreshButton } from '@/components/RefreshButton';
 import { numberFormat } from '@/lib/text';
-import { now, parseDateRange, phpDate, todayString } from '@/lib/time';
+import { monthStart, now, parseDateRange, phpDate, todayString } from '@/lib/time';
 import { CAMPAIGN, type CampaignRow, type CampaignStats } from '@/lib/types';
 import { BarCounts, DeliveryBar, EtaNote, pct, StatusBadge } from './shared';
 import { refreshSendSettings } from '@/lib/services/settings';
@@ -28,8 +28,8 @@ export default async function CampaignsPage({ searchParams }: { searchParams: Pa
   await refreshSendSettings();
   const params = await searchParams;
   const page = pageParam(params.page);
-  // Absent → today only; present but empty → all time (Laravel input() default semantics)
-  const dtInput = params.wa_date === undefined ? todayString() : sp(params, 'wa_date');
+  // Absent → this month so far; present but empty → all time
+  const dtInput = params.wa_date === undefined ? `${phpDate('d-m-Y', monthStart())} to ${todayString()}` : sp(params, 'wa_date');
   const range = parseDateRange(dtInput);
   const q = sp(params, 'q');
 

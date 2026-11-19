@@ -43,3 +43,12 @@
 .inbox-mark-read, .inbox-new-btn { white-space: nowrap; }
 .inbox-new-btn { padding: .2rem .5rem; font-size: .78rem; }
 .inbox-new-chat { display: grid; }
+
+/* Team: assignee chip on a conversation, "Assign to…" menu in the thread header */
+.conv-assignee {
+  display: inline-flex; align-items: center; gap: .2rem; max-width: 8rem; margin-right: .25rem;
+  padding: 0 .35rem; border-radius: .3rem; font-size: .68rem; line-height: 1.5;
+  background: var(--vz-info-bg-subtle); color: var(--vz-info); white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
+.thread-assign { width: auto; max-width: 11rem; flex: none; }
+.thread-assign.assigned { border-color: var(--vz-info); color: var(--vz-info); }

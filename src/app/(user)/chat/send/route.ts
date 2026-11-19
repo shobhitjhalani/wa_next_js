@@ -1,5 +1,5 @@
 import type { NextRequest } from 'next/server';
-import { getUser } from '@/lib/auth';
+import { canOpenChat, inboxAccess, NOT_YOURS } from '../access';
 import { fileExt } from '@/lib/actions';
 import { contactWindowLeft } from '@/lib/format';
 import { chatReply } from '@/lib/services/messages';
@@ -21,8 +21,9 @@ function invalid(errors: Record<string, string>) {
  * with the stored bubble, so a Meta error shows under the message.
  */
 export async function POST(req: NextRequest) {
-  const user = await getUser();
-  if (!user) return Response.json({ message: 'Unauthenticated.' }, { status: 401 });
+  const access = await inboxAccess();
+  if (!access) return Response.json({ message: 'Unauthenticated.' }, { status: 401 });
+  const { user } = access;
   if (!sameOrigin(req)) return Response.json({ message: 'CSRF token mismatch.' }, { status: 419 });
 
   let fd: FormData;
@@ -48,6 +49,7 @@ export async function POST(req: NextRequest) {
   if (Object.keys(errors).length) return invalid(errors);
 
   const mobile = cleanMobile(mbRaw);
+  if (!(await canOpenChat(access, mobile))) return Response.json({ message: NOT_YOURS }, { status: 403 });
   if (contactWindowLeft(await contact(user.u_id, mobile)) <= 0) {
     return Response.json({ message: 'The 24-hour reply window is closed. Send a template to restart the conversation.' }, { status: 422 });
   }

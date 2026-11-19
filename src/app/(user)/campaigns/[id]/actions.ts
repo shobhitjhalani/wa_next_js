@@ -2,7 +2,7 @@
 
 import { refresh } from 'next/cache';
 import { flash } from '@/lib/actions';
-import { requireUser } from '@/lib/auth';
+import { requireTeam } from '@/lib/auth';
 import { one } from '@/lib/db';
 import { cancelCampaign, resendFailed } from '@/lib/services/campaigns';
 import { inSendWindow, sendWindowLabel } from '@/lib/services/sender';
@@ -13,8 +13,9 @@ import { refreshSendSettings } from '@/lib/services/settings';
 
 /** POST campaigns/{id}/cancel (CampaignController::cancel). */
 export async function cancelCampaignAction(id: number): Promise<void> {
-  const user = await requireUser();
-  const campaign = await one<{ uc_id: number; uc_status: number }>('SELECT uc_id, uc_status FROM js_user_campaign WHERE uc_id = $1 AND uc_user_id = $2', [id, user.u_id]);
+  // Cancel / resend: the owner, or a member who may create campaigns and see this one
+  const { user, member, perms } = await requireTeam((p) => p.campaignCreate && p.campaignView !== 'none');
+  const campaign = await one<{ uc_id: number; uc_status: number }>('SELECT uc_id, uc_status FROM js_user_campaign WHERE uc_id = $1 AND uc_user_id = $2 AND ($3::int = 0 OR uc_member_id = $3)', [id, user.u_id, member && perms.campaignView === 'own' ? member.um_id : 0]);
   if (!campaign) {
     await flash('error', 'Campaign not found.');
     refresh();
@@ -30,9 +31,10 @@ export async function cancelCampaignAction(id: number): Promise<void> {
 
 /** "Resend Failed": queue every failed message of the campaign again. */
 export async function resendFailedAction(id: number): Promise<void> {
-  const user = await requireUser();
+  // Cancel / resend: the owner, or a member who may create campaigns and see this one
+  const { user, member, perms } = await requireTeam((p) => p.campaignCreate && p.campaignView !== 'none');
   await refreshSendSettings();
-  const campaign = await one<{ uc_id: number; uc_status: number }>('SELECT uc_id, uc_status FROM js_user_campaign WHERE uc_id = $1 AND uc_user_id = $2', [id, user.u_id]);
+  const campaign = await one<{ uc_id: number; uc_status: number }>('SELECT uc_id, uc_status FROM js_user_campaign WHERE uc_id = $1 AND uc_user_id = $2 AND ($3::int = 0 OR uc_member_id = $3)', [id, user.u_id, member && perms.campaignView === 'own' ? member.um_id : 0]);
   if (!campaign) {
     await flash('error', 'Campaign not found.');
   } else if (Number(campaign.uc_status) === CAMPAIGN.CANCELLED || Number(campaign.uc_status) === CAMPAIGN.SCHEDULED) {

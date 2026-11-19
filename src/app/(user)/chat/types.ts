@@ -17,6 +17,7 @@ export interface ConvRow {
   outgoing: boolean; // last message was ours (reply icon)
   live: boolean; // reply window open
   labels: number[]; // js_chat_label ids
+  assigned: number; // team member the chat is assigned to (js_user_member.um_id), 0 = nobody
 }
 
 /** Thread header (_header.blade.php). */
@@ -101,6 +102,8 @@ export interface ThreadResponse {
   window_left?: number;
   row?: ConvRow | null;
   unread_total?: number;
+  /** Team member the chat is assigned to (0 = nobody). */
+  assigned?: number;
 }
 
 export interface PollResponse {

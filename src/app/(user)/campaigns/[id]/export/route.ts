@@ -1,5 +1,5 @@
 import { NextResponse, type NextRequest } from 'next/server';
-import { getUser } from '@/lib/auth';
+import { teamAccount } from '@/lib/auth';
 import { value } from '@/lib/db';
 import { csvResponse, sp } from '@/lib/http';
 import { phpDate } from '@/lib/time';
@@ -11,10 +11,11 @@ type Row = Pick<MessageRow, 'm_mobile_no' | 'm_status' | 'm_message_id' | 'm_del
 
 /** GET /campaigns/{id}/export — recipients with status as CSV (CampaignController::export), streamed. */
 export async function GET(req: NextRequest, ctx: { params: Promise<{ id: string }> }) {
-  const user = await getUser();
-  if (!user) return redirectTo('/');
+  const account = await teamAccount((p) => p.campaignView !== 'none');
+  if (!account) return redirectTo('/');
+  const { user, member, perms } = account;
   const id = parseInt((await ctx.params).id, 10);
-  if (!Number.isFinite(id) || !(await value('SELECT 1 FROM js_user_campaign WHERE uc_id = $1 AND uc_user_id = $2', [id, user.u_id]))) {
+  if (!Number.isFinite(id) || !(await value('SELECT 1 FROM js_user_campaign WHERE uc_id = $1 AND uc_user_id = $2 AND ($3::int = 0 OR uc_member_id = $3)', [id, user.u_id, member && perms.campaignView === 'own' ? member.um_id : 0]))) {
     return new NextResponse('Not Found', { status: 404 });
   }
 

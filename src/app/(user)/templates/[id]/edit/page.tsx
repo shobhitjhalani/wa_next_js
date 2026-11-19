@@ -2,7 +2,7 @@ import type { Metadata } from 'next';
 import Link from 'next/link';
 import { forbidden, notFound } from 'next/navigation';
 import { PageTitle } from '@/components/PageTitle';
-import { requireUser } from '@/lib/auth';
+import { requireTeam } from '@/lib/auth';
 import { listFlows } from '@/lib/services/meta';
 import { templateFormValues } from '@/lib/services/templates';
 import { updateTemplate } from '../../create/actions';
@@ -14,7 +14,7 @@ export const metadata: Metadata = { title: 'Edit WA Template' };
 
 /** Edit a standard template: loads it from WhatsApp and submits the changes for review. */
 export default async function EditTemplatePage({ params }: { params: Promise<{ id: string }> }) {
-  const user = await requireUser();
+  const { user } = await requireTeam((p) => p.template === 'edit');
   if (!user.u_wa_b_id) forbidden();
   const { id } = await params;
   if (!/^\d{1,9}$/.test(id)) notFound();

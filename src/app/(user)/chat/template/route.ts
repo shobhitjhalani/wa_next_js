@@ -1,5 +1,5 @@
 import { randomUUID } from 'node:crypto';
-import { getUser } from '@/lib/auth';
+import { canOpenChat, inboxAccess, NOT_YOURS } from '../access';
 import { exec, one, query } from '@/lib/db';
 import { nestedForm, nFile, nList, nObj, nStr, nStrings } from '@/lib/form-nested';
 import { contactId, recordMessage } from '@/lib/models';
@@ -21,7 +21,8 @@ function invalid(message: string, status = 422) {
 
 /** GET /chat/template — the approved templates the inbox popup can send. */
 export async function GET() {
-  const user = await getUser();
+  const access = await inboxAccess();
+  const user = access?.user ?? null;
   await refreshSendSettings();
   if (!user) return invalid('Unauthenticated.', 401);
   const templates = await query<{ ut_id: number; ut_name: string }>(
@@ -43,7 +44,8 @@ export async function GET() {
  * Fields: mb, ucode, temp_id, body_parameters[], img_value[], cards[c][media|params[]|url_params[b]].
  */
 export async function POST(req: Request) {
-  const user = await getUser();
+  const access = await inboxAccess();
+  const user = access?.user ?? null;
   await refreshSendSettings();
   if (!user) return invalid('Unauthenticated.', 401);
   if (!sameOrigin(req)) return invalid('CSRF token mismatch.', 419);
@@ -57,6 +59,7 @@ export async function POST(req: Request) {
   const input = nestedForm(fd);
   const mobile = cleanMobile(nStr(input, 'mb'));
   if (!mobile || mobile.length > 20) return invalid('Open a conversation first.');
+  if (!(await canOpenChat(access!, mobile))) return invalid(NOT_YOURS, 403);
   const ucode = nStr(input, 'ucode') || randomUUID();
   if (ucode.length > 100) return invalid('Invalid request.');
 

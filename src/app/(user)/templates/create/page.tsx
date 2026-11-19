@@ -1,7 +1,7 @@
 import type { Metadata } from 'next';
 import { forbidden } from 'next/navigation';
 import { PageTitle } from '@/components/PageTitle';
-import { requireUser } from '@/lib/auth';
+import { requireTeam } from '@/lib/auth';
 import { sp } from '@/lib/http';
 import { listFlows } from '@/lib/services/meta';
 import { storeTemplate } from './actions';
@@ -13,7 +13,7 @@ export const metadata: Metadata = { title: 'Create WA Template' };
 
 /** New standard / carousel template form (User\TemplateController::create). */
 export default async function CreateTemplatePage({ searchParams }: { searchParams: Promise<Record<string, string | string[] | undefined>> }) {
-  const user = await requireUser();
+  const { user } = await requireTeam((p) => p.template === 'edit');
   // Templates are created through the API on the account's WABA
   if (!user.u_wa_b_id) forbidden();
   const kind = sp(await searchParams, 'kind') === 'carousel' ? 'CAROUSEL' : 'STANDARD';

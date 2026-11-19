@@ -1,11 +1,36 @@
-import { requireUser } from '@/lib/auth';
+import { requireAccount } from '@/lib/auth';
+import { memberHome, type TeamPerms } from '@/lib/team';
 import { Shell } from '@/components/panel/Shell';
 import type { MenuItem } from '@/components/panel/Sidebar';
 import { API_DOCS_VISIBLE } from './api_docs/visibility';
+import { CrmReminders } from './crm/CrmReminders';
 
-/** User panel frame (layouts/user.blade.php). Every page below requires a signed-in user. */
+/** Menu of a team member: only the sections their permissions open. */
+function memberMenu(p: TeamPerms): MenuItem[] {
+  const campaigns = [
+    ...(p.campaignView !== 'none' ? [{ label: 'Dashboard', href: '/campaigns' }] : []),
+    ...(p.campaignCreate ? [{ label: 'New Campaign', href: '/compose' }] : []),
+  ];
+  return [
+    ...(p.template !== 'none' ? [{ label: 'WA Templates', icon: 'ri-file-edit-line', href: '/templates' }] : []),
+    ...(campaigns.length ? [{ label: 'Campaigns', icon: 'ri-megaphone-line', children: campaigns }] : []),
+    ...(p.inbox !== 'none' ? [{ label: 'Inbox', icon: 'ri-chat-3-line', href: '/chat' }] : []),
+    { label: 'My Account', icon: 'ri-user-settings-line', href: '/team/account' },
+  ];
+}
+
+/** User panel frame (layouts/user.blade.php). Every page below requires a signed-in user (owner or team member). */
 export default async function UserLayout({ children }: { children: React.ReactNode }) {
-  const user = await requireUser();
+  const { user, member, perms } = await requireAccount();
+
+  if (member) {
+    return (
+      <Shell home={memberHome(perms)} profileUrl="/team/account" logoutUrl="/logout"
+        userName={member.um_name} userSub={user.u_company_name ?? user.u_name ?? ''} menu={memberMenu(perms)}>
+        {children}
+      </Shell>
+    );
+  }
 
   const menu: MenuItem[] = [
     { label: 'Dashboard', icon: 'ri-home-4-line', href: '/dashboard' },
@@ -25,6 +50,15 @@ export default async function UserLayout({ children }: { children: React.ReactNo
     },
     // Shown when the admin switched Chatbot Flows on for this account
     ...(Number(user.u_bot_flow) === 1 ? [{ label: 'Chatbot Flows', icon: 'ri-flow-chart', href: '/bot_flows' } satisfies MenuItem] : []),
+    // Shown when the admin switched the Leads CRM on for this account
+    ...(Number(user.u_crm) === 1
+      ? [{
+        label: 'Leads CRM', icon: 'ri-user-star-line', children: [
+          { label: 'Leads', href: '/crm' },
+          { label: 'Webhook & Facebook', href: '/crm/settings' },
+        ],
+      } satisfies MenuItem]
+      : []),
     {
       label: 'Incoming', icon: 'ri-chat-3-line', children: [
         { label: 'Inbox', href: '/chat' },
@@ -59,6 +93,7 @@ export default async function UserLayout({ children }: { children: React.ReactNo
         { label: 'Recharge History', href: '/recharge' },
       ],
     },
+    { label: 'My Team', icon: 'ri-team-line', href: '/team', match: ['/team'] },
   ];
 
   return (
@@ -71,6 +106,7 @@ export default async function UserLayout({ children }: { children: React.ReactNo
       menu={menu}
     >
       {children}
+      {Number(user.u_crm) === 1 && <CrmReminders />}
     </Shell>
   );
 }

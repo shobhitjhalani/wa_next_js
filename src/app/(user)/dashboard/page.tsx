@@ -3,7 +3,9 @@ import Link from 'next/link';
 import { PageTitle } from '@/components/PageTitle';
 import { StatusMatrix } from '@/components/StatusMatrix';
 import { DateRangeInput } from '@/components/ui';
-import { requireUser } from '@/lib/auth';
+import { redirect } from 'next/navigation';
+import { requireAccount, requireUser } from '@/lib/auth';
+import { memberHome } from '@/lib/team';
 import { config } from '@/lib/config';
 import { query, value } from '@/lib/db';
 import { sp } from '@/lib/http';
@@ -18,6 +20,9 @@ type Params = Promise<Record<string, string | string[] | undefined>>;
 
 /** User dashboard (User\DashboardController::index). */
 export default async function DashboardPage({ searchParams }: { searchParams: Params }) {
+  // Team members don't see the account dashboard (balance, plan): they land on their first section
+  const account = await requireAccount();
+  if (account.member) redirect(memberHome(account.perms));
   const user = await requireUser();
   const params = await searchParams;
   const dtSearch = params.dt_search === undefined ? todayString() : sp(params, 'dt_search');

@@ -1,4 +1,4 @@
-import { getUser } from '@/lib/auth';
+import { teamAccount } from '@/lib/auth';
 import { like, one, query } from '@/lib/db';
 
 export interface GroupContactsPage {
@@ -16,7 +16,7 @@ const PER_PAGE = 50;
  * (GET /groups/{id}/contacts?q=&page=). Only the signed-in user's own groups.
  */
 export async function GET(req: Request, ctx: { params: Promise<{ id: string }> }) {
-  const user = await getUser();
+  const user = (await teamAccount((p) => p.campaignCreate))?.user;
   if (!user) return Response.json({ message: 'Unauthenticated.' }, { status: 401 });
   const id = parseInt((await ctx.params).id, 10) || 0;
   const group = await one<{ up_group_name: string | null }>(

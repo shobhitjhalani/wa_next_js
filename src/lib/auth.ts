@@ -7,6 +7,7 @@ import { jwtVerify, SignJWT } from 'jose';
 import { config } from './config';
 import { exec, insert, one } from './db';
 import { employeeCanAccess } from './models';
+import { normalizePerms, OWNER_PERMS, type TeamPerms } from './team';
 import type { EmployeeRow, UserRow } from './types';
 
 /**
@@ -25,6 +26,7 @@ interface SessionClaims {
   sub: string;
   lid: number; // js_user_login_log / js_employee_login_log id
   sid: string; // session id written to the login log
+  mid?: number; // user panel: a team member (js_user_member.um_id) signed in to the account `sub`
 }
 
 function secret(): Uint8Array {
@@ -45,9 +47,9 @@ async function readClaims(name: string): Promise<SessionClaims | null> {
   }
 }
 
-async function writeSession(name: string, accountId: number, lid: number, sid: string, remember: boolean): Promise<void> {
+async function writeSession(name: string, accountId: number, lid: number, sid: string, remember: boolean, mid?: number): Promise<void> {
   const maxAge = remember ? REMEMBER_SECONDS : config.sessionHours * 3600;
-  const token = await new SignJWT({ lid, sid })
+  const token = await new SignJWT(mid ? { lid, sid, mid } : { lid, sid })
     .setProtectedHeader({ alg: 'HS256' })
     .setSubject(String(accountId))
     .setAudience(name)
@@ -71,18 +73,62 @@ export async function clientIp(): Promise<string> {
 
 // ------------------------------------------------------------------ user panel
 
-/** The signed-in WhatsApp client account, or null. Cached for the request. */
-export const getUser = cache(async (): Promise<UserRow | null> => {
+/** A team member of an account (js_user_member); see src/lib/team.ts. */
+export interface MemberRow {
+  um_id: number; um_user_id: number; um_name: string; um_username: string; um_email: string; um_mobile: string;
+  um_perms: unknown; um_status: number; um_last_login: number; um_created_on: number;
+}
+
+/** Whoever is signed in to the user panel: the account, and the team member when it is not the owner. */
+export interface Account { user: UserRow; member: MemberRow | null; perms: TeamPerms }
+
+/** The signed-in account (owner or team member), or null. Cached for the request. */
+export const getAccount = cache(async (): Promise<Account | null> => {
   const claims = await readClaims(USER_COOKIE);
   if (!claims) return null;
-  return one<UserRow>('SELECT * FROM js_user WHERE u_id = $1 AND u_dstatus = 0', [Number(claims.sub)]);
+  const user = await one<UserRow>('SELECT * FROM js_user WHERE u_id = $1 AND u_dstatus = 0', [Number(claims.sub)]);
+  if (!user) return null;
+  if (!claims.mid) return { user, member: null, perms: OWNER_PERMS };
+  // A disabled or deleted member is signed out at once
+  const member = await one<MemberRow>('SELECT * FROM js_user_member WHERE um_id = $1 AND um_user_id = $2 AND um_status = 1', [Number(claims.mid), user.u_id]);
+  return member ? { user, member, perms: normalizePerms(member.um_perms) } : null;
 });
 
-/** Signed-in user or redirect to the login page. */
+/**
+ * The signed-in account OWNER, or null. Team members get null here, so every page, action and
+ * route that has not opted in to team access (requireAccount / requireTeam) stays owner-only.
+ */
+export const getUser = cache(async (): Promise<UserRow | null> => {
+  const account = await getAccount();
+  return account && !account.member ? account.user : null;
+});
+
+/** Signed-in owner, or redirect to the login page (a team member gets 403). */
 export async function requireUser(): Promise<UserRow> {
-  const user = await getUser();
-  if (!user) redirect('/');
-  return user;
+  const account = await getAccount();
+  if (!account) redirect('/');
+  if (account.member) forbidden();
+  return account.user;
+}
+
+/** Signed-in owner or team member, or redirect to the login page. */
+export async function requireAccount(): Promise<Account> {
+  const account = await getAccount();
+  if (!account) redirect('/');
+  return account;
+}
+
+/** Owner, or a team member whose rights pass `check` (403 otherwise): `requireTeam((p) => p.inbox !== 'none')`. */
+export async function requireTeam(check: (p: TeamPerms) => boolean): Promise<Account> {
+  const account = await requireAccount();
+  if (!check(account.perms)) forbidden();
+  return account;
+}
+
+/** Route-handler version of requireTeam: the account, or null when signed out / not allowed. */
+export async function teamAccount(check: (p: TeamPerms) => boolean): Promise<Account | null> {
+  const account = await getAccount();
+  return account && check(account.perms) ? account : null;
 }
 
 /** AI pages are only available to accounts with u_enable_ai = 1 (403 otherwise). */
@@ -99,6 +145,13 @@ export async function requireBotUser(): Promise<UserRow> {
   return user;
 }
 
+/** Leads CRM pages are only available to accounts the admin switched on (u_crm = 1; 403 otherwise). */
+export async function requireCrmUser(): Promise<UserRow> {
+  const user = await requireUser();
+  if (Number(user.u_crm) !== 1) forbidden();
+  return user;
+}
+
 export async function startUserSession(user: Pick<UserRow, 'u_id' | 'u_name'>, remember: boolean): Promise<void> {
   const sid = randomUUID();
   const log = await insert<{ ll_id: number }>('js_user_login_log', {
@@ -111,11 +164,26 @@ export async function startUserSession(user: Pick<UserRow, 'u_id' | 'u_name'>, r
   await writeSession(USER_COOKIE, user.u_id, log.ll_id, sid, remember);
 }
 
+/** Sign a team member in to their owner's account. */
+export async function startMemberSession(member: Pick<MemberRow, 'um_id' | 'um_name' | 'um_user_id'>, remember: boolean): Promise<void> {
+  const sid = randomUUID();
+  const t = Math.floor(Date.now() / 1000);
+  const log = await insert<{ ll_id: number }>('js_user_login_log', {
+    ll_sid: member.um_user_id,
+    ll_s_user: `${member.um_name} (team)`,
+    ll_s_time: t,
+    ll_session_id: sid,
+    ll_ip: await clientIp(),
+  }, 'll_id');
+  await exec('UPDATE js_user_member SET um_last_login = $2 WHERE um_id = $1', [member.um_id, t]);
+  await writeSession(USER_COOKIE, member.um_user_id, log.ll_id, sid, remember, member.um_id);
+}
+
 export async function endUserSession(): Promise<void> {
   const claims = await readClaims(USER_COOKIE);
   if (claims) {
     await exec('UPDATE js_user_login_log SET ll_e_time = $2 WHERE ll_id = $1', [claims.lid, Math.floor(Date.now() / 1000)]);
-    await exec('UPDATE js_user SET u_last_active = 0 WHERE u_id = $1', [Number(claims.sub)]);
+    if (!claims.mid) await exec('UPDATE js_user SET u_last_active = 0 WHERE u_id = $1', [Number(claims.sub)]);
   }
   (await cookies()).delete(USER_COOKIE);
 }

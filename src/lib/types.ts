@@ -49,6 +49,7 @@ export interface UserRow {
   u_enable_ai: number;
   /** Chatbot Flows menu / feature: 1 Yes · 2 No (admin switch). */
   u_bot_flow: number;
+  u_crm: number;
   u_enable_calling: number;
   u_calling_url: string | null;
   u_ai_key: string | null;

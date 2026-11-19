@@ -13,6 +13,7 @@ import { pool } from '@/lib/db';
 import { requestedBackups, scheduledBackup } from '@/lib/services/backup';
 import { checkDiskSpace } from '@/lib/services/disk-alert';
 import { resumeBotSessions } from '@/lib/services/bot-flows';
+import { sendCrmReminders } from '@/lib/services/crm';
 import { cleanup, dispatchCampaigns, emailReports, expireMessages, expirePlans, processWebhooks, sendQueue } from './jobs';
 
 /** dailyAt: one 'HH:MM' or several (the job runs once after each of them). */
@@ -33,6 +34,8 @@ export const JOBS: Job[] = [
   { name: 'process-webhooks', schedule: { everySeconds: 60 }, run: (log) => processWebhooks(log) },
   // Chatbot flows: continue conversations after a Wait step, expire ones waiting over 24 h for a reply
   { name: 'bot-flows', schedule: { everySeconds: 30 }, run: (log) => resumeBotSessions(log) },
+  // Leads CRM: e-mail follow-ups that are due (the panel pop-up polls on its own)
+  { name: 'crm-reminders', schedule: { everySeconds: 60 }, run: (log) => sendCrmReminders(log) },
   { name: 'expire-plans', schedule: { hourly: true }, run: (log) => expirePlans(log) },
   { name: 'cleanup', schedule: { dailyAt: '02:30' }, run: (log) => cleanup(log) },
   // Email DISK_ALERT_EMAIL when the disk is DISK_ALERT_PERCENT (90) % full — once a day while it stays full

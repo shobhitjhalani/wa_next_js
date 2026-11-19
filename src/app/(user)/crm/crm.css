@@ -1,0 +1,22 @@
+/* Leads CRM: list, lead page and timeline. Theme colours (--vz-*) keep light / dark mode working. */
+.crm-count-due { background: var(--vz-danger) !important; color: #fff !important; }
+.crm-clamp { display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; white-space: normal; }
+
+.crm-timeline { list-style: none; margin: 0; padding: 0; position: relative; }
+.crm-timeline::before { content: ''; position: absolute; left: 15px; top: 6px; bottom: 6px; width: 2px; background: var(--vz-border-color); }
+.crm-timeline li { position: relative; padding: 0 0 1.25rem 46px; }
+.crm-timeline li:last-child { padding-bottom: 0; }
+.crm-tl-icon {
+  position: absolute; left: 0; top: 0; width: 32px; height: 32px; border-radius: 50%;
+  display: grid; place-items: center; font-size: 1rem;
+  background: var(--vz-card-bg, #fff); border: 2px solid var(--vz-border-color); color: var(--vz-secondary-color);
+}
+.crm-tl-note { white-space: pre-wrap; word-break: break-word; }
+.crm-fields dt { font-weight: 500; color: var(--vz-secondary-color); }
+.crm-fields dd { word-break: break-word; }
+.crm-next { border-left: 3px solid var(--vz-warning); }
+.crm-next.overdue { border-left-color: var(--vz-danger); }
+.crm-code { font-family: var(--vz-font-monospace, monospace); font-size: .8rem; word-break: break-all; }
+
+/* Reminder pop-up (CrmReminders in the user layout) */
+.card.crm-toast { position: fixed; right: 1.25rem; bottom: 1.25rem; z-index: 1090; width: min(360px, calc(100vw - 2rem)); }

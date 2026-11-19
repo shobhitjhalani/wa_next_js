@@ -14,7 +14,7 @@ import { WaOptions } from './WaOptions';
 
 const FLAG_LABELS: Record<(typeof FLAGS)[number], string> = {
   send_wa: 'Send Flow', wa_enable_incoming: 'Incoming Webhook', wa_enable_catalogue: 'Catalogue',
-  send_app: 'Forward to App URL', is_new_no: 'MM Lite (Marketing)', enable_ai: 'AI', bot_flow: 'Chatbot Flows',
+  send_app: 'Forward to App URL', is_new_no: 'MM Lite (Marketing)', enable_ai: 'AI', bot_flow: 'Chatbot Flows', crm: 'Leads CRM',
   google_sheet: 'Google Sheet', wa_coexistence: 'Coexistence (Mobile & Web)', own_account: 'Client manages own WABA',
 };
 
@@ -129,7 +129,7 @@ export async function UserForm({ user, type }: { user: UserRow | null; type: num
         {isWa ? (
           <div className="card-body">
             <WaOptions
-              flags={Object.fromEntries(['send_wa', 'wa_enable_incoming', 'wa_enable_catalogue', 'send_app', 'enable_ai', 'bot_flow', 'google_sheet', 'wa_coexistence'].map((f) => [f, v(f) === '1']))}
+              flags={Object.fromEntries(['send_wa', 'wa_enable_incoming', 'wa_enable_catalogue', 'send_app', 'enable_ai', 'bot_flow', 'crm', 'google_sheet', 'wa_coexistence'].map((f) => [f, v(f) === '1']))}
               values={{ wa_form_url: v('wa_form_url'), wa_catalogue_url: v('wa_catalogue_url'), wa_app_url: v('wa_app_url'), ai_key: v('ai_key') }}
             />
           </div>

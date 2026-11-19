@@ -24,12 +24,12 @@ export const BUBBLE_COLUMNS =
   'm_id, m_is_incoming, m_content, m_msg_type, m_msg_template_name, m_msg_template_para, m_image, m_carousel, m_created_on, ' +
   'm_delivery_status, m_status, m_message_id, m_status_response, m_is_read, m_context_id, m_buttons, m_response_file_name';
 
-const CONV_COLUMNS = 'cl_mobile_no, cl_name, cl_last_msg, cl_last_msg_id, cl_last_preview, cl_last_dir, cl_last_in, cl_unread, '
+const CONV_COLUMNS = 'cl_mobile_no, cl_name, cl_last_msg, cl_last_msg_id, cl_last_preview, cl_last_dir, cl_last_in, cl_unread, cl_assigned_member, '
   // Label ids of the chat (js_chat_label_contact)
   + "COALESCE((SELECT array_agg(lc.lc_label_id ORDER BY lc.lc_label_id) FROM js_chat_label_contact lc WHERE lc.lc_contact_id = js_user_contact_list.cl_id), '{}') AS labels";
 
 export type ConvSource = Pick<ContactRow, 'cl_mobile_no' | 'cl_name' | 'cl_last_msg' | 'cl_last_msg_id' | 'cl_last_preview' | 'cl_last_dir' | 'cl_last_in' | 'cl_unread'>
-  & { labels?: number[] };
+  & { labels?: number[]; cl_assigned_member?: number };
 export type BubbleSource = Pick<MessageRow, 'm_id' | 'm_is_incoming' | 'm_content' | 'm_msg_type' | 'm_msg_template_name' | 'm_msg_template_para' | 'm_image' | 'm_created_on' | 'm_delivery_status' | 'm_status' | 'm_message_id' | 'm_status_response' | 'm_is_read' | 'm_context_id'>
   & Partial<Pick<MessageRow, 'm_carousel' | 'm_buttons' | 'm_response_file_name'>>;
 
@@ -74,6 +74,10 @@ export interface ConvFilter {
   q: string;
   /** Only chats with this label (js_chat_label.lb_id). */
   label?: number | null;
+  /** "Own chats" team member: only chats assigned to this member id (0 / absent = every chat). */
+  scope?: number;
+  /** List filter: '' everyone, 'none' unassigned, or a member id. */
+  assigned?: string;
 }
 
 /** The `label` request value: a label id, or null for all chats. */
@@ -86,6 +90,15 @@ export function labelParam(v: string | null | undefined): number | null {
 function conversationWhere(f: ConvFilter, params: unknown[]): string {
   let sql = 'cl_user_id = $1 AND cl_last_msg_id > 0';
   if (f.filter === 'unread') sql += ' AND cl_unread > 0';
+  if (f.scope) {
+    params.push(f.scope);
+    sql += ` AND cl_assigned_member = $${params.length}`;
+  } else if (f.assigned === 'none') {
+    sql += ' AND cl_assigned_member = 0';
+  } else if (f.assigned && /^\d+$/.test(f.assigned)) {
+    params.push(Number(f.assigned));
+    sql += ` AND cl_assigned_member = $${params.length}`;
+  }
   if (f.label) {
     params.push(f.label);
     sql += ` AND EXISTS (SELECT 1 FROM js_chat_label_contact lc WHERE lc.lc_contact_id = cl_id AND lc.lc_label_id = $${params.length})`;
@@ -144,11 +157,14 @@ export async function contact(userId: number, mobile: string): Promise<ConvSourc
   const row = await one<ConvSource>(`SELECT ${CONV_COLUMNS} FROM js_user_contact_list WHERE cl_user_id = $1 AND cl_mobile_no = $2`, [userId, mobile]);
   return row
     ? { ...row, exists: true }
-    : { cl_mobile_no: mobile, cl_name: null, cl_last_msg: null, cl_last_msg_id: 0, cl_last_preview: null, cl_last_dir: 0, cl_last_in: 0, cl_unread: 0, labels: [], exists: false };
+    : { cl_mobile_no: mobile, cl_name: null, cl_last_msg: null, cl_last_msg_id: 0, cl_last_preview: null, cl_last_dir: 0, cl_last_in: 0, cl_unread: 0, cl_assigned_member: 0, labels: [], exists: false };
 }
 
-export async function unreadTotal(userId: number): Promise<number> {
-  return (await value<number>('SELECT COALESCE(SUM(cl_unread), 0)::int FROM js_user_contact_list WHERE cl_user_id = $1 AND cl_unread > 0', [userId])) ?? 0;
+/** Unread messages in every chat, or (scope = member id) in the chats assigned to that member. */
+export async function unreadTotal(userId: number, scope = 0): Promise<number> {
+  return (await value<number>(
+    'SELECT COALESCE(SUM(cl_unread), 0)::int FROM js_user_contact_list WHERE cl_user_id = $1 AND cl_unread > 0 AND ($2::int = 0 OR cl_assigned_member = $2)',
+    [userId, scope])) ?? 0;
 }
 
 /**
@@ -204,6 +220,7 @@ export function convRow(c: ConvSource): ConvRow {
     preview: String(c.cl_last_preview ?? ''),
     outgoing: Number(c.cl_last_dir) === 2,
     labels: (c.labels ?? []).map(Number),
+    assigned: Number(c.cl_assigned_member) || 0,
     live: contactWindowLeft(c) > 0,
   };
 }

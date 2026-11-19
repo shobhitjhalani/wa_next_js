@@ -1,20 +1,30 @@
 'use server';
 
-import { requireUser } from '@/lib/auth';
 import { labelColor, MAX_LABEL_NAME, MAX_LABELS, type ChatLabel } from '@/lib/chat-labels';
 import { exec, one, query, value } from '@/lib/db';
 import { now } from '@/lib/time';
 import { normalizePhone } from '@/lib/phone';
 import { after } from 'next/server';
+import { contactId } from '@/lib/models';
+import { canOpenChat, inboxAccess, NOT_YOURS, type InboxAccess } from './access';
 import { clearAllUnread, cleanMobile, markAllMessagesRead, unreadTotal } from './inbox';
 
-/** Inbox: "Mark all read" and chat labels (create / edit / delete, put on or take off a chat). */
+/** Inbox: "Mark all read", new chat, assigning chats to the team and chat labels. Owner or team members with inbox access. */
 
 type Result<T = object> = ({ ok: true } & T) | { ok: false; error: string };
 
+const DENIED = { ok: false as const, error: 'You do not have access to the inbox.' };
+
+/** Inbox access or null (server actions answer with an error instead of a 403 page). */
+async function access(): Promise<InboxAccess | null> {
+  return inboxAccess();
+}
+
 /** Every unread incoming message in every chat → read: the counts at once, the messages in batches afterwards. */
 export async function markAllChatsRead(): Promise<Result<{ marked: number; unread: number }>> {
-  const user = await requireUser();
+  const a = await access();
+  if (!a || !a.canAssign) return DENIED;
+  const { user } = a;
   const marked = await clearAllUnread(user.u_id);
   after(() => markAllMessagesRead(user.u_id).catch((e) => console.error('[chat] mark all read failed', user.u_id, e)));
   return { ok: true, marked, unread: await unreadTotal(user.u_id) };
@@ -22,15 +32,42 @@ export async function markAllChatsRead(): Promise<Result<{ marked: number; unrea
 
 /** "New chat": the typed number in the form conversations are stored (no home country code), or why it is not a mobile number. */
 export async function newChatNumber(raw: string): Promise<Result<{ mobile: string }>> {
-  await requireUser();
+  const a = await access();
+  if (!a) return DENIED;
   const mobile = normalizePhone(raw);
-  return mobile ? { ok: true, mobile } : { ok: false, error: 'Enter a valid mobile number, e.g. 9876543210 or +44 7911 123456.' };
+  if (!mobile) return { ok: false, error: 'Enter a valid mobile number, e.g. 9876543210 or +44 7911 123456.' };
+  if (a.scope) {
+    // "Own chats" member: the new chat becomes theirs, unless a teammate already has it
+    const id = await contactId(a.user.u_id, mobile);
+    const taken = await value<number>('SELECT cl_assigned_member FROM js_user_contact_list WHERE cl_id = $1', [id]);
+    if (taken && Number(taken) !== a.scope) return { ok: false, error: 'This number is already assigned to another team member.' };
+    await exec('UPDATE js_user_contact_list SET cl_assigned_member = $2 WHERE cl_id = $1 AND cl_assigned_member = 0', [id, a.scope]);
+  }
+  return { ok: true, mobile };
+}
+
+/** Assign a chat to a team member (memberId 0 = unassign). Owner and "All chats" members. */
+export async function assignChat(mobileRaw: string, memberId: number): Promise<Result<{ assigned: number }>> {
+  const a = await access();
+  if (!a || !a.canAssign) return { ok: false, error: 'Only the account owner or members with access to all chats can assign chats.' };
+  const mobile = cleanMobile(mobileRaw);
+  if (!mobile) return { ok: false, error: 'Open a conversation first.' };
+  const id = Number(memberId) || 0;
+  if (id && !(await value(
+    `SELECT 1 FROM js_user_member WHERE um_id = $1 AND um_user_id = $2 AND um_status = 1 AND COALESCE(um_perms->>'inbox', 'none') <> 'none'`, [id, a.user.u_id]))) {
+    return { ok: false, error: 'This team member cannot use the inbox.' };
+  }
+  const cid = await contactId(a.user.u_id, mobile);
+  if (!cid) return { ok: false, error: 'Open a conversation first.' };
+  // Touch so other open inbox tabs pick the change up on their next poll
+  await exec('UPDATE js_user_contact_list SET cl_assigned_member = $2, cl_updated_on = now() WHERE cl_id = $1', [cid, id]);
+  return { ok: true, assigned: id };
 }
 
 /** The account's labels, A–Z, with how many chats have each. */
 export async function chatLabels(): Promise<ChatLabel[]> {
-  const user = await requireUser();
-  return listLabels(user.u_id);
+  const a = await access();
+  return a ? listLabels(a.user.u_id) : [];
 }
 
 async function listLabels(userId: number): Promise<ChatLabel[]> {
@@ -48,7 +85,9 @@ function cleanName(name: unknown): string | null {
 
 /** New label; with `mobile` it is put on that chat straight away. */
 export async function createChatLabel(name: string, color: string, mobile?: string): Promise<Result<{ labels: ChatLabel[]; id: number }>> {
-  const user = await requireUser();
+  const a = await access();
+  if (!a) return DENIED;
+  const { user } = a;
   const n = cleanName(name);
   if (!n) return { ok: false, error: `Enter a label name (up to ${MAX_LABEL_NAME} characters).` };
   if (((await value<number>('SELECT COUNT(*)::int FROM js_chat_label WHERE lb_user_id = $1', [user.u_id])) ?? 0) >= MAX_LABELS) {
@@ -59,12 +98,14 @@ export async function createChatLabel(name: string, color: string, mobile?: stri
   }
   const id = (await value<number>('INSERT INTO js_chat_label (lb_user_id, lb_name, lb_color, lb_created_on) VALUES ($1, $2, $3, $4) RETURNING lb_id',
     [user.u_id, n, labelColor(color), now()]))!;
-  if (mobile) await toggle(user.u_id, cleanMobile(mobile), id, true);
+  if (mobile && (await canOpenChat(a, cleanMobile(mobile)))) await toggle(user.u_id, cleanMobile(mobile), id, true);
   return { ok: true, id, labels: await listLabels(user.u_id) };
 }
 
 export async function updateChatLabel(id: number, name: string, color: string): Promise<Result<{ labels: ChatLabel[] }>> {
-  const user = await requireUser();
+  const a = await access();
+  if (!a || !a.canAssign) return { ok: false, error: 'Only the account owner or members with access to all chats can edit labels.' };
+  const { user } = a;
   const n = cleanName(name);
   if (!n) return { ok: false, error: `Enter a label name (up to ${MAX_LABEL_NAME} characters).` };
   if (await value('SELECT 1 FROM js_chat_label WHERE lb_user_id = $1 AND lower(lb_name) = lower($2) AND lb_id <> $3', [user.u_id, n, id])) {
@@ -76,14 +117,19 @@ export async function updateChatLabel(id: number, name: string, color: string): 
 
 /** Delete a label; it comes off every chat. */
 export async function deleteChatLabel(id: number): Promise<Result<{ labels: ChatLabel[] }>> {
-  const user = await requireUser();
+  const a = await access();
+  if (!a || !a.canAssign) return { ok: false, error: 'Only the account owner or members with access to all chats can delete labels.' };
+  const { user } = a;
   await exec('DELETE FROM js_chat_label WHERE lb_id = $1 AND lb_user_id = $2', [id, user.u_id]);
   return { ok: true, labels: await listLabels(user.u_id) };
 }
 
 /** Put a label on a chat, or take it off. Returns the chat's labels. */
 export async function setChatLabel(mobile: string, labelId: number, on: boolean): Promise<Result<{ chat: number[]; labels: ChatLabel[] }>> {
-  const user = await requireUser();
+  const a = await access();
+  if (!a) return DENIED;
+  if (!(await canOpenChat(a, cleanMobile(mobile)))) return { ok: false, error: NOT_YOURS };
+  const { user } = a;
   const chat = await toggle(user.u_id, cleanMobile(mobile), labelId, on);
   if (!chat) return { ok: false, error: 'This chat can not be labelled yet.' };
   return { ok: true, chat, labels: await listLabels(user.u_id) };

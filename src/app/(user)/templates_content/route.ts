@@ -1,4 +1,4 @@
-import { getUser } from '@/lib/auth';
+import { teamAccount } from '@/lib/auth';
 import { one } from '@/lib/db';
 import { COMPOSE_TEMPLATE_COLUMNS, type ComposeTemplate } from '../compose/TemplateParts';
 
@@ -9,8 +9,10 @@ import { COMPOSE_TEMPLATE_COLUMNS, type ComposeTemplate } from '../compose/Templ
  * replaces two. Body: id (form-encoded or JSON). Unknown id → null.
  */
 export async function POST(request: Request) {
-  const user = await getUser();
-  if (!user) return Response.json({ message: 'Unauthenticated.' }, { status: 401 });
+  // Template previews: templates page, compose, and the inbox's "send template"
+  const account = await teamAccount((p) => p.template !== 'none' || p.campaignCreate || p.inbox !== 'none');
+  if (!account) return Response.json({ message: 'Unauthenticated.' }, { status: 401 });
+  const { user } = account;
 
   let id = 0;
   try {

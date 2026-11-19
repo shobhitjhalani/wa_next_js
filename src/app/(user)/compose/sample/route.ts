@@ -1,10 +1,10 @@
 import ExcelJS from 'exceljs';
-import { getUser } from '@/lib/auth';
+import { teamAccount } from '@/lib/auth';
 import { redirectTo } from '@/lib/redirect';
 
 /** GET /compose/sample — sample .xlsx for Audience → Excel Upload (Mobile + Name; the mobile column is text so Excel keeps every digit). */
 export async function GET() {
-  if (!(await getUser())) return redirectTo('/');
+  if (!(await teamAccount((p) => p.campaignCreate))) return redirectTo('/');
   const wb = new ExcelJS.Workbook();
   const ws = wb.addWorksheet('Contacts');
   ws.columns = [

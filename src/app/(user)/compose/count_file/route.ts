@@ -1,11 +1,11 @@
-import { getUser } from '@/lib/auth';
+import { teamAccount } from '@/lib/auth';
 import { ImportError, NUMBER_FILE_EXTENSIONS, readNumbersFile } from '@/lib/services/contacts-import';
 
 const MAX_NUMBERS_FILE = 10 * 1024 * 1024;
 
 /** POST /compose/count_file (multipart "file") → how many valid numbers the compose screen's Excel upload holds. */
 export async function POST(req: Request) {
-  const user = await getUser();
+  const user = (await teamAccount((p) => p.campaignCreate))?.user;
   if (!user) return Response.json({ message: 'Unauthenticated.' }, { status: 401 });
   const file = (await req.formData().catch(() => null))?.get('file');
   if (!(file instanceof File) || !file.size) return Response.json({ message: 'Choose a file.' }, { status: 422 });

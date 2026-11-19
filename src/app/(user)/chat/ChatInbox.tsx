@@ -3,7 +3,7 @@
 import { Fragment, useCallback, useEffect, useLayoutEffect, useRef, useState, type CSSProperties, type FormEvent, type MouseEvent } from 'react';
 import './chat-labels.css';
 import { LABEL_COLORS, type ChatLabel } from '@/lib/chat-labels';
-import { chatLabels, markAllChatsRead, newChatNumber } from './actions';
+import { assignChat, chatLabels, markAllChatsRead, newChatNumber } from './actions';
 import { LabelChips, LabelMenu } from './ChatLabels';
 import { SendTemplateModal } from './SendTemplateModal';
 import type { Bubble, ConvRow, ListResponse, PollResponse, RenderedTemplate, SendResponse, TemplateHeader, ThreadHeader, ThreadResponse } from './types';
@@ -66,9 +66,20 @@ function dayLabel(day: string): string {
   return diff === 0 ? 'Today' : diff === 1 ? 'Yesterday' : dayFormat.format(d);
 }
 
-export function ChatInbox({ selected, unreadTotal }: { selected: string; unreadTotal: number }) {
+/** Team members a chat can be assigned to, and what the signed-in person may do with assignments. */
+export interface InboxTeam {
+  members: { id: number; name: string }[];
+  /** Owner or "All chats" member: may assign chats and filter by assignee. */
+  canAssign: boolean;
+  /** Signed-in team member's id (0 = owner). */
+  me: number;
+  /** "Own chats" member: the list only has chats assigned to them. */
+  ownOnly: boolean;
+}
+
+export function ChatInbox({ selected, unreadTotal, team }: { selected: string; unreadTotal: number; team: InboxTeam }) {
   const st = useRef({
-    filter: 'all', q: '', label: null as number | null, listBefore: null as number | null, listMore: false, listLoading: false, listReq: 0,
+    filter: 'all', q: '', label: null as number | null, assigned: '', listBefore: null as number | null, listMore: false, listLoading: false, listReq: 0,
     mobile: null as string | null, oldest: null as number | null, newest: 0, more: false, olderLoading: false, threadReq: 0,
     windowLeft: 0, windowAt: 0, since: 0, sending: 0, pollTimer: undefined as ReturnType<typeof setTimeout> | undefined,
     searchTimer: undefined as ReturnType<typeof setTimeout> | undefined, alive: false, baseTitle: '',
@@ -82,6 +93,10 @@ export function ChatInbox({ selected, unreadTotal }: { selected: string; unreadT
   const [labelFilter, setLabelFilter] = useState('');
   const [threadLabels, setThreadLabels] = useState<number[]>([]);
   const [threadSaved, setThreadSaved] = useState(false); // the open number has a conversation (can be labelled)
+  const [threadAssigned, setThreadAssigned] = useState(0);
+  const [assignBusy, setAssignBusy] = useState(false);
+  const [assignFilter, setAssignFilter] = useState('');
+  const teamMap = new Map(team.members.map((m) => [m.id, m.name]));
   const [markingRead, setMarkingRead] = useState(false);
   const [newChat, setNewChat] = useState<{ value: string; error: string; busy: boolean } | null>(null);
   const labelMap = new Map(labels.map((l) => [l.id, l]));
@@ -117,7 +132,7 @@ export function ChatInbox({ selected, unreadTotal }: { selected: string; unreadT
     const req = ++st.listReq;
     st.listLoading = true;
     setListState('Loading…');
-    getJSON<ListResponse>(URLS.list, { filter: st.filter, q: st.q, label: st.label ?? undefined, before: st.listBefore ?? undefined })
+    getJSON<ListResponse>(URLS.list, { filter: st.filter, q: st.q, label: st.label ?? undefined, assigned: st.assigned || undefined, before: st.listBefore ?? undefined })
       .then((res) => {
         if (req !== st.listReq) return; // a newer search/filter replaced this one
         const base = reset ? [] : rowsRef.current;
@@ -180,6 +195,7 @@ export function ChatInbox({ selected, unreadTotal }: { selected: string; unreadT
         if (res.row) upsertRow(m, res.row);
         setThreadLabels(res.row?.labels ?? []);
         setThreadSaved(!!res.row);
+        setThreadAssigned(res.assigned ?? 0);
         setUnreadTotal(res.unread_total ?? 0);
         setNoMsgs(!res.messages.length);
         scrollAfter.current = 'bottom';
@@ -369,6 +385,30 @@ export function ChatInbox({ selected, unreadTotal }: { selected: string; unreadT
     commitRows(rowsRef.current.map((r) => (r.mobile === m ? { ...r, labels: ids } : r)));
   }
 
+  function pickAssigned(value: string) {
+    setAssignFilter(value);
+    st.assigned = value;
+    loadList(true);
+  }
+
+  /** Assign the open chat to a team member (0 = nobody); its row follows, or leaves a list filtered by assignee. */
+  function assignOpenChat(value: string) {
+    const m = st.mobile;
+    if (!m || assignBusy) return;
+    const id = Number(value) || 0;
+    setAssignBusy(true);
+    assignChat(m, id)
+      .then((res) => {
+        if (!res.ok) { window.alert(res.error); return; }
+        setThreadAssigned(res.assigned);
+        setThreadSaved(true);
+        const keep = !st.assigned || (st.assigned === 'none' ? res.assigned === 0 : Number(st.assigned) === res.assigned);
+        commitRows(keep ? rowsRef.current.map((r) => (r.mobile === m ? { ...r, assigned: res.assigned } : r)) : rowsRef.current.filter((r) => r.mobile !== m));
+      })
+      .catch(() => window.alert('Could not assign the chat. Try again.'))
+      .finally(() => setAssignBusy(false));
+  }
+
   function onLabelsChanged(next: ChatLabel[]) {
     setLabels(next);
     // A deleted label: clear the filter
@@ -391,14 +431,14 @@ export function ChatInbox({ selected, unreadTotal }: { selected: string; unreadT
   function poll() {
     const m = st.mobile, req = st.threadReq;
     getJSON<PollResponse>(URLS.poll, {
-      since: st.since, filter: st.filter, q: st.q, label: st.label ?? undefined,
+      since: st.since, filter: st.filter, q: st.q, label: st.label ?? undefined, assigned: st.assigned || undefined,
       mb: m ?? undefined, after: m ? st.newest : undefined, visible: document.hidden ? 0 : 1,
     })
       .then((res) => {
         st.since = res.now;
         for (const [mb, row] of Object.entries(res.rows || {})) {
           upsertRow(mb, row);
-          if (mb === st.mobile) { setThreadLabels(row.labels); setThreadSaved(true); }
+          if (mb === st.mobile) { setThreadLabels(row.labels); setThreadSaved(true); setThreadAssigned(row.assigned); }
         }
         setUnreadTotal(res.unread_total);
         if (!m || m !== st.mobile || req !== st.threadReq) return;
@@ -466,7 +506,7 @@ export function ChatInbox({ selected, unreadTotal }: { selected: string; unreadT
             <div className="d-flex align-items-center">
               <h5 className="mb-0 me-auto">Chats</h5>
               <span className="badge bg-success-subtle text-success" id="unread_total" hidden={!unread}>{unread} unread</span>
-              {unread > 0 && (
+              {unread > 0 && team.canAssign && (
                 <button type="button" className="btn btn-link btn-sm inbox-mark-read ms-2" onClick={markAllRead} disabled={markingRead} title="Mark every unread message as read">
                   <i className={markingRead ? 'ri-loader-4-line' : 'ri-check-double-line'} /> Mark all read
                 </button>
@@ -494,6 +534,17 @@ export function ChatInbox({ selected, unreadTotal }: { selected: string; unreadT
                 </Fragment>
               ))}
             </div>
+            {team.canAssign && team.members.length > 0 && (
+              <div className="inbox-label-filter">
+                <i className="ri-user-shared-line text-muted" aria-hidden />
+                <select className="form-select form-select-sm" aria-label="Filter by assigned team member" value={assignFilter} onChange={(e) => pickAssigned(e.target.value)}>
+                  <option value="">All chats</option>
+                  <option value="none">Unassigned</option>
+                  {team.members.map((m) => <option key={m.id} value={m.id}>{m.id === team.me ? `Assigned to me (${m.name})` : `Assigned to ${m.name}`}</option>)}
+                </select>
+              </div>
+            )}
+            {team.ownOnly && <div className="small text-muted"><i className="ri-user-follow-line" /> Showing the chats assigned to you.</div>}
             {labels.length > 0 && (
               <div className="inbox-label-filter">
                 <i className="ri-price-tag-3-line text-muted" aria-hidden />
@@ -518,7 +569,7 @@ export function ChatInbox({ selected, unreadTotal }: { selected: string; unreadT
             }}
           >
             <div id="conv_rows">
-              {rows.map((r) => <ConversationRow key={r.mobile} r={r} active={r.mobile === mobile} onClick={onRowClick} labels={labelMap} />)}
+              {rows.map((r) => <ConversationRow key={r.mobile} r={r} active={r.mobile === mobile} onClick={onRowClick} labels={labelMap} assignee={!team.ownOnly && r.assigned ? teamMap.get(r.assigned) ?? 'Team member' : ''} />)}
             </div>
             <div className="list-state" id="conv_state" hidden={listState === null}>{listState}</div>
           </div>
@@ -545,6 +596,18 @@ export function ChatInbox({ selected, unreadTotal }: { selected: string; unreadT
                     <span className={`window-status${composer?.open ? ' text-success' : ''}`}>{composer?.status ?? ''}</span>
                   </div>
                 </div>
+                {team.canAssign && team.members.length > 0 ? (
+                  <select className={`form-select form-select-sm thread-assign${threadAssigned ? ' assigned' : ''}`} aria-label="Assign this chat to a team member"
+                    title="Assign to team" value={threadAssigned || ''} disabled={assignBusy} onChange={(e) => assignOpenChat(e.target.value)}>
+                    <option value="">Assign to…</option>
+                    {team.members.map((m) => <option key={m.id} value={m.id}>{m.name}</option>)}
+                    {threadAssigned > 0 && <option value="0">Unassign</option>}
+                  </select>
+                ) : threadAssigned > 0 && (
+                  <span className="badge bg-info-subtle text-info d-none d-sm-inline-block" title="Assigned team member">
+                    <i className="ri-user-follow-line" /> {threadAssigned === team.me ? 'Assigned to you' : teamMap.get(threadAssigned) ?? 'Assigned'}
+                  </span>
+                )}
                 <div className="thread-labels">
                   <span className="d-none d-md-inline-flex text-truncate"><LabelChips ids={threadLabels} labels={labelMap} max={3} /></span>
                   <LabelMenu mobile={head.mobile} chat={threadLabels} labels={labels} disabled={!threadSaved} onLabels={onLabelsChanged} onChat={onChatLabels} />
@@ -623,8 +686,8 @@ export function ChatInbox({ selected, unreadTotal }: { selected: string; unreadT
 
 // ------------------------------------------------------------------ rows & bubbles
 
-function ConversationRow({ r, active, onClick, labels }: {
-  r: ConvRow; active: boolean; onClick: (e: MouseEvent<HTMLAnchorElement>, mobile: string) => void; labels: Map<number, ChatLabel>;
+function ConversationRow({ r, active, onClick, labels, assignee }: {
+  r: ConvRow; active: boolean; onClick: (e: MouseEvent<HTMLAnchorElement>, mobile: string) => void; labels: Map<number, ChatLabel>; assignee: string;
 }) {
   return (
     <a
@@ -648,7 +711,12 @@ function ConversationRow({ r, active, onClick, labels }: {
           {r.live && <span className="conv-live" title="Reply window open" />}
           {r.unread > 0 && <span className="conv-badge">{r.unread > 99 ? '99+' : r.unread}</span>}
         </span>
-        {r.labels.length > 0 && <span className="conv-line conv-labels"><LabelChips ids={r.labels} labels={labels} max={2} small /></span>}
+        {(r.labels.length > 0 || assignee) && (
+          <span className="conv-line conv-labels">
+            {assignee && <span className="conv-assignee" title={`Assigned to ${assignee}`}><i className="ri-user-follow-line" />{assignee}</span>}
+            {r.labels.length > 0 && <LabelChips ids={r.labels} labels={labels} max={2} small />}
+          </span>
+        )}
       </span>
     </a>
   );

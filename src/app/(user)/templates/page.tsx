@@ -5,7 +5,7 @@ import { FlashAlert } from '@/components/FlashAlert';
 import { Pagination } from '@/components/Pagination';
 import { PageTitle } from '@/components/PageTitle';
 import { ConfirmButton } from '@/components/ui';
-import { requireUser } from '@/lib/auth';
+import { requireTeam } from '@/lib/auth';
 import { sqlDir, tableState } from '@/lib/datatable';
 import { like, query, value } from '@/lib/db';
 import { sp } from '@/lib/http';
@@ -33,7 +33,10 @@ const SORTS = {
 
 /** Approved templates (User\TemplateController::index); ?sync=1 re-fetches them from Meta. */
 export default async function TemplatesPage({ searchParams }: { searchParams: Params }) {
-  const user = await requireUser();
+  const { user, perms } = await requireTeam((p) => p.template !== 'none');
+  // View-only team members: no sync / create / edit / delete; Send Template needs the campaign-create right
+  const canEdit = perms.template === 'edit';
+  const canCompose = perms.campaignCreate;
   const params = await searchParams;
   const sync = truthy(sp(params, 'sync'));
   // Table links must not carry ?sync=1 (it would re-sync on every click); ?title= (old search links) is the table search
@@ -47,7 +50,7 @@ export default async function TemplatesPage({ searchParams }: { searchParams: Pa
     sync ? Promise.resolve(true) : value('SELECT 1 FROM js_user_templates WHERE ut_user_id = $1 LIMIT 1', [user.u_id]),
     value<number>('SELECT u_own_account FROM js_user WHERE u_id = $1', [user.u_parent_id]),
   ]);
-  if (sync || !hasAny) {
+  if ((sync && canEdit) || !hasAny) {
     const count = await syncTemplates(user);
     if (sync) {
       syncFlash = count === null
@@ -82,8 +85,8 @@ export default async function TemplatesPage({ searchParams }: { searchParams: Pa
       {syncFlash && <FlashAlert key={syncFlash.id} flash={syncFlash} />}
       <div className="card">
         <div className="card-header d-flex flex-wrap gap-2 align-items-center">
-          <a href="/templates?sync=1" className="btn btn-soft-primary me-auto"><i className="ri-refresh-line" /> Sync from WhatsApp</a>
-          {canAddTemplate && (
+          {canEdit ? <a href="/templates?sync=1" className="btn btn-soft-primary me-auto"><i className="ri-refresh-line" /> Sync from WhatsApp</a> : <span className="me-auto" />}
+          {canEdit && canAddTemplate && (
             <a
               href={`https://business.facebook.com/latest/whatsapp_manager/message_templates?business_id=${encodeURIComponent(user.u_business_id ?? '')}&asset_id=${encodeURIComponent(user.u_wa_b_id ?? '')}`}
               target="_blank"
@@ -93,7 +96,7 @@ export default async function TemplatesPage({ searchParams }: { searchParams: Pa
               <i className="ri-external-link-line" /> WhatsApp Manager
             </a>
           )}
-          {canCreateTemplate ? (
+          {!canEdit ? null : canCreateTemplate ? (
             <>
               <Link href="/templates/create?kind=carousel" className="btn btn-soft-primary"><i className="ri-carousel-view" /> Create Carousel</Link>
               <Link href="/templates/create" className="btn btn-primary"><i className="ri-add-line" /> Create Template</Link>
@@ -121,7 +124,7 @@ export default async function TemplatesPage({ searchParams }: { searchParams: Pa
               </thead>
               <tbody>
                 {templates.length ? templates.map((t, i) => {
-                  const canSend = categoryAllowed(user.u_template_categories, t.ut_template_category);
+                  const canSend = canCompose && categoryAllowed(user.u_template_categories, t.ut_template_category);
                   return (
                   <tr key={t.ut_id}>
                     <td>{offset + i + 1}</td>
@@ -132,7 +135,7 @@ export default async function TemplatesPage({ searchParams }: { searchParams: Pa
                     <td>{t.ut_language}</td>
                     <td>
                       <div className="d-flex gap-1 align-items-center">
-                        {canSend
+                        {!canCompose ? null : canSend
                           ? <Link className="btn btn-success btn-sm" href={`/compose?tm=${t.ut_id}`}>Send Template</Link>
                           : <span className="badge bg-secondary-subtle text-secondary" title={categoryRefusal(user.u_template_categories)}>Category not enabled</span>}
                         <TemplateViewButton
@@ -141,16 +144,18 @@ export default async function TemplatesPage({ searchParams }: { searchParams: Pa
                         >
                           <TemplatePreview template={t} />
                         </TemplateViewButton>
-                        {canCreateTemplate && ['template', 'flow'].includes(String(t.ut_template_type)) && t.ut_template_category !== 'AUTHENTICATION' && (
+                        {canEdit && canCreateTemplate && ['template', 'flow'].includes(String(t.ut_template_type)) && t.ut_template_category !== 'AUTHENTICATION' && (
                           <Link href={`/templates/${t.ut_id}/edit`} className="btn btn-sm btn-soft-secondary" title="Edit" aria-label="Edit">
                             <i className="ri-pencil-fill" />
                           </Link>
                         )}
-                        <form action={destroyTemplate.bind(null, t.ut_id)}>
-                          <ConfirmButton message="Remove this template from the list?" className="btn btn-sm btn-soft-danger" title="Delete" aria-label="Delete">
-                            <i className="ri-delete-bin-fill" />
-                          </ConfirmButton>
-                        </form>
+                        {canEdit && (
+                          <form action={destroyTemplate.bind(null, t.ut_id)}>
+                            <ConfirmButton message="Remove this template from the list?" className="btn btn-sm btn-soft-danger" title="Delete" aria-label="Delete">
+                              <i className="ri-delete-bin-fill" />
+                            </ConfirmButton>
+                          </form>
+                        )}
                       </div>
                     </td>
                   </tr>

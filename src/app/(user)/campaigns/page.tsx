@@ -3,7 +3,7 @@ import Link from 'next/link';
 import { PageTitle } from '@/components/PageTitle';
 import { Pagination, pageParam } from '@/components/Pagination';
 import { DateRangeInput } from '@/components/ui';
-import { requireUser } from '@/lib/auth';
+import { requireTeam } from '@/lib/auth';
 import { like, one, query } from '@/lib/db';
 import { campaignGroupIds, campaignIsTracked, campaignSendAt, campaignTitle } from '@/lib/format';
 import { sp } from '@/lib/http';
@@ -24,7 +24,7 @@ const PER_PAGE = 20;
 
 /** Campaign dashboard: totals for the period + campaign list with delivery bars (CampaignController::index). */
 export default async function CampaignsPage({ searchParams }: { searchParams: Params }) {
-  const user = await requireUser();
+  const { user, member, perms } = await requireTeam((p) => p.campaignView !== 'none');
   await refreshSendSettings();
   const params = await searchParams;
   const page = pageParam(params.page);
@@ -35,6 +35,8 @@ export default async function CampaignsPage({ searchParams }: { searchParams: Pa
 
   const base: unknown[] = [user.u_id];
   const where = ['uc_user_id = $1'];
+  // Team member with "view own campaigns": only the ones they created
+  if (member && perms.campaignView === 'own') { base.push(member.um_id); where.push(`uc_member_id = $${base.length}`); }
   if (range) {
     base.push(phpDate('Y-m-d H:i:s', range[0]), phpDate('Y-m-d H:i:s', range[1]), range[0], range[1]);
     const n = base.length;
@@ -98,7 +100,7 @@ export default async function CampaignsPage({ searchParams }: { searchParams: Pa
             <div className="col-md-4"><DateRangeInput name="wa_date" defaultValue={dtInput} placeholder="Date range" /></div>
             <div className="col-md-4"><input type="search" className="form-control" name="q" defaultValue={q} placeholder="Campaign or template name" aria-label="Search campaigns" /></div>
             <div className="col-auto"><button type="submit" className="btn btn-secondary">Filter</button></div>
-            <div className="col-auto ms-auto"><Link href="/compose" className="btn btn-success"><i className="ri-add-line" /> New Campaign</Link></div>
+            {perms.campaignCreate && <div className="col-auto ms-auto"><Link href="/compose" className="btn btn-success"><i className="ri-add-line" /> New Campaign</Link></div>}
           </form>
         </div>
       </div>
@@ -173,7 +175,7 @@ export default async function CampaignsPage({ searchParams }: { searchParams: Pa
                     </tr>
                   );
                 }) : (
-                  <tr><td colSpan={6} className="text-center text-muted py-5">No campaigns in this period. <Link href="/compose">Create your first campaign</Link>.</td></tr>
+                  <tr><td colSpan={6} className="text-center text-muted py-5">No campaigns in this period.{perms.campaignCreate && <> <Link href="/compose">Create your first campaign</Link>.</>}</td></tr>
                 )}
               </tbody>
             </table>

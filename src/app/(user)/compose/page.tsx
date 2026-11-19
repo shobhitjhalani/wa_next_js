@@ -1,7 +1,7 @@
 import type { Metadata } from 'next';
 import { randomBytes } from 'node:crypto';
 import { PageTitle } from '@/components/PageTitle';
-import { requireUser } from '@/lib/auth';
+import { requireTeam } from '@/lib/auth';
 import { one, query } from '@/lib/db';
 import { sp, spAll } from '@/lib/http';
 import { now, phpDate } from '@/lib/time';
@@ -24,7 +24,7 @@ function random(n: number): string {
 
 /** New campaign: template, audience, schedule (User\ComposeController::create). */
 export default async function ComposePage({ searchParams }: { searchParams: Params }) {
-  const user = await requireUser();
+  const { user } = await requireTeam((p) => p.campaignCreate);
   await refreshSendSettings();
   const params = await searchParams;
   const tm = sp(params, 'tm');

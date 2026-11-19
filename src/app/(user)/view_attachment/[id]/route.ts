@@ -3,7 +3,7 @@ import { stat } from 'node:fs/promises';
 import path from 'node:path';
 import { Readable } from 'node:stream';
 import { redirect } from 'next/navigation';
-import { getUser } from '@/lib/auth';
+import { canOpenChat, inboxAccess } from '../../chat/access';
 import { exec, one } from '@/lib/db';
 import { refreshUnread } from '@/lib/models';
 import { downloadMedia, mediaInfo } from '@/lib/services/meta';
@@ -55,8 +55,10 @@ async function cached(dir: string, id: number): Promise<{ file: string; ext: str
 }
 
 export async function GET(_req: Request, ctx: { params: Promise<{ id: string }> }) {
-  const user = await getUser();
-  if (!user) redirect('/');
+  // Incoming attachments: the owner, or a team member with inbox access (own-chats members: their chats only)
+  const access = await inboxAccess();
+  if (!access) redirect('/');
+  const { user } = access;
   const raw = (await ctx.params).id;
   if (!/^\d+$/.test(raw)) return new Response('Not Found', { status: 404 });
   const id = Number(raw);
@@ -65,7 +67,7 @@ export async function GET(_req: Request, ctx: { params: Promise<{ id: string }> 
     'SELECT m_id, m_mobile_no, m_is_read, m_image FROM js_message WHERE m_id = $1 AND m_user_id = $2 AND m_is_incoming = 1',
     [id, user.u_id],
   );
-  if (!message) return new Response('Not Found', { status: 404 });
+  if (!message || !(await canOpenChat(access, message.m_mobile_no ?? ''))) return new Response('Not Found', { status: 404 });
   if (Number(message.m_is_read) === 2) {
     await exec('UPDATE js_message SET m_is_read = 1 WHERE m_id = $1', [id]);
     await refreshUnread(user.u_id, [message.m_mobile_no ?? '']);

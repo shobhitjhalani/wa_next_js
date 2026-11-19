@@ -4,7 +4,7 @@ import { notFound } from 'next/navigation';
 import { PageTitle } from '@/components/PageTitle';
 import { Pagination, pageParam } from '@/components/Pagination';
 import { ConfirmButton } from '@/components/ui';
-import { requireUser } from '@/lib/auth';
+import { requireTeam } from '@/lib/auth';
 import { one, query, value } from '@/lib/db';
 import { campaignGroupIds, campaignIsTracked, campaignSendAt, campaignStatusLabel, campaignTitle } from '@/lib/format';
 import { sp } from '@/lib/http';
@@ -36,11 +36,12 @@ type Recipient = Pick<MessageRow, 'm_id' | 'm_mobile_no' | 'm_status' | 'm_messa
 
 /** Campaign detail: stats tiles, delivery progress, failure reasons and recipients (CampaignController::show). */
 export default async function CampaignPage({ params, searchParams }: { params: Promise<{ id: string }>; searchParams: Params }) {
-  const user = await requireUser();
+  const { user, member, perms } = await requireTeam((p) => p.campaignView !== 'none');
   await refreshSendSettings();
   const { id: idParam } = await params;
   if (!/^\d+$/.test(idParam)) notFound();
-  const campaign = await one<CampaignRow>('SELECT * FROM js_user_campaign WHERE uc_id = $1 AND uc_user_id = $2', [parseInt(idParam, 10), user.u_id]);
+  const campaign = await one<CampaignRow>('SELECT * FROM js_user_campaign WHERE uc_id = $1 AND uc_user_id = $2 AND ($3::int = 0 OR uc_member_id = $3)',
+    [parseInt(idParam, 10), user.u_id, member && perms.campaignView === 'own' ? member.um_id : 0]);
   if (!campaign) notFound();
 
   const sParams = await searchParams;
@@ -78,10 +79,10 @@ export default async function CampaignPage({ params, searchParams }: { params: P
     : [];
 
   const status = campaignStatusLabel(campaign, stats);
-  const canCancel = status === 'Scheduled' || ((status === 'Sending' || status === 'In Queue') && (stats?.pending ?? 0) > 0);
+  const canCancel = perms.campaignCreate && (status === 'Scheduled' || ((status === 'Sending' || status === 'In Queue') && (stats?.pending ?? 0) > 0));
   // Only messages with delivery status "failed" (accepted by WhatsApp, then failed) can be resent
   const resendable = stats?.delivery_failed ?? 0;
-  const canResend = tracked && (status === 'Sending' || status === 'Completed') && resendable > 0;
+  const canResend = perms.campaignCreate && tracked && (status === 'Sending' || status === 'Completed') && resendable > 0;
   const pastedNumbers = campaign.uc_payload?.numbers?.length ?? 0;
 
 

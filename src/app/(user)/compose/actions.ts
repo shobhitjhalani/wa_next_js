@@ -2,8 +2,8 @@
 
 import { notFound, redirect } from 'next/navigation';
 import { fail, flash, invalid, type ActionResult } from '@/lib/actions';
-import { requireUser } from '@/lib/auth';
-import { one, query } from '@/lib/db';
+import { requireTeam } from '@/lib/auth';
+import { exec, one, query } from '@/lib/db';
 import { nestedForm, nFile, nList, nObj, nStr, nStrings } from '@/lib/form-nested';
 import { createCampaign } from '@/lib/services/campaigns';
 import { ImportError, NUMBER_FILE_EXTENSIONS, readNumbersFile } from '@/lib/services/contacts-import';
@@ -16,7 +16,7 @@ const MAX_FILE = 16384 * 1024;
 
 /** Create a campaign and send it now or schedule it (User\ComposeController::store). */
 export async function storeCampaign(_prev: ActionResult | null, fd: FormData): Promise<ActionResult> {
-  const user = await requireUser();
+  const { user, member, perms } = await requireTeam((p) => p.campaignCreate);
   const input = nestedForm(fd);
   const errors: Record<string, string> = {};
   const add = (k: string, m: string) => { if (!(k in errors)) errors[k] = m; };
@@ -120,8 +120,11 @@ export async function storeCampaign(_prev: ActionResult | null, fd: FormData): P
     throw e;
   }
 
+  // Remember which team member created it ("view own campaigns")
+  if (member) await exec('UPDATE js_user_campaign SET uc_member_id = $2 WHERE uc_id = $1', [campaign.uc_id, member.um_id]);
+
   await flash('success', sendMode === 'later'
     ? `Campaign scheduled for ${phpDate('d M Y, H:i', campaign.uc_scheduled_at)}.`
     : `${numberFormat(campaign.uc_total_contacts)} message(s) queued${campaign.uc_skipped ? ` (${numberFormat(campaign.uc_skipped)} opted-out number(s) skipped)` : ''}.`);
-  redirect(`/campaigns/${campaign.uc_id}`);
+  redirect(perms.campaignView === 'none' ? '/compose' : `/campaigns/${campaign.uc_id}`);
 }

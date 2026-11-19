@@ -1,5 +1,5 @@
 import type { NextRequest } from 'next/server';
-import { getUser } from '@/lib/auth';
+import { assignedParam, canOpenChat, inboxAccess } from '../access';
 import { contactWindowLeft } from '@/lib/format';
 import { now } from '@/lib/time';
 import { bubbles, changedConversations, cleanMobile, labelParam, contact, markRead, newMessages, statusChanges, unreadTotal } from '../inbox';
@@ -13,8 +13,9 @@ const INT = /^-?\d+$/;
  * delivery ticks.
  */
 export async function GET(req: NextRequest) {
-  const user = await getUser();
-  if (!user) return Response.json({ message: 'Unauthenticated.' }, { status: 401 });
+  const access = await inboxAccess();
+  if (!access) return Response.json({ message: 'Unauthenticated.' }, { status: 401 });
+  const { user } = access;
   const p = req.nextUrl.searchParams;
   const sinceRaw = (p.get('since') ?? '').trim();
   const afterRaw = (p.get('after') ?? '').trim();
@@ -30,7 +31,7 @@ export async function GET(req: NextRequest) {
 
   const since = parseInt(sinceRaw, 10) - 2; // timestamps are per second; overlap rather than miss
   const after = afterRaw !== '' ? parseInt(afterRaw, 10) : 0;
-  const filter = { filter: p.get('filter') ?? '', q: p.get('q') ?? '', label: labelParam(p.get('label')) };
+  const filter = { filter: p.get('filter') ?? '', q: p.get('q') ?? '', label: labelParam(p.get('label')), scope: access.scope, assigned: assignedParam(p.get('assigned')) };
   const mobile = cleanMobile(mbRaw);
   const visible = ['1', 'true'].includes((p.get('visible') ?? '').trim());
 
@@ -38,7 +39,7 @@ export async function GET(req: NextRequest) {
   const changed = await changedConversations(user.u_id, filter, since);
   for (const row of changed) payload.rows[row.mobile] = row;
 
-  if (mobile) {
+  if (mobile && (await canOpenChat(access, mobile))) {
     const [fresh, statuses] = await Promise.all([
       newMessages(user.u_id, mobile, after),
       statusChanges(user.u_id, mobile, after, since),
@@ -50,6 +51,6 @@ export async function GET(req: NextRequest) {
     if (visible && fresh.some((m) => Number(m.m_is_incoming) === 1)) await markRead(user.u_id, mobile);
     payload.window_left = contactWindowLeft(await contact(user.u_id, mobile));
   }
-  payload.unread_total = await unreadTotal(user.u_id);
+  payload.unread_total = await unreadTotal(user.u_id, access.scope);
   return Response.json(payload);
 }

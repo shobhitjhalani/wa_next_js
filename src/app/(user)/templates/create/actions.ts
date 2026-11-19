@@ -2,7 +2,7 @@
 
 import { forbidden, notFound, redirect } from 'next/navigation';
 import { fail, fileExt, flash, invalid, type ActionResult } from '@/lib/actions';
-import { requireUser } from '@/lib/auth';
+import { requireTeam } from '@/lib/auth';
 import { loadEditableTemplate } from '../template-edit';
 import { templateVariables } from '@/lib/format';
 import { nestedForm, nFile, nList, nObj, nStr, nStrings, type NestedObject, type NestedValue } from '@/lib/form-nested';
@@ -164,7 +164,7 @@ function parseStandard(
 
 /** Create a template and submit it to Meta for review (User\TemplateController::store). */
 export async function storeTemplate(_prev: ActionResult | null, fd: FormData): Promise<ActionResult> {
-  const user = await requireUser();
+  const { user } = await requireTeam((p) => p.template === 'edit');
   if (!user.u_wa_b_id) forbidden();
 
   const input = nestedForm(fd);
@@ -273,7 +273,7 @@ async function finish(user: Parameters<typeof syncTemplates>[0], name: string, s
 
 /** Change a standard template's header, body, footer or buttons; WhatsApp reviews it again. */
 export async function updateTemplate(id: number, _prev: ActionResult | null, fd: FormData): Promise<ActionResult> {
-  const user = await requireUser();
+  const { user } = await requireTeam((p) => p.template === 'edit');
   if (!user.u_wa_b_id) forbidden();
   const found = await loadEditableTemplate(user.u_id, user, Number(id) || 0);
   if (!found) notFound();

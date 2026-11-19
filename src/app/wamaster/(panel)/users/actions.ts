@@ -7,7 +7,7 @@ import { categoriesValue } from '@/lib/template-categories';
 import { requireRight, requireUserRight, userModule, type Right } from '@/lib/admin-access';
 import { exec, insert, one, tx, update, value } from '@/lib/db';
 import { hashPassword } from '@/lib/password';
-import { registerNumber, subscribeApp } from '@/lib/services/meta';
+import { metaGet, registerNumber, subscribeApp } from '@/lib/services/meta';
 import { findPlan, recharge } from '@/lib/services/plans';
 import { syncTemplates } from '@/lib/services/templates';
 import { randomString } from '@/lib/text';
@@ -268,11 +268,33 @@ export async function registerUserNumber(id: number): Promise<void> {
   await staffFor(id, 'edit');
   const user = await aliveUser(id);
   if (!user) return;
-  const res = await registerNumber(user);
-  await subscribeApp(user);
-  await flash(res.error ? 'error' : 'success', res.error
-    ? 'Register failed: ' + (res.error.message ?? 'unknown error')
-    : 'Number registered and app subscribed.');
+  if (!user.u_wa_phone_id || !user.u_wa_b_id) {
+    await flash('error', 'Set the Phone Number ID and WABA ID first.');
+    revalidatePath(showPath(id));
+    return;
+  }
+
+  // 1. Register the number for the Cloud API. WhatsApp Business app numbers (coexistence / SMB) are
+  //    already registered through the app: Meta refuses with "not available for SMB businesses".
+  const reg = await registerNumber(user);
+  const regMsg = String(reg.error?.message ?? '');
+  const smb = !!reg.error && /\bSMB\b|business app|coexist/i.test(regMsg);
+
+  // 2. Subscribe our app to the WABA: this is what makes Meta send the number's webhooks (messages, statuses).
+  const sub = await subscribeApp(user);
+  // 3. Confirm with Meta that the app is now on the WABA's subscribed apps.
+  const subs = sub.error ? null : await metaGet(`${user.u_wa_b_id}/subscribed_apps`);
+  const subscribedApps = Array.isArray(subs?.data) ? subs.data.length : 0;
+  const hookOk = !sub.error && subscribedApps > 0;
+  const hook = sub.error
+    ? `Webhook subscription failed: ${sub.error.message ?? 'unknown error'}`
+    : hookOk ? 'Webhook is active (app subscribed to the WABA).' : 'Meta accepted the subscription but lists no subscribed app yet; try again in a minute.';
+
+  const register = !reg.error
+    ? 'Number registered.'
+    : smb ? 'This is a WhatsApp Business app (coexistence) number, so it does not need registering.'
+      : `Register failed: ${regMsg || 'unknown error'}.`;
+  await flash(hookOk && (!reg.error || smb) ? 'success' : 'error', `${register} ${hook}`);
   revalidatePath(showPath(id));
 }
 

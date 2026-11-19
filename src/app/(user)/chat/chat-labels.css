@@ -38,3 +38,8 @@
   box-shadow: 0 0 0 1px rgba(0, 0, 0, .08) inset;
 }
 .label-colors button.on { border-color: var(--vz-card-bg, #fff); box-shadow: 0 0 0 2px var(--vz-body-color); }
+
+/* "New chat": button beside "Mark all read", number form above the search box */
+.inbox-mark-read, .inbox-new-btn { white-space: nowrap; }
+.inbox-new-btn { padding: .2rem .5rem; font-size: .78rem; }
+.inbox-new-chat { display: grid; }

@@ -18,6 +18,10 @@ import { cancelCampaignAction, resendFailedAction } from './actions';
 import { AutoReload } from './AutoReload';
 import { CAMPAIGN_OWNER_SQL } from '@/lib/types';
 import { refreshSendSettings } from '@/lib/services/settings';
+import { templateValues } from '@/lib/services/sender';
+import { jsonParse } from '@/lib/text';
+import { COMPOSE_TEMPLATE_COLUMNS, TemplatePreview, type ComposeTemplate, type PreviewFill } from '../../compose/TemplateParts';
+import { TemplateViewButton } from '../../templates/TemplateViewButton';
 
 export const metadata: Metadata = { title: 'Campaign' };
 
@@ -62,6 +66,7 @@ export default async function CampaignPage({ params, searchParams }: { params: P
       : Promise.resolve([]),
   ]);
   const stats = statsMap[campaign.uc_id] ?? null;
+  const sent = await sentMessage(campaign);
   const eta = (stats?.pending ?? 0) > 0 ? (await campaignEtas(user, [campaign])).get(campaign.uc_id) : undefined;
 
   const failureReasons = stats && stats.failed
@@ -115,6 +120,13 @@ export default async function CampaignPage({ params, searchParams }: { params: P
             </div>
           </div>
           <div className="d-flex flex-wrap gap-2">
+            {sent && (
+              <TemplateViewButton id={campaign.uc_id} name={campaignTitle(campaign)} category={campaign.uc_template !== campaignTitle(campaign) ? campaign.uc_template : null} language="As sent in this campaign" sendHref={null} label="View Message">
+                {sent.template ? <TemplatePreview template={sent.template} fill={sent.fill} /> : (
+                  <div className="alert alert-light border mb-0">The template <strong>{campaign.uc_template}</strong> no longer exists, so only the values sent are known.{sent.fill.params.length > 0 && <ol className="mt-2 mb-0">{sent.fill.params.map((p, i) => <li key={i}>{p}</li>)}</ol>}</div>
+                )}
+              </TemplateViewButton>
+            )}
             {tracked && status !== 'Scheduled' && (
               <a href={`/campaigns/${campaign.uc_id}/export`} className="btn btn-soft-info"><i className="ri-download-2-line" /> Export</a>
             )}
@@ -245,4 +257,32 @@ export default async function CampaignPage({ params, searchParams }: { params: P
       )}
     </>
   );
+}
+
+/**
+ * What the campaign sends: its template filled with the values of its first message (header file,
+ * {{n}} values, carousel cards), or, while still scheduled, with the values saved on the campaign.
+ */
+async function sentMessage(campaign: CampaignRow): Promise<{ template: ComposeTemplate | null; fill: PreviewFill } | null> {
+  type Sent = Pick<MessageRow, 'm_msg_template_para' | 'm_image' | 'm_carousel'>;
+  const fields = campaign.uc_payload?.fields as Partial<Sent> | undefined;
+  const m: Partial<Sent> | null = fields ?? await one<Sent>(
+    `SELECT m_msg_template_para, m_image, m_carousel FROM js_message
+      WHERE m_campaign_id = $1 AND m_user_id = $2 AND m_is_incoming = 2 ORDER BY m_id LIMIT 1`, [campaign.uc_id, campaign.uc_user_id]);
+  if (!m) return null;
+  // Campaigns imported from the legacy app have no template id, only its name
+  const template = await one<ComposeTemplate>(
+    `SELECT ${COMPOSE_TEMPLATE_COLUMNS} FROM js_user_templates
+      WHERE ut_user_id = $1 AND (ut_id = $2 OR ($2 = 0 AND ut_name = $3)) ORDER BY ut_id DESC LIMIT 1`,
+    [campaign.uc_user_id, Number(campaign.uc_template_id) || 0, campaign.uc_template ?? '']);
+  const file = (url: string | null | undefined) => (url ? { url, name: decodeURIComponent(url.split('/').pop() ?? '') } : null);
+  const cards = jsonParse<{ media?: string; params?: string[] }[]>(m.m_carousel ?? '', []);
+  return {
+    template,
+    fill: {
+      params: templateValues(m.m_msg_template_para).body,
+      header: file(String(m.m_image ?? '').split(',')[0]),
+      cards: Array.isArray(cards) ? cards.map((c) => ({ media: file(c.media), params: (c.params ?? []).map(String) })) : [],
+    },
+  };
 }

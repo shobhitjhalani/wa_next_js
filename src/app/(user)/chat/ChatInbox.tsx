@@ -3,7 +3,7 @@
 import { Fragment, useCallback, useEffect, useLayoutEffect, useRef, useState, type CSSProperties, type FormEvent, type MouseEvent } from 'react';
 import './chat-labels.css';
 import { LABEL_COLORS, type ChatLabel } from '@/lib/chat-labels';
-import { chatLabels, markAllChatsRead } from './actions';
+import { chatLabels, markAllChatsRead, newChatNumber } from './actions';
 import { LabelChips, LabelMenu } from './ChatLabels';
 import { SendTemplateModal } from './SendTemplateModal';
 import type { Bubble, ConvRow, ListResponse, PollResponse, RenderedTemplate, SendResponse, TemplateHeader, ThreadHeader, ThreadResponse } from './types';
@@ -83,6 +83,7 @@ export function ChatInbox({ selected, unreadTotal }: { selected: string; unreadT
   const [threadLabels, setThreadLabels] = useState<number[]>([]);
   const [threadSaved, setThreadSaved] = useState(false); // the open number has a conversation (can be labelled)
   const [markingRead, setMarkingRead] = useState(false);
+  const [newChat, setNewChat] = useState<{ value: string; error: string; busy: boolean } | null>(null);
   const labelMap = new Map(labels.map((l) => [l.id, l]));
   const [mobile, setMobile] = useState<string | null>(null);
   const [showThread, setShowThread] = useState(false);
@@ -323,6 +324,19 @@ export function ChatInbox({ selected, unreadTotal }: { selected: string; unreadT
   }
 
   // ------------------------------------------------------------ mark all read, labels
+  function startNewChat(e: FormEvent<HTMLFormElement>) {
+    e.preventDefault();
+    if (!newChat || newChat.busy) return;
+    setNewChat({ ...newChat, busy: true, error: '' });
+    newChatNumber(newChat.value)
+      .then((res) => {
+        if (!res.ok) { setNewChat((c) => c && { ...c, busy: false, error: res.error }); return; }
+        setNewChat(null);
+        openThread(res.mobile);
+      })
+      .catch(() => setNewChat((c) => c && { ...c, busy: false, error: 'Could not check the number. Try again.' }));
+  }
+
   function markAllRead() {
     if (!window.confirm(`Mark all ${unread} unread message${unread === 1 ? '' : 's'} in every chat as read?`)) return;
     setMarkingRead(true);
@@ -457,7 +471,20 @@ export function ChatInbox({ selected, unreadTotal }: { selected: string; unreadT
                   <i className={markingRead ? 'ri-loader-4-line' : 'ri-check-double-line'} /> Mark all read
                 </button>
               )}
+              <button type="button" className={`btn btn-sm ${newChat ? 'btn-success' : 'btn-soft-success'} inbox-new-btn ms-2`} onClick={() => setNewChat(newChat ? null : { value: '', error: '', busy: false })} title="Start a chat with a new number" aria-expanded={!!newChat}>
+                <i className="ri-chat-new-line" /> New Chat
+              </button>
             </div>
+            {newChat && (
+              <form className="inbox-new-chat" onSubmit={startNewChat}>
+                <div className="input-group input-group-sm">
+                  <input type="tel" className={`form-control${newChat.error ? ' is-invalid' : ''}`} placeholder="Mobile number, e.g. 9876543210" aria-label="Mobile number for the new chat" autoFocus inputMode="tel" maxLength={20}
+                    value={newChat.value} onChange={(e) => setNewChat({ ...newChat, value: e.target.value, error: '' })} onKeyDown={(e) => { if (e.key === 'Escape') setNewChat(null); }} />
+                  <button type="submit" className="btn btn-success" disabled={newChat.busy || !newChat.value.trim()}>{newChat.busy ? <i className="ri-loader-4-line" /> : 'Start'}</button>
+                </div>
+                {newChat.error ? <div className="small text-danger mt-1">{newChat.error}</div> : <div className="small text-muted mt-1">A new number needs a template message first; WhatsApp allows free text only after the customer replies.</div>}
+              </form>
+            )}
             <input type="search" className="form-control" id="inbox_search" placeholder="Search name or number" aria-label="Search conversations" autoComplete="off" onChange={(e) => onSearch(e.target.value)} />
             <div className="btn-group btn-group-sm inbox-filters" role="group" aria-label="Filter conversations">
               {([['all', 'All', undefined], ['unread', 'Unread', undefined], ['active', 'Open 24h', 'Customers who wrote in the last 24 hours']] as const).map(([v, label, title]) => (

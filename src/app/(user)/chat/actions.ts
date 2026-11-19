@@ -4,6 +4,7 @@ import { requireUser } from '@/lib/auth';
 import { labelColor, MAX_LABEL_NAME, MAX_LABELS, type ChatLabel } from '@/lib/chat-labels';
 import { exec, one, query, value } from '@/lib/db';
 import { now } from '@/lib/time';
+import { normalizePhone } from '@/lib/phone';
 import { after } from 'next/server';
 import { clearAllUnread, cleanMobile, markAllMessagesRead, unreadTotal } from './inbox';
 
@@ -17,6 +18,13 @@ export async function markAllChatsRead(): Promise<Result<{ marked: number; unrea
   const marked = await clearAllUnread(user.u_id);
   after(() => markAllMessagesRead(user.u_id).catch((e) => console.error('[chat] mark all read failed', user.u_id, e)));
   return { ok: true, marked, unread: await unreadTotal(user.u_id) };
+}
+
+/** "New chat": the typed number in the form conversations are stored (no home country code), or why it is not a mobile number. */
+export async function newChatNumber(raw: string): Promise<Result<{ mobile: string }>> {
+  await requireUser();
+  const mobile = normalizePhone(raw);
+  return mobile ? { ok: true, mobile } : { ok: false, error: 'Enter a valid mobile number, e.g. 9876543210 or +44 7911 123456.' };
 }
 
 /** The account's labels, A–Z, with how many chats have each. */

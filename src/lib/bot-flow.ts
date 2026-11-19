@@ -32,6 +32,7 @@ export interface FlowNode<K extends NodeKind = NodeKind> {
   id: string;
   type: K;
   position: { x: number; y: number };
+  /** Every kind's data may also carry `title`: an internal name shown only in the builder, never sent. */
   data: NodeDataMap[K];
 }
 export interface FlowEdge { id: string; source: string; sourceHandle: string | null; target: string }
@@ -47,7 +48,7 @@ export const FLOW_TABS = [
 
 export const LIMITS = {
   text: 1024, caption: 1024, button: 20, buttons: 3, rowTitle: 24, rowDescription: 72, rows: 10,
-  listLabel: 20, footer: 60, keywords: 500, varName: 40, url: 1000, body: 5000, headers: 2000, map: 2000, params: 20,
+  listLabel: 20, footer: 60, nodeTitle: 60, keywords: 500, varName: 40, url: 1000, body: 5000, headers: 2000, map: 2000, params: 20,
 };
 
 /** Palette entries: label, short description, icon, group. */
@@ -229,6 +230,8 @@ export function sanitizeGraph(input: unknown): FlowGraph {
       }; break;
       default: data = {} as EndData;
     }
+    const title = str(d.title, LIMITS.nodeTitle).replace(/\s+/g, ' ').trim();
+    if (title) (data as { title?: string }).title = title;
     nodes.push({ id, type, position, data } as FlowNode);
   }
   const byId = new Map(nodes.map((n) => [n.id, n]));
@@ -257,7 +260,7 @@ export function validateGraph(graph: FlowGraph): string[] {
   else if (!parseKeywords((triggers[0].data as TriggerData).keywords).length) errors.push('Add at least one trigger keyword.');
   if (triggers[0] && !graph.edges.some((e) => e.source === triggers[0].id)) errors.push('Connect the Trigger to the first step.');
 
-  const label = (n: FlowNode) => `${NODE_INFO[n.type].label}${'text' in (n.data as object) && (n.data as MessageData).text ? ` “${(n.data as MessageData).text.slice(0, 30)}”` : ''}`;
+  const label = (n: FlowNode) => (n.data as { title?: string }).title ? `${NODE_INFO[n.type].label} “${(n.data as { title?: string }).title}”` : `${NODE_INFO[n.type].label}${'text' in (n.data as object) && (n.data as MessageData).text ? ` “${(n.data as MessageData).text.slice(0, 30)}”` : ''}`;
   for (const n of graph.nodes) {
     const d = n.data as any;
     switch (n.type) {

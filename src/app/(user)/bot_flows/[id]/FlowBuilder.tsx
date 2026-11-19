@@ -381,8 +381,8 @@ const NodeCard = memo(function NodeCard({ id, type, data, selected }: NodeProps<
       <div className="fb-node-head">
         <span className={`fb-icon bg-${info.tone}-subtle text-${info.tone}`}><i className={info.icon} /></span>
         <span className="flex-grow-1 min-w-0">
-          <span className="d-block fw-semibold text-truncate">{info.label}</span>
-          <span className="d-block fb-mono small text-muted">{kind}</span>
+          <span className="d-block fw-semibold text-truncate" title={d.title || undefined}>{d.title || info.label}</span>
+          <span className="d-block fb-mono small text-muted text-truncate">{d.title ? info.label : kind}</span>
         </span>
         <span className="fb-tag">{info.group.toUpperCase()}</span>
       </div>
@@ -439,6 +439,15 @@ function Inspector({ node, templates, variables, onChange, onDelete, onClose }: 
   const d = node.data as Record<string, any>;
   const inserter = useRef<Inserter | null>(null);
   const usesVars = !['trigger', 'wait', 'end'].includes(kind);
+  // A new attachment names the step after its file, unless the title was typed by hand
+  const change = (patch: Record<string, unknown>) => {
+    const field = kind === 'media' ? 'url' : kind === 'buttons' || kind === 'mediabuttons' ? 'mediaUrl' : '';
+    if (field && field in patch) {
+      const auto = (u: unknown) => (u ? attachmentTitle(String(u)) : '');
+      if (!d.title || d.title === auto(d[field])) patch = { ...patch, title: auto(patch[field]) };
+    }
+    onChange(patch);
+  };
 
   return (
     <aside className="fb-inspector">
@@ -448,7 +457,13 @@ function Inspector({ node, templates, variables, onChange, onDelete, onClose }: 
         <button type="button" className="btn-close" aria-label="Close" onClick={onClose} />
       </div>
       <div className="fb-inspector-body">
-        <Fields kind={kind} d={d} onChange={onChange} inserter={inserter} templates={templates} />
+        <div className="mb-3 pb-3 border-bottom">
+          <label className="form-label small fw-medium mb-1" htmlFor="fb-node-title">Step title <span className="text-muted fw-normal">(optional, internal)</span></label>
+          <input id="fb-node-title" className="form-control form-control-sm" value={d.title ?? ''} maxLength={LIMITS.nodeTitle}
+            placeholder={`e.g. ${kind === 'trigger' ? 'Start: brochure request' : 'Send Nexon brochure'}`} onChange={(e) => onChange({ title: e.target.value })} />
+          <div className="form-text">Only you see this, on the canvas. It is never sent to the customer.</div>
+        </div>
+        <Fields kind={kind} d={d} onChange={change} inserter={inserter} templates={templates} />
         {usesVars && (
           <div className="mt-3">
             <div className="small text-muted mb-1">Variables — click to insert into the field you were editing</div>
@@ -574,6 +589,11 @@ const UPLOAD_HELP = 'Image JPG/PNG up to 5 MB · video or audio up to 16 MB · d
 function fileLabel(url: string): string {
   const last = url.split(/[?#]/)[0].split('/').pop() ?? url;
   try { return decodeURIComponent(last).replace(/^\d{14}-/, ''); } catch { return last; }
+}
+
+/** Step title from an attachment link: its file name without the extension, e.g. "tata_nexon". */
+function attachmentTitle(url: string): string {
+  return fileLabel(url).replace(/\.[a-z0-9]{1,5}$/i, '').trim().slice(0, LIMITS.nodeTitle);
 }
 
 function Fields({ kind, d, onChange, inserter, templates }: {

@@ -10,7 +10,7 @@ import {
   type Connection, type Edge, type EdgeProps, type Node, type NodeProps,
 } from '@xyflow/react';
 import {
-  BUILTIN_VARS, defaultData, FLOW_STATUS, flowVariables, LIMITS, NODE_INFO, outputs, PALETTE_ORDER, parseKeywords, validateGraph,
+  BUILTIN_VARS, defaultData, FLOW_STATUS, flowVariables, LIMITS, NODE_INFO, outputs, PALETTE_ORDER, parseKeywords, UPLOAD_MAX_MB, uploadProblem, validateGraph,
   type AskData, type ButtonsData, type FlowGraph, type FlowNode, type ListData, type MediaData, type MessageData, type NodeKind,
   type TemplateData, type TriggerData, type WaitData, type WebhookData,
 } from '@/lib/bot-flow';
@@ -335,6 +335,14 @@ const NodeCard = memo(function NodeCard({ id, type, data, selected }: NodeProps<
         </div>
       );
       break;
+    case 'mediabuttons':
+      body = (
+        <div className="fb-box fb-box-success">
+          <div className="text-truncate small mb-1"><i className="ri-attachment-2 me-1" />{d.mediaUrl ? fileLabel(String(d.mediaUrl)) : <span className="text-muted">Upload a file…</span>}</div>
+          {preview(d.text, 70) || <span className="text-muted">Message text…</span>}
+        </div>
+      );
+      break;
     case 'buttons':
     case 'list':
       body = <div className="fb-box fb-box-success">{preview(d.text, 70) || <span className="text-muted">Message text…</span>}</div>;
@@ -514,6 +522,9 @@ function Upload({ label, value, onChange, accept, help }: { label: string; value
   const [error, setError] = useState('');
   const upload = async (file: File | undefined) => {
     if (!file) return;
+    // Same checks as the server, so a big file is refused at once instead of after a long upload
+    const problem = uploadProblem(file.name, file.size);
+    if (problem) { setError(problem); return; }
     setBusy(true);
     setError('');
     const body = new FormData();
@@ -522,9 +533,11 @@ function Upload({ label, value, onChange, accept, help }: { label: string; value
       const res = await fetch('/bot_flows/upload', { method: 'POST', body, credentials: 'same-origin' });
       const data = await res.json().catch(() => ({}));
       if (res.ok && data.url) onChange(data.url);
-      else setError(data.message ?? 'Upload failed.');
+      else if (res.status === 413) setError('The file is too large for the server.');
+      else if (res.status === 401) setError('Your session has ended. Sign in again, then upload the file.');
+      else setError(data.message ?? `Upload failed (HTTP ${res.status}). Try again.`);
     } catch {
-      setError('Upload failed.');
+      setError('Upload failed: the connection was interrupted. Check your internet and try again.');
     }
     setBusy(false);
   };
@@ -534,7 +547,7 @@ function Upload({ label, value, onChange, accept, help }: { label: string; value
       <label className="form-label small fw-medium mb-1">{label}</label>
       {value && (
         <div className="fb-media mb-2">
-          {isImage ? <img src={value} alt="" /> : <div className="small text-truncate"><i className="ri-file-line me-1" />{decodeURIComponent(value.split('/').pop() ?? value)}</div>}
+          {isImage ? <img src={value} alt="" /> : <div className="small text-truncate"><i className="ri-file-line me-1" />{fileLabel(value)}</div>}
           <button type="button" className="btn btn-sm btn-light" onClick={() => onChange('')} title="Remove"><i className="ri-close-line" /></button>
         </div>
       )}
@@ -554,7 +567,14 @@ const ASK_ERRORS: Partial<Record<AskData['validate'], string>> = {
   date: 'Please send a valid date, e.g. 25-12-2026.',
 };
 
-const MEDIA_ACCEPT = '.jpg,.jpeg,.png,.mp4,.3gp,.pdf,.doc,.docx,.xls,.xlsx,.ppt,.pptx,.txt,.csv,.mp3,.ogg,.aac,.amr,.m4a';
+const MEDIA_ACCEPT = '.' + Object.keys(UPLOAD_MAX_MB).join(',.');
+const UPLOAD_HELP = 'Image JPG/PNG up to 5 MB · video or audio up to 16 MB · document (PDF, Word, Excel…) up to 95 MB.';
+
+/** Uploaded file's name for display: decoded, without the timestamp the upload adds. */
+function fileLabel(url: string): string {
+  const last = url.split(/[?#]/)[0].split('/').pop() ?? url;
+  try { return decodeURIComponent(last).replace(/^\d{14}-/, ''); } catch { return last; }
+}
 
 function Fields({ kind, d, onChange, inserter, templates }: {
   kind: NodeKind; d: Record<string, any>; onChange: (patch: Record<string, unknown>) => void;
@@ -589,18 +609,25 @@ function Fields({ kind, d, onChange, inserter, templates }: {
       const m = d as MediaData;
       return (
         <>
-          <Upload label="File" value={m.url} onChange={(url) => onChange({ url })} accept={MEDIA_ACCEPT} help="Image (JPG/PNG, 5 MB), video (MP4), document or audio (16 MB)." />
+          <Upload label="File" value={m.url} onChange={(url) => onChange({ url })} accept={MEDIA_ACCEPT} help={UPLOAD_HELP} />
           <TextField label="Caption (optional)" value={m.caption} onChange={(v) => onChange({ caption: v })} inserter={inserter} multiline max={LIMITS.caption} />
         </>
       );
     }
-    case 'buttons': {
+    case 'buttons':
+    case 'mediabuttons': {
       const b = d as ButtonsData;
       const setButton = (i: number, v: string) => onChange({ buttons: b.buttons.map((x, j) => (j === i ? v : x)) });
+      const withFile = kind === 'mediabuttons';
+      const file = (
+        <Upload label={withFile ? 'Attachment: image, video or PDF' : 'Header image / video / document (optional)'} value={b.mediaUrl}
+          onChange={(url) => onChange({ mediaUrl: url })} accept=".jpg,.jpeg,.png,.mp4,.pdf" help={withFile ? UPLOAD_HELP : undefined} />
+      );
       return (
         <>
-          <TextField label="Message" value={b.text} onChange={(v) => onChange({ text: v })} inserter={inserter} multiline max={LIMITS.text} />
-          <Upload label="Header image / video / document (optional)" value={b.mediaUrl} onChange={(url) => onChange({ mediaUrl: url })} accept=".jpg,.jpeg,.png,.mp4,.pdf" />
+          {withFile && file}
+          <TextField label={withFile ? 'Message (shown under the attachment)' : 'Message'} value={b.text} onChange={(v) => onChange({ text: v })} inserter={inserter} multiline max={LIMITS.text} />
+          {!withFile && file}
           <TextField label="Footer (optional)" value={b.footer} onChange={(v) => onChange({ footer: v })} max={LIMITS.footer} />
           <label className="form-label small fw-medium mb-1">Buttons <span className="text-muted fw-normal">— each one can lead to a different step</span></label>
           {b.buttons.map((x, i) => (

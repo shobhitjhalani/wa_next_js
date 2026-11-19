@@ -373,6 +373,7 @@ async function walk(run: Run, node: FlowNode | null): Promise<void> {
         continue;
       }
       case 'buttons':
+      case 'mediabuttons':
       case 'list':
       case 'ask':
         await prompt(run, node);
@@ -415,7 +416,7 @@ async function prompt(run: Run, node: FlowNode, prefix = ''): Promise<void> {
     await run.host.send({ m_msg_type: 'text', m_content: prefix + fill(run, (node.data as AskData).text) });
     return;
   }
-  if (node.type === 'buttons') {
+  if (node.type === 'buttons' || node.type === 'mediabuttons') {
     const d = node.data as ButtonsData;
     const interactive: Record<string, unknown> = {
       type: 'button',
@@ -425,7 +426,8 @@ async function prompt(run: Run, node: FlowNode, prefix = ''): Promise<void> {
     const media = d.mediaUrl ? fill(run, d.mediaUrl, encodeURI) : '';
     if (media) {
       const kind = mediaKind(media);
-      interactive.header = { type: kind, [kind]: { link: media } };
+      const filename = kind === 'document' ? fileNameOf(media) : '';
+      interactive.header = { type: kind, [kind]: filename ? { link: media, filename } : { link: media } };
     }
     if (d.footer) interactive.footer = { text: limit(fill(run, d.footer), 60, '') };
     await run.host.send({ m_msg_type: 'bot', m_content: prefix + fill(run, d.text), m_image: media || null, m_buttons: buttonList(d.buttons), m_carousel: JSON.stringify(interactive) });
@@ -450,8 +452,8 @@ async function prompt(run: Run, node: FlowNode, prefix = ''): Promise<void> {
 /** The customer's reply to a waiting step: continue, ask again, or "unmatched" (not one of the options). */
 async function answer(run: Run, node: FlowNode, incoming: Incoming): Promise<'continued' | 'retry' | 'unmatched'> {
   const graph = run.flow.bf_graph;
-  if (node.type === 'buttons' || node.type === 'list') {
-    const options = node.type === 'buttons' ? (node.data as ButtonsData).buttons : (node.data as ListData).rows.map((r) => r.title);
+  if (node.type === 'buttons' || node.type === 'mediabuttons' || node.type === 'list') {
+    const options = node.type !== 'list' ? (node.data as ButtonsData).buttons : (node.data as ListData).rows.map((r) => r.title);
     let index = -1;
     if (incoming.replyId?.startsWith(node.id + ':')) index = Number(incoming.replyId.slice(node.id.length + 1));
     if (!(index >= 0 && index < options.length)) {
@@ -611,4 +613,12 @@ export function triggerKeywords(graph: FlowGraph): { keywords: string[]; match: 
   const trigger = graph.nodes.find((n) => n.type === 'trigger');
   const d = trigger?.data as TriggerData | undefined;
   return { keywords: parseKeywords(d?.keywords ?? ''), match: d?.match === 'contains' ? 2 : 1 };
+}
+
+/** Readable file name of a media link for WhatsApp's document header (without the upload's timestamp prefix). */
+function fileNameOf(url: string): string {
+  const last = url.split(/[?#]/)[0].split('/').pop() ?? '';
+  let name = last;
+  try { name = decodeURIComponent(last); } catch { /* keep it encoded */ }
+  return name.replace(/^\d{14}-/, '').slice(0, 240);
 }

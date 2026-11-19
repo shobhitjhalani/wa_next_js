@@ -9,7 +9,7 @@
  * variables ({{name}}) that later messages, templates and webhooks can use.
  */
 
-export type NodeKind = 'trigger' | 'message' | 'media' | 'buttons' | 'list' | 'template' | 'ask' | 'wait' | 'webhook' | 'end';
+export type NodeKind = 'trigger' | 'message' | 'media' | 'buttons' | 'mediabuttons' | 'list' | 'template' | 'ask' | 'wait' | 'webhook' | 'end';
 
 export interface TriggerData { keywords: string; match: 'exact' | 'contains' }
 export interface MessageData { text: string }
@@ -24,7 +24,7 @@ export interface WebhookData { url: string; method: 'POST' | 'GET'; headers: str
 export type EndData = Record<string, never>;
 
 export interface NodeDataMap {
-  trigger: TriggerData; message: MessageData; media: MediaData; buttons: ButtonsData; list: ListData;
+  trigger: TriggerData; message: MessageData; media: MediaData; buttons: ButtonsData; mediabuttons: ButtonsData; list: ListData;
   template: TemplateData; ask: AskData; wait: WaitData; webhook: WebhookData; end: EndData;
 }
 
@@ -56,6 +56,7 @@ export const NODE_INFO: Record<NodeKind, { label: string; hint: string; icon: st
   message: { label: 'Send message', hint: 'Plain WhatsApp text', icon: 'ri-chat-3-line', group: 'Send', tone: 'success' },
   media: { label: 'Send media', hint: 'Image, video, document or audio', icon: 'ri-attachment-2', group: 'Send', tone: 'warning' },
   buttons: { label: 'Buttons', hint: 'Up to 3 reply buttons', icon: 'ri-checkbox-multiple-line', group: 'Send', tone: 'success' },
+  mediabuttons: { label: 'Attachment + Buttons', hint: 'File, message and reply buttons in one', icon: 'ri-file-list-2-line', group: 'Send', tone: 'warning' },
   list: { label: 'List', hint: 'Menu with up to 10 items', icon: 'ri-list-check-2', group: 'Send', tone: 'success' },
   template: { label: 'Send template', hint: 'Approved WhatsApp template', icon: 'ri-file-text-line', group: 'Send', tone: 'primary' },
   ask: { label: 'Ask question', hint: 'Wait for a typed answer', icon: 'ri-question-answer-line', group: 'Listen', tone: 'danger' },
@@ -64,7 +65,7 @@ export const NODE_INFO: Record<NodeKind, { label: string; hint: string; icon: st
   end: { label: 'End flow', hint: 'Finish the conversation', icon: 'ri-stop-circle-line', group: 'Logic', tone: 'secondary' },
 };
 
-export const PALETTE_ORDER: NodeKind[] = ['message', 'media', 'buttons', 'list', 'template', 'trigger', 'ask', 'wait', 'webhook', 'end'];
+export const PALETTE_ORDER: NodeKind[] = ['message', 'media', 'mediabuttons', 'buttons', 'list', 'template', 'trigger', 'ask', 'wait', 'webhook', 'end'];
 
 export function defaultData<K extends NodeKind>(kind: K): NodeDataMap[K] {
   const d: { [P in NodeKind]: NodeDataMap[P] } = {
@@ -72,6 +73,7 @@ export function defaultData<K extends NodeKind>(kind: K): NodeDataMap[K] {
     message: { text: '' },
     media: { url: '', caption: '' },
     buttons: { text: '', mediaUrl: '', footer: '', buttons: ['Yes', 'No'], saveAs: '' },
+    mediabuttons: { text: '', mediaUrl: '', footer: '', buttons: ['Interested', 'Call me'], saveAs: '' },
     list: { text: '', buttonLabel: 'Choose', footer: '', rows: [{ title: 'Option 1', description: '' }, { title: 'Option 2', description: '' }], saveAs: '' },
     template: { template: '', params: [], headerUrl: '' },
     ask: { text: '', saveAs: '', validate: 'any', error: 'Please send a valid answer.' },
@@ -100,7 +102,7 @@ export function starterGraph(): FlowGraph {
 /** Output handles of a node: buttons / list have one per option, webhook success / failure, end none. */
 export function outputs(node: FlowNode): { id: string | null; label: string }[] {
   switch (node.type) {
-    case 'buttons': return (node.data as ButtonsData).buttons.map((b, i) => ({ id: `o${i}`, label: b || `Button ${i + 1}` }));
+    case 'buttons': case 'mediabuttons': return (node.data as ButtonsData).buttons.map((b, i) => ({ id: `o${i}`, label: b || `Button ${i + 1}` }));
     case 'list': return (node.data as ListData).rows.map((r, i) => ({ id: `o${i}`, label: r.title || `Item ${i + 1}` }));
     case 'webhook': return [{ id: 'ok', label: 'Success' }, { id: 'fail', label: 'Failed' }];
     case 'end': return [];
@@ -202,7 +204,7 @@ export function sanitizeGraph(input: unknown): FlowGraph {
       case 'trigger': data = { keywords: str(d.keywords, LIMITS.keywords), match: d.match === 'contains' ? 'contains' : 'exact' }; break;
       case 'message': data = { text: str(d.text, LIMITS.text) }; break;
       case 'media': data = { url: str(d.url, LIMITS.url).trim(), caption: str(d.caption, LIMITS.caption) }; break;
-      case 'buttons': data = {
+      case 'buttons': case 'mediabuttons': data = {
         text: str(d.text, LIMITS.text), mediaUrl: str(d.mediaUrl, LIMITS.url).trim(), footer: str(d.footer, LIMITS.footer),
         buttons: (Array.isArray(d.buttons) ? d.buttons : []).slice(0, LIMITS.buttons).map((b: unknown) => str(b, LIMITS.button)),
         saveAs: varName(d.saveAs),
@@ -261,6 +263,9 @@ export function validateGraph(graph: FlowGraph): string[] {
     switch (n.type) {
       case 'message': if (!d.text.trim()) errors.push(`${label(n)}: enter the message text.`); break;
       case 'media': if (!/^https?:\/\//i.test(d.url)) errors.push(`${label(n)}: upload a file or enter its https:// link.`); break;
+      case 'mediabuttons':
+        if (!/^https?:\/\//i.test(d.mediaUrl)) errors.push(`${label(n)}: upload the attachment or enter its https:// link.`);
+      // falls through: message and buttons are checked as for Buttons
       case 'buttons':
         if (!d.text.trim()) errors.push(`${label(n)}: enter the message text.`);
         if (!d.buttons.length || d.buttons.some((b: string) => !b.trim())) errors.push(`${label(n)}: every button needs a title.`);
@@ -282,4 +287,24 @@ export function validateGraph(graph: FlowGraph): string[] {
     if (n.type !== 'trigger' && !graph.edges.some((e) => e.target === n.id)) errors.push(`${label(n)} is not connected to anything before it.`);
   }
   return [...new Set(errors)];
+}
+
+/**
+ * Files a flow can upload, with WhatsApp's size limit in MB: images 5, video / audio 16,
+ * documents 100 (95 here: the web server takes at most 100 MB per request, form data included).
+ */
+export const UPLOAD_MAX_MB: Record<string, number> = {
+  jpg: 5, jpeg: 5, png: 5,
+  mp4: 16, '3gp': 16,
+  pdf: 95, doc: 95, docx: 95, xls: 95, xlsx: 95, ppt: 95, pptx: 95, txt: 95, csv: 95,
+  mp3: 16, ogg: 16, aac: 16, amr: 16, m4a: 16,
+};
+
+/** Why a file can't be uploaded to a flow (wrong type or too large), or '' when it can. */
+export function uploadProblem(fileName: string, bytes: number): string {
+  const ext = (/\.([^.]+)$/.exec(fileName)?.[1] ?? '').toLowerCase();
+  const max = UPLOAD_MAX_MB[ext];
+  if (!max) return 'Use an image (JPG, PNG), video (MP4), document (PDF, Word, Excel…) or audio file.';
+  if (bytes > max * 1024 * 1024) return `This file is ${(bytes / 1048576).toFixed(1)} MB; ${ext.toUpperCase()} files can be at most ${max} MB.`;
+  return '';
 }

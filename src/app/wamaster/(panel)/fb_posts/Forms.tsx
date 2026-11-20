@@ -140,3 +140,43 @@ export function AccordionCard({ title, children, defaultOpen = false, actions }:
     </div>
   );
 }
+
+/**
+ * "Delete selected" for the Pages table: the row checkboxes belong to this form through form="fbp-bulk"
+ * (the rows have their own delete forms, and forms can't be nested).
+ */
+export function BulkDeletePages({ action }: { action: (fd: FormData) => Promise<void> }) {
+  const [count, setCount] = useState(0);
+  const [problems, setProblems] = useState(0);
+  useEffect(() => {
+    const boxes = () => [...document.querySelectorAll<HTMLInputElement>('input[form="fbp-bulk"][name="ids"]')];
+    const read = () => {
+      const all = boxes();
+      const n = all.filter((b) => b.checked).length;
+      setCount(n);
+      setProblems(all.filter((b) => b.dataset.problem === '1').length);
+      const head = document.querySelector<HTMLInputElement>('#fbp-all');
+      if (head) { head.checked = all.length > 0 && n === all.length; head.indeterminate = n > 0 && n < all.length; }
+    };
+    const onChange = (e: Event) => {
+      const t = e.target as HTMLInputElement;
+      if (t.id === 'fbp-all') boxes().forEach((b) => { b.checked = t.checked; });
+      if (t.id === 'fbp-all' || t.getAttribute('form') === 'fbp-bulk') read();
+    };
+    document.addEventListener('change', onChange);
+    read();
+    return () => document.removeEventListener('change', onChange);
+  }, []);
+  const pickProblems = () => {
+    const all = [...document.querySelectorAll<HTMLInputElement>('input[form="fbp-bulk"][name="ids"]')];
+    all.forEach((b) => { b.checked = b.dataset.problem === '1'; });
+    all[0]?.dispatchEvent(new Event('change', { bubbles: true })); // recount (a row box, not the header box)
+  };
+  return (
+    <form id="fbp-bulk" action={action} className="d-flex flex-wrap align-items-center gap-2"
+      onSubmit={(e) => { if (!count || !window.confirm(`Remove the ${count} ticked Page(s)? Their queued posts and history here are deleted (posts already on Facebook stay).`)) e.preventDefault(); }}>
+      {problems > 0 && <button type="button" className="btn btn-sm btn-soft-warning" onClick={pickProblems}><i className="ri-error-warning-line" /> Select problem Pages ({problems})</button>}
+      <PendingButton className="btn btn-sm btn-soft-danger" pendingText="Removing…"><i className="ri-delete-bin-line" /> Delete selected{count ? ` (${count})` : ''}</PendingButton>
+    </form>
+  );
+}

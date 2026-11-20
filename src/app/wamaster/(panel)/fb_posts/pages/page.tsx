@@ -6,8 +6,8 @@ import { requireRight } from '@/lib/admin-access';
 import { query } from '@/lib/db';
 import { NEEDED_PERMISSIONS, PAGE_TASKS } from '@/lib/services/fb-posts';
 import { phpDate } from '@/lib/time';
-import { deletePage, deleteToken, refreshPagesAction } from '../actions';
-import { AddPageForm, PendingButton } from '../Forms';
+import { deletePage, deletePages, deleteToken, refreshPagesAction } from '../actions';
+import { AddPageForm, BulkDeletePages, PendingButton } from '../Forms';
 
 export const metadata: Metadata = { title: 'Facebook Pages' };
 
@@ -113,6 +113,7 @@ export default async function FbPagesPage() {
                 <h5 className="card-title mb-0">Connected Pages <span className="text-muted fw-normal small">({pages.length}{problems ? `, ${problems} with problems` : ''})</span></h5>
                 {lastCheck > 0 && <div className="small text-muted">Last checked {phpDate('d M Y, h:i A', lastCheck)}</div>}
               </div>
+              {canDelete && pages.length > 0 && <BulkDeletePages action={deletePages} />}
               {canAdd && pages.length + tokens.length > 0 && (
                 <form action={refreshPagesAction}>
                   <PendingButton className="btn btn-sm btn-primary" pendingText="Checking with Facebook…"><i className="ri-refresh-line" /> Refresh Pages</PendingButton>
@@ -122,12 +123,15 @@ export default async function FbPagesPage() {
             <div className="card-body">
               <div className="table-responsive">
                 <table className="table align-middle mb-0">
-                  <thead className="table-light"><tr><th>Page</th><th>Permissions</th><th>Status</th><th>Client</th><th className="text-end">Posted</th><th /></tr></thead>
+                  <thead className="table-light"><tr>{canDelete && <th style={{ width: 32 }}><input type="checkbox" className="form-check-input" id="fbp-all" aria-label="Select all Pages" /></th>}<th>Page</th><th>Permissions</th><th>Status</th><th>Client</th><th className="text-end">Posted</th><th /></tr></thead>
                   <tbody>
                     {pages.length ? pages.map((p) => {
                       const tasks = p.fp_tasks.split(',').filter(Boolean);
                       return (
                         <tr key={p.fp_id}>
+                          {canDelete && (
+                            <td><input type="checkbox" className="form-check-input" form="fbp-bulk" name="ids" value={p.fp_id} data-problem={p.fp_status === 2 ? '1' : '0'} aria-label={`Select ${p.fp_name}`} /></td>
+                          )}
                           <td>
                             <a href={`https://www.facebook.com/${p.fp_page_id}`} target="_blank" rel="noreferrer" className="fw-semibold">{p.fp_name}</a>
                             <div className="small text-muted">{p.fp_page_id}{p.via && <> · via {p.via}</>}</div>
@@ -155,7 +159,7 @@ export default async function FbPagesPage() {
                           </td>
                         </tr>
                       );
-                    }) : <tr><td colSpan={6} className="text-center text-muted py-4">No Pages connected yet.</td></tr>}
+                    }) : <tr><td colSpan={canDelete ? 7 : 6} className="text-center text-muted py-4">No Pages connected yet.</td></tr>}
                   </tbody>
                 </table>
               </div>

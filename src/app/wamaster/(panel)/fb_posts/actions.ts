@@ -54,14 +54,35 @@ export async function deleteToken(id: number): Promise<void> {
   revalidatePath('/wamaster/fb_posts/pages');
 }
 
+/** Uploads left without posts are dropped; the totals of the others are corrected (after Pages are removed). */
+async function tidyBatches(): Promise<void> {
+  await exec('DELETE FROM js_fb_post_batch b WHERE NOT EXISTS (SELECT 1 FROM js_fb_post p WHERE p.po_batch_id = b.pb_id)');
+  await exec('UPDATE js_fb_post_batch b SET pb_total = c.n FROM (SELECT po_batch_id, COUNT(*)::int AS n FROM js_fb_post GROUP BY po_batch_id) c WHERE c.po_batch_id = b.pb_id AND b.pb_total <> c.n');
+}
+
 export async function deletePage(id: number): Promise<void> {
   await requireRight('fb_posts', 'delete');
   const row = await one<{ fp_name: string }>('DELETE FROM js_fb_page WHERE fp_id = $1 RETURNING fp_name', [id]);
-  // Its posts went with it; drop uploads that only went to this Page and keep the totals of the others right
-  await exec('DELETE FROM js_fb_post_batch b WHERE NOT EXISTS (SELECT 1 FROM js_fb_post p WHERE p.po_batch_id = b.pb_id)');
-  await exec('UPDATE js_fb_post_batch b SET pb_total = c.n FROM (SELECT po_batch_id, COUNT(*)::int AS n FROM js_fb_post GROUP BY po_batch_id) c WHERE c.po_batch_id = b.pb_id AND b.pb_total <> c.n');
+  await tidyBatches();
   await flash(row ? 'success' : 'error', row ? `Page “${row.fp_name}” removed with its post history.` : 'This Page no longer exists.');
   revalidatePath('/wamaster/fb_posts/pages');
+  revalidatePath('/wamaster/fb_posts');
+}
+
+/** Remove the ticked Pages (with their queued posts and history here; posts already on Facebook stay). */
+export async function deletePages(fd: FormData): Promise<void> {
+  await requireRight('fb_posts', 'delete');
+  const ids = [...new Set(fd.getAll('ids').map(Number).filter((n) => Number.isInteger(n) && n > 0))];
+  if (!ids.length) {
+    await flash('error', 'Tick the Pages to remove first.');
+  } else {
+    const rows = await query<{ fp_name: string }>('DELETE FROM js_fb_page WHERE fp_id = ANY($1::int[]) RETURNING fp_name', [ids]);
+    await tidyBatches();
+    const names = rows.map((r) => r.fp_name);
+    await flash('success', `${names.length} Page(s) removed with their post history: ${names.slice(0, 20).join(', ')}${names.length > 20 ? ` and ${names.length - 20} more` : ''}.`);
+  }
+  revalidatePath('/wamaster/fb_posts/pages');
+  revalidatePath('/wamaster/fb_posts');
 }
 
 /** Upload a CSV of posts for one or more Pages: each valid row is queued once per Page, skipped rows are listed. */

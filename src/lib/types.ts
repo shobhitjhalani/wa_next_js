@@ -50,6 +50,9 @@ export interface UserRow {
   /** Chatbot Flows menu / feature: 1 Yes · 2 No (admin switch). */
   u_bot_flow: number;
   u_crm: number;
+  u_team: number;
+  u_bulk_post: number;
+  u_ads: number;
   u_enable_calling: number;
   u_calling_url: string | null;
   u_ai_key: string | null;
@@ -187,6 +190,8 @@ export interface CampaignPayload {
   fields: Record<string, unknown>;
   numbers: string[];
   lite: boolean;
+  /** Variables from the uploaded file: which {{n}} (0-based) and, per number, their values (the rest are `parameters`). */
+  rowVars?: { index: number[]; parameters: string[]; values: Record<string, string[]> };
 }
 
 export interface CampaignStats {

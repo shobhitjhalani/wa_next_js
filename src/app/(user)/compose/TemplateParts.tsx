@@ -1,3 +1,4 @@
+import { FieldError } from '@/components/ActionForm';
 import { countVariables, templateButtons, templateCards, templateParameterCount } from '@/lib/format';
 import { decodeEntities, limit } from '@/lib/text';
 import { waToHtml } from '@/lib/whatsapp-text';
@@ -89,17 +90,55 @@ const HEADER_UPLOAD: Record<string, [string, string, string]> = {
 };
 const CARD_ACCEPT: Record<string, [string, string]> = { IMAGE: ['image/png,image/jpeg', 'JPG or PNG'], VIDEO: ['video/mp4', 'MP4'] };
 
-export function TemplateInputs({ template }: { template: ComposeTemplate }) {
+/** Columns of the uploaded audience file, for taking template variables from it. */
+export interface FileColumns { headings: string[]; mobileColumn: number; sample: string[]; emptyByColumn: number[] }
+
+export function TemplateInputs({ template, columns, mapping, onMap }: {
+  template: ComposeTemplate;
+  /** With an uploaded file: each {{n}} can take its value from a column (mapping[n-1] = column index, null = typed). */
+  columns?: FileColumns | null;
+  mapping?: (number | null)[];
+  onMap?: (param: number, column: number | null) => void;
+}) {
   const count = templateParameterCount(template);
   const header = HEADER_UPLOAD[template.ut_header_type ?? ''];
   return (
     <>
-      {Array.from({ length: count }, (_, k) => k + 1).map((i) => (
-        <div className="mb-3" key={i}>
-          <label htmlFor={`body_parameters_${i}`} className="form-label">Parameter {`{{${i}}}`} Value <span className="text-danger">*</span></label>
-          <input name="body_parameters[]" id={`body_parameters_${i}`} type="text" className="form-control" required />
+      {columns && count > 0 && (
+        <div className="alert alert-info small py-2 mb-3">
+          <i className="ri-file-excel-2-line me-1" />Each variable can take its value from a column of your Excel file, so every message gets its own row&apos;s value.
         </div>
-      ))}
+      )}
+      {Array.from({ length: count }, (_, k) => k + 1).map((i) => {
+        const col = columns ? mapping?.[i - 1] ?? null : null;
+        return (
+          <div className="mb-3" key={i}>
+            <label htmlFor={`body_parameters_${i}`} className="form-label">Parameter {`{{${i}}}`} Value <span className="text-danger">*</span></label>
+            <div className={columns ? 'input-group' : undefined}>
+              {columns && (
+                <select className="form-select" style={{ maxWidth: '45%' }} name="param_columns[]" aria-label={`Where {{${i}}} comes from`}
+                  value={col === null ? '' : String(col)} onChange={(e) => onMap?.(i - 1, e.target.value === '' ? null : Number(e.target.value))}>
+                  <option value="">Same for everyone (type it)</option>
+                  <optgroup label="From Excel column">
+                    {columns.headings.map((h, c) => (c === columns.mobileColumn ? null : <option key={c} value={c}>{h}</option>))}
+                  </optgroup>
+                </select>
+              )}
+              <input name="body_parameters[]" id={`body_parameters_${i}`} type="text" className="form-control" required={col === null}
+                hidden={col !== null} readOnly={col !== null} defaultValue="" />
+              {col !== null && (
+                <span className="input-group-text flex-grow-1 bg-light text-truncate" title={columns!.sample[col] ?? ''}>
+                  <i className="ri-table-line me-1 text-success" /> e.g. “{columns!.sample[col] || '—'}”
+                </span>
+              )}
+            </div>
+            {col !== null && columns!.emptyByColumn[col] > 0 && (
+              <div className="form-text text-warning">{columns!.emptyByColumn[col].toLocaleString('en-US')} row(s) leave “{columns!.headings[col]}” empty: they are skipped.</div>
+            )}
+            <FieldError name={`body_parameters.${i - 1}`} />
+          </div>
+        );
+      })}
 
       {header && (
         <div className="mb-3">

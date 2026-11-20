@@ -30,7 +30,11 @@ export function messageSummary(m: Msg): string {
   let text = String(m.m_content ?? '');
   if (text === '' || text === 'File_Attachment') {
     text = m.m_msg_template_name ? 'Template : ' + m.m_msg_template_name : String(m.m_msg_type ?? '');
-    if (m.m_msg_template_para) text += ' : ' + m.m_msg_template_para;
+    if (m.m_msg_template_para) {
+      // JSON values ({"body":[…]}: API messages, campaigns with values from an Excel file) → "a, b"
+      const j = m.m_msg_template_para.startsWith('{') ? jsonParse<{ body?: unknown[] }>(m.m_msg_template_para, {}) : null;
+      text += ' : ' + (Array.isArray(j?.body) ? j.body.map(String).join(', ') : m.m_msg_template_para);
+    }
   }
   return decodeEntities(text);
 }

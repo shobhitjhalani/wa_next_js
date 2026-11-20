@@ -84,6 +84,8 @@ export async function queueMessages(
   fields: Record<string, unknown>,
   lite: boolean,
   db: Queryable = pool,
+  /** Per-number template values (m_msg_template_para); a number it returns null for is not queued. */
+  paraFor?: (mobile: string) => string | null,
 ): Promise<number> {
   const t = now();
   const base: Record<string, unknown> = {
@@ -105,15 +107,21 @@ export async function queueMessages(
     m_created_on: t,
     ...fields,
   };
-  const cols = Object.keys(base);
+  const cols = Object.keys(base).filter((c) => !(paraFor && c === 'm_msg_template_para'));
   const values = cols.map((c) => base[c]);
   // Parameters in a SELECT list are untyped: numbers go in as bigint (assignment-cast to int/smallint), the rest as text
-  const casts = values.map((v, i) => `$${i + 2}::${typeof v === 'number' ? 'bigint' : 'text'}`);
-  const sql = `INSERT INTO js_message (m_mobile_no, m_unique_id, ${cols.join(', ')})
-               SELECT n, gen_random_uuid()::text, ${casts.join(', ')} FROM unnest($1::text[]) AS n`;
+  const first = paraFor ? 3 : 2;
+  const casts = values.map((v, i) => `$${i + first}::${typeof v === 'number' ? 'bigint' : 'text'}`);
+  const sql = paraFor
+    ? `INSERT INTO js_message (m_mobile_no, m_msg_template_para, m_unique_id, ${cols.join(', ')})
+       SELECT t.n, t.p, gen_random_uuid()::text, ${casts.join(', ')} FROM unnest($1::text[], $2::text[]) AS t(n, p)`
+    : `INSERT INTO js_message (m_mobile_no, m_unique_id, ${cols.join(', ')})
+       SELECT n, gen_random_uuid()::text, ${casts.join(', ')} FROM unnest($1::text[]) AS n`;
+  const list = paraFor ? numbers.filter((n) => paraFor(n) !== null) : numbers;
   let count = 0;
-  for (let i = 0; i < numbers.length; i += 5000) {
-    const res = await db.query(sql, [numbers.slice(i, i + 5000), ...values]);
+  for (let i = 0; i < list.length; i += 5000) {
+    const chunk = list.slice(i, i + 5000);
+    const res = await db.query(sql, paraFor ? [chunk, chunk.map((n) => paraFor(n)!), ...values] : [chunk, ...values]);
     count += res.rowCount ?? 0;
   }
   return count;

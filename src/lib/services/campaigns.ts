@@ -28,6 +28,8 @@ export interface CampaignInput {
   parameters: string[];
   cards: CardInput[];
   scheduleAt: number | null;
+  /** Variables taken from the uploaded file: {{index[k]+1}} = values[mobile][k]; only these numbers are sent. */
+  rowVars?: { index: number[]; values: Map<string, string[]> };
 }
 
 export async function createCampaign(
@@ -63,6 +65,7 @@ export async function createCampaign(
       fields,
       numbers,
       lite: String(template.ut_template_category ?? '').toUpperCase() === 'MARKETING' && Number(user.u_is_new_no) === 1,
+      ...(data.rowVars ? { rowVars: { index: data.rowVars.index, parameters: data.parameters, values: Object.fromEntries(data.rowVars.values) } } : {}),
     }),
   });
 
@@ -83,7 +86,16 @@ export async function dispatchCampaign(campaignId: number): Promise<number> {
     if (!campaign) return 0;
     const payload = campaign.uc_payload ?? { type: 'template', fields: {}, numbers: [], lite: false };
     const [numbers, skipped] = await audience(campaign.uc_user_id, campaignGroupIds(campaign), payload.numbers ?? []);
-    const queued = await queueMessages(campaign.uc_user_id, campaign.uc_id, campaign.uc_template ?? '', numbers, payload.type ?? 'template', payload.fields ?? {}, !!payload.lite, db);
+    const rv = payload.rowVars;
+    // Variables from the file: each message gets its own values (JSON, so values may contain commas)
+    const paraFor = rv ? (n: string) => {
+      const own = rv.values[n];
+      if (!own) return null;
+      const body = [...rv.parameters];
+      rv.index.forEach((p, k) => { body[p] = own[k] ?? ''; });
+      return JSON.stringify({ body });
+    } : undefined;
+    const queued = await queueMessages(campaign.uc_user_id, campaign.uc_id, campaign.uc_template ?? '', numbers, payload.type ?? 'template', payload.fields ?? {}, !!payload.lite, db, paraFor);
     // The pasted numbers are no longer needed once every message row exists
     await exec(
       'UPDATE js_user_campaign SET uc_total_contacts = $2, uc_skipped = $3, uc_payload = NULL, uc_stats = NULL, uc_stats_at = 0 WHERE uc_id = $1',

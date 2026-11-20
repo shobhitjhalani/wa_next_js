@@ -1,5 +1,4 @@
 import 'server-only';
-import { Readable } from 'node:stream';
 import ExcelJS from 'exceljs';
 import { parse } from 'csv-parse/sync';
 import { insertMany, query, tx } from '../db';
@@ -156,20 +155,22 @@ function readCsv(bytes: Buffer): string[][] {
   return parse(text, { delimiter, relax_column_count: true, relax_quotes: true, skip_empty_lines: false, bom: true }) as string[][];
 }
 
-/** First worksheet of an .xlsx, streamed so large sheets stay within memory. */
+/**
+ * First worksheet of an .xlsx. Loaded whole (uploads are at most 10 MB): ExcelJS's streaming reader failed at random
+ * ("reading 'sheets'") on valid files, depending on the order it met the parts of the zip.
+ */
 async function readXlsx(bytes: Buffer): Promise<string[][]> {
   const rows: string[][] = [];
   try {
-    const reader = new ExcelJS.stream.xlsx.WorkbookReader(Readable.from(bytes), { sharedStrings: 'cache', hyperlinks: 'ignore', styles: 'ignore', worksheets: 'emit' });
-    for await (const sheet of reader) {
-      for await (const row of sheet as AsyncIterable<ExcelJS.Row>) {
-        const out: string[] = [];
-        const values = row.values as unknown[];
-        for (let c = 1; c < values.length; c++) out[c - 1] = cellText(values[c]);
-        rows[row.number - 1] = out;
-      }
-      break; // first sheet only
-    }
+    const wb = new ExcelJS.Workbook();
+    await wb.xlsx.load(bytes as unknown as ArrayBuffer);
+    const sheet = wb.worksheets[0];
+    sheet?.eachRow({ includeEmpty: false }, (row) => {
+      const out: string[] = [];
+      const values = row.values as unknown[];
+      for (let c = 1; c < values.length; c++) out[c - 1] = cellText(values[c]);
+      rows[row.number - 1] = out;
+    });
   } catch {
     throw new ImportError('Could not open the Excel file.');
   }
@@ -194,25 +195,52 @@ function cellText(v: unknown): string {
   return String(v);
 }
 
-export interface NumbersFile { rows: number; numbers: string[]; invalid: number; duplicates: number }
+export interface NumbersFile {
+  rows: number; numbers: string[]; invalid: number; duplicates: number;
+  /** Column headings (the header row, or "Column A", "Column B"… without one) and the mobile column. */
+  headings: string[]; mobileColumn: number;
+  /** First valid row's cells (for the preview) and, per column, how many valid rows leave it empty. */
+  sample: string[]; emptyByColumn: number[];
+  /** Per number (first row wins), the cells of the requested columns (see `columns`); numbers with an empty one are left out. */
+  values: Map<string, string[]>; emptyValues: number;
+}
 
-/** Mobile numbers of a CSV / TXT / XLSX file (same column detection as the contact import), without saving contacts. */
-export async function readNumbersFile(file: { bytes: Buffer; extension: string }): Promise<NumbersFile> {
+const columnLetter = (i: number): string => (i >= 26 ? columnLetter(Math.floor(i / 26) - 1) : '') + String.fromCharCode(65 + (i % 26));
+
+/**
+ * Mobile numbers of a CSV / TXT / XLSX file (same column detection as the contact import), without saving contacts.
+ * With `columns`, the cells of those columns are read per number too (campaign variables from the file).
+ */
+export async function readNumbersFile(file: { bytes: Buffer; extension: string }, columns: number[] = []): Promise<NumbersFile> {
   let rows = file.extension.toLowerCase() === 'xlsx' ? await readXlsx(file.bytes) : readCsv(file.bytes);
   if (!rows.length) throw new ImportError('The file has no rows.');
   const [mobileCol, , hasHeader] = detectColumns(rows);
   if (mobileCol === null) throw new ImportError('Could not find a mobile number column. Add a header named "mobile" or put numbers in the first column.');
+  const width = Math.max(...rows.slice(0, 200).map((r) => r.length), mobileCol + 1);
+  const headings = Array.from({ length: width }, (_, i) => (hasHeader ? String(rows[0][i] ?? '').replace(/\s+/g, ' ').trim() : '') || `Column ${columnLetter(i)}`);
   if (hasHeader) rows = rows.slice(1);
   const seen = new Set<string>();
-  const out: NumbersFile = { rows: 0, numbers: [], invalid: 0, duplicates: 0 };
+  const out: NumbersFile = {
+    rows: 0, numbers: [], invalid: 0, duplicates: 0, headings, mobileColumn: mobileCol, sample: [], emptyByColumn: Array(width).fill(0),
+    values: new Map(), emptyValues: 0,
+  };
   for (const row of rows) {
     const raw = String(row[mobileCol] ?? '').trim();
     if (raw === '' && !row.some((v) => String(v ?? '').trim() !== '')) continue; // blank line
     out.rows++;
     const mobile = normalizePhone(raw);
-    if (!mobile) out.invalid++;
-    else if (seen.has(mobile)) out.duplicates++;
-    else { seen.add(mobile); out.numbers.push(mobile); }
+    if (!mobile) { out.invalid++; continue; }
+    if (seen.has(mobile)) { out.duplicates++; continue; }
+    seen.add(mobile);
+    const cells = Array.from({ length: width }, (_, i) => String(row[i] ?? '').replace(/\s+/g, ' ').trim());
+    if (!out.sample.length) out.sample = cells;
+    cells.forEach((c, i) => { if (c === '') out.emptyByColumn[i]++; });
+    if (columns.length) {
+      const vals = columns.map((c) => cells[c] ?? '');
+      if (vals.some((v) => v === '')) { out.emptyValues++; continue; } // WhatsApp refuses an empty variable
+      out.values.set(mobile, vals);
+    }
+    out.numbers.push(mobile);
   }
   return out;
 }

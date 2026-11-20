@@ -6,7 +6,8 @@ import { ActionForm, FieldError, useActionForm } from '@/components/ActionForm';
 import { SearchSelect } from '@/components/SearchSelect';
 import type { ActionResult } from '@/lib/actions';
 import { GroupContactsModal } from './GroupContactsModal';
-import { TemplateInputs, TemplatePreview, type ComposeTemplate, type PreviewFill } from './TemplateParts';
+import { TemplateInputs, TemplatePreview, type ComposeTemplate, type FileColumns, type PreviewFill } from './TemplateParts';
+import { templateParameterCount } from '@/lib/format';
 
 /**
  * New campaign form: searchable template picker with live preview + parameter inputs;
@@ -18,7 +19,7 @@ import { TemplateInputs, TemplatePreview, type ComposeTemplate, type PreviewFill
 type Action = (prev: ActionResult | null, fd: FormData) => Promise<ActionResult>;
 interface Group { id: number; name: string; count: number }
 type Tab = 'groups' | 'manual' | 'file';
-type FileInfo = { state: 'none' } | { state: 'reading'; name: string } | { state: 'ok'; name: string; valid: number; invalid: number; duplicates: number } | { state: 'error'; name: string; message: string };
+type FileInfo = { state: 'none' } | { state: 'reading'; name: string } | ({ state: 'ok'; name: string; valid: number; invalid: number; duplicates: number } & FileColumns) | { state: 'error'; name: string; message: string };
 
 const fmt = (n: number) => n.toLocaleString('en-US');
 
@@ -44,6 +45,20 @@ function readFill(root: HTMLElement | null, urls: Map<File, string>): PreviewFil
   const fill = { params: values('[name="body_parameters[]"]'), header: file(root?.querySelector<HTMLInputElement>('#img_value')), cards };
   for (const [f, url] of urls) if (!used.has(f)) { URL.revokeObjectURL(url); urls.delete(f); }
   return fill;
+}
+
+/** A heading naming a variable: "{{2}}", "2", "Var 2", "variable_2", "Param 2", "Value2" → 2. */
+function headingVariable(h: string): number | null {
+  const m = /^(?:\{\{)?\s*(?:var(?:iable)?|param(?:eter)?|value|v|p)?\s*[-_#.]?\s*(\d{1,2})\s*(?:\}\})?$/i.exec(h.trim());
+  return m ? Number(m[1]) : null;
+}
+
+/** Variables a file's headings name ({{n}} ← the column called "{{n}}" / "Var n" …); the others are typed. */
+function autoMap(count: number, cols: FileColumns): (number | null)[] {
+  return Array.from({ length: count }, (_, k) => {
+    const c = cols.headings.findIndex((h, i) => i !== cols.mobileColumn && headingVariable(h) === k + 1);
+    return c >= 0 ? c : null;
+  });
 }
 
 function pastedNumbers(text: string): number {
@@ -73,6 +88,8 @@ export function ComposeForm({ action, templates, selected, groups, preselectedGr
   const [noAudience, setNoAudience] = useState(false);
   const [review, setReview] = useState(false);
   const [fill, setFill] = useState<PreviewFill | null>(null);
+  // {{n}} → column of the uploaded file (null = typed value)
+  const [mapping, setMapping] = useState<(number | null)[]>([]);
   const request = useRef(0);
   const fileRef = useRef<HTMLInputElement>(null);
   const formRef = useRef<HTMLDivElement>(null);
@@ -92,6 +109,19 @@ export function ComposeForm({ action, templates, selected, groups, preselectedGr
   const matchesGroup = (g: Group) => !needle || g.name.toLowerCase().includes(needle);
   const shownGroups = groups.filter(matchesGroup).length;
 
+  const columns: FileColumns | null = fileInfo.state === 'ok' ? fileInfo : null;
+  const paramCount = template ? templateParameterCount(template) : 0;
+  // A new template or file: map the variables whose heading names them
+  useEffect(() => {
+    setMapping(columns ? autoMap(paramCount, columns) : []);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [template, fileInfo]);
+  const fromFileVars = !!columns && mapping.some((c) => c !== null);
+  // The preview shows the first row's value for a variable taken from the file
+  const shownFill = useMemo<PreviewFill | null>(() => {
+    if (!fill || !columns || !fromFileVars) return fill;
+    return { ...fill, params: fill.params.map((p, i) => (mapping[i] != null ? columns.sample[mapping[i]!] || p : p)) };
+  }, [fill, columns, mapping, fromFileVars]);
   const pasted = useMemo(() => pastedNumbers(numbers), [numbers]);
   const fromFile = fileInfo.state === 'ok' ? fileInfo.valid : 0;
   const groupTotal = groups.reduce((sum, g) => sum + (checked.has(g.id) ? g.count : 0), 0);
@@ -147,6 +177,7 @@ export function ComposeForm({ action, templates, selected, groups, preselectedGr
     if (!templateId) { setTemplateError(true); document.getElementById('temp_id')?.focus(); return; }
     if (!total) { setNoAudience(true); document.getElementById('audience_card')?.scrollIntoView({ behavior: 'smooth', block: 'center' }); return; }
     if (fileInfo.state === 'error' || fileBusy) { setTab('file'); return; }
+    if (fromFileVars && (selectedGroups || pasted)) { setTab(selectedGroups ? 'groups' : 'manual'); setNoAudience(false); document.getElementById('audience_card')?.scrollIntoView({ behavior: 'smooth', block: 'center' }); return; }
     if (form && !form.reportValidity()) return; // parameters, header file, schedule time…
     setReview(true);
   }
@@ -182,7 +213,13 @@ export function ComposeForm({ action, templates, selected, groups, preselectedGr
                 )}
               </div>
               <div id="header_div" ref={inputsRef} onInput={refreshFill} onChange={refreshFill}>
-                {template && <TemplateInputs key={template.ut_id} template={template} />}
+                {template && (
+                  <TemplateInputs key={template.ut_id} template={template} columns={columns} mapping={mapping}
+                    onMap={(i, c) => setMapping((m) => { const n = [...m]; n[i] = c; return n; })} />
+                )}
+                {template && paramCount > 0 && !columns && (
+                  <div className="form-text mt-n2 mb-3"><i className="ri-lightbulb-line me-1" />Different value for each message? Upload an Excel file under Audience → <b>Excel Upload</b> and pick its column for each variable.</div>
+                )}
               </div>
             </div>
           </div>
@@ -293,7 +330,16 @@ export function ComposeForm({ action, templates, selected, groups, preselectedGr
                 <FieldError name="contact_file" />
               </div>
 
-              <div className="form-text mt-3 mb-0">You can combine the tabs. Numbers in more than one source are sent once; opted-out contacts are skipped automatically.</div>
+              {fromFileVars && (selectedGroups > 0 || pasted > 0) && (
+                <div className="alert alert-warning small py-2 mt-3 mb-0">
+                  <i className="ri-error-warning-line me-1" />Variables come from the Excel file, so the campaign goes to the file&apos;s numbers only.
+                  Untick the contact groups and clear the typed numbers{' '}
+                  <button type="button" className="btn btn-link btn-sm p-0 align-baseline" onClick={() => { setChecked(new Set()); setNumbers(''); }}>(clear them)</button>.
+                </div>
+              )}
+              <div className="form-text mt-3 mb-0">{fromFileVars
+                ? 'Each number in the file gets the values of its own row. Opted-out contacts are skipped automatically.'
+                : 'You can combine the tabs. Numbers in more than one source are sent once; opted-out contacts are skipped automatically.'}</div>
             </div>
           </div>
 
@@ -331,7 +377,8 @@ export function ComposeForm({ action, templates, selected, groups, preselectedGr
           <div className="card sticky-lg-top" style={{ top: 90 }}>
             <div className="card-header"><h5 className="card-title mb-0">Template Preview</h5></div>
             <div className="card-body" id="template_content">
-              {template ? <TemplatePreview template={template} fill={fill ?? undefined} /> : <p className="text-muted mb-0">Select a template to preview it.</p>}
+              {template ? <TemplatePreview template={template} fill={shownFill ?? undefined} /> : <p className="text-muted mb-0">Select a template to preview it.</p>}
+              {template && fromFileVars && <div className="small text-muted mt-2"><i className="ri-table-line me-1" />Shown with the first row of your file.</div>}
             </div>
             <ul className="list-group list-group-flush small">
               <li className="list-group-item d-flex"><span className="text-muted me-auto">Total data</span><strong>{fmt(total)}</strong></li>
@@ -343,7 +390,7 @@ export function ComposeForm({ action, templates, selected, groups, preselectedGr
 
       {review && (
         <ReviewModal
-          onClose={closeReview} template={template} fill={fill} templateName={templateOptions.find((o) => o.value === templateId)?.label ?? ''}
+          onClose={closeReview} template={template} fill={shownFill} templateName={templateOptions.find((o) => o.value === templateId)?.label ?? ''}
           total={total} sources={sources} schedule={later ? scheduleText : 'Now'} later={later}
         />
       )}

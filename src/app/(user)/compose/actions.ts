@@ -79,17 +79,41 @@ export async function storeCampaign(_prev: ActionResult | null, fd: FormData): P
     add('schedule_at', 'Choose when to send the campaign.');
   }
 
+  // Variables taken from a column of the uploaded file: param_columns[i] = column index ('' = typed value)
+  const paramColumns = nList(input.param_columns).map((v) => (typeof v === 'string' && /^\d+$/.test(v) ? parseInt(v, 10) : -1));
+  const mapped = paramColumns.map((c, i) => [i, c] as const).filter(([, c]) => c >= 0);
+  const fromFileVars = mapped.length > 0;
+  let rowVars: { index: number[]; values: Map<string, string[]> } | undefined;
+  let emptyValues = 0;
+  if (fromFileVars) {
+    if (groupIds.length || nStr(input, 'txt_contact')) {
+      add('contact_file', 'Variables come from the Excel file, so the campaign goes to the file’s numbers only: untick the contact groups and clear the typed numbers.');
+    }
+  }
+  // Typed values are required for the variables not taken from the file
+  parameters.forEach((p, i) => { if (!mapped.some(([m]) => m === i) && !p.trim()) add(`body_parameters.${i}`, `Enter the value of {{${i + 1}}}.`); });
+
   // Audience from an uploaded Excel / CSV file (Audience → Excel Upload)
   let fileNumbers: string[] = [];
   const audienceFile = fd.get('contact_file');
+  if (fromFileVars && !(audienceFile instanceof File && audienceFile.size)) add('contact_file', 'Upload the Excel file the variables come from.');
   if (audienceFile instanceof File && audienceFile.size) {
     const ext = audienceFile.name.split('.').pop()?.toLowerCase() ?? '';
     if (!NUMBER_FILE_EXTENSIONS.includes(ext)) add('contact_file', 'Upload an .xlsx, .csv or .txt file.');
     else if (audienceFile.size > 10 * 1024 * 1024) add('contact_file', 'The file must not be larger than 10 MB.');
     else {
       try {
-        fileNumbers = (await readNumbersFile({ bytes: Buffer.from(await audienceFile.arrayBuffer()), extension: ext })).numbers;
-        if (!fileNumbers.length) add('contact_file', 'The file has no valid mobile numbers.');
+        const r = await readNumbersFile({ bytes: Buffer.from(await audienceFile.arrayBuffer()), extension: ext }, mapped.map(([, c]) => c));
+        fileNumbers = r.numbers;
+        if (fromFileVars) {
+          const bad = mapped.find(([, c]) => c >= r.headings.length || c === r.mobileColumn);
+          if (bad) add(`body_parameters.${bad[0]}`, `Choose another column for {{${bad[0] + 1}}}.`);
+          // WhatsApp allows at most 1024 characters per variable
+          for (const [n, vals] of r.values) r.values.set(n, vals.map((v) => Array.from(v).slice(0, 1024).join('')));
+          rowVars = { index: mapped.map(([i]) => i), values: r.values };
+          emptyValues = r.emptyValues;
+          if (!fileNumbers.length) add('contact_file', r.emptyValues ? 'Every row leaves a mapped column empty, so no message can be sent.' : 'The file has no valid mobile numbers.');
+        } else if (!fileNumbers.length) add('contact_file', 'The file has no valid mobile numbers.');
       } catch (e) {
         if (e instanceof ImportError) add('contact_file', e.message);
         else throw e;
@@ -114,6 +138,7 @@ export async function storeCampaign(_prev: ActionResult | null, fd: FormData): P
       parameters,
       cards: Array.from(cards, (c) => c ?? {}),
       scheduleAt: sendMode === 'later' ? scheduleAt : null,
+      rowVars,
     }, headerFiles, Array.from(cardFiles, (f) => f ?? null));
   } catch (e) {
     if (e instanceof UserError) return fail(e.message);
@@ -123,8 +148,9 @@ export async function storeCampaign(_prev: ActionResult | null, fd: FormData): P
   // Remember which team member created it ("view own campaigns")
   if (member) await exec('UPDATE js_user_campaign SET uc_member_id = $2 WHERE uc_id = $1', [campaign.uc_id, member.um_id]);
 
-  await flash('success', sendMode === 'later'
+  await flash('success', (sendMode === 'later'
     ? `Campaign scheduled for ${phpDate('d M Y, H:i', campaign.uc_scheduled_at)}.`
-    : `${numberFormat(campaign.uc_total_contacts)} message(s) queued${campaign.uc_skipped ? ` (${numberFormat(campaign.uc_skipped)} opted-out number(s) skipped)` : ''}.`);
+    : `${numberFormat(campaign.uc_total_contacts)} message(s) queued${campaign.uc_skipped ? ` (${numberFormat(campaign.uc_skipped)} opted-out number(s) skipped)` : ''}.`)
+    + (emptyValues ? ` ${numberFormat(emptyValues)} row(s) of the file were skipped: a mapped column was empty.` : ''));
   redirect(perms.campaignView === 'none' ? '/compose' : `/campaigns/${campaign.uc_id}`);
 }

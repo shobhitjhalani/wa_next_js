@@ -1,6 +1,7 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { useEffect, useState, useTransition } from 'react';
+import { useFormStatus } from 'react-dom';
 import { useRouter } from 'next/navigation';
 import { ActionForm, FieldError, SubmitButton } from '@/components/ActionForm';
 import { addPage, uploadPosts } from './actions';
@@ -100,4 +101,42 @@ export function AutoRefresh({ active }: { active: boolean }) {
     return () => clearInterval(t);
   }, [active, router]);
   return active ? <span className="small text-muted"><span className="spinner-border spinner-border-sm me-1" />Updating every 15 seconds</span> : null;
+}
+
+/** Submit button for a plain <form action={serverAction}>: disabled with a spinner while it runs. */
+export function PendingButton({ children, pendingText, className }: { children: React.ReactNode; pendingText: string; className: string }) {
+  const { pending } = useFormStatus();
+  return (
+    <button type="submit" className={className} disabled={pending}>
+      {pending ? <><span className="spinner-border spinner-border-sm me-1" />{pendingText}</> : children}
+    </button>
+  );
+}
+
+/** Reload the server data of this page (e.g. the Uploads table) without a full page load. */
+export function RefreshButton({ label = 'Refresh' }: { label?: string }) {
+  const router = useRouter();
+  const [pending, start] = useTransition();
+  return (
+    <button type="button" className="btn btn-sm btn-soft-secondary" disabled={pending} onClick={() => start(() => router.refresh())} title="Reload the latest status">
+      {pending ? <span className="spinner-border spinner-border-sm me-1" /> : <i className="ri-refresh-line" />} {pending ? 'Refreshing…' : label}
+    </button>
+  );
+}
+
+/** A card that opens / closes on its header (closed by default). */
+export function AccordionCard({ title, children, defaultOpen = false, actions }: { title: React.ReactNode; children: React.ReactNode; defaultOpen?: boolean; actions?: React.ReactNode }) {
+  const [open, setOpen] = useState(defaultOpen);
+  return (
+    <div className="card">
+      <div className="card-header d-flex flex-wrap align-items-center gap-2">
+        <button type="button" className="btn btn-link text-body text-decoration-none p-0 me-auto d-flex align-items-center gap-2 text-start" aria-expanded={open} onClick={() => setOpen(!open)}>
+          <i className={`ri-arrow-${open ? 'down' : 'right'}-s-line fs-4 text-muted`} />
+          <h5 className="card-title mb-0">{title}</h5>
+        </button>
+        {actions}
+      </div>
+      {open && <div className="card-body">{children}</div>}
+    </div>
+  );
 }

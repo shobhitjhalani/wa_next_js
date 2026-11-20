@@ -5,7 +5,7 @@ import { redirect } from 'next/navigation';
 import { fail, fFile, fInt, flash, fStr, invalid, ok, type ActionResult } from '@/lib/actions';
 import { requireRight } from '@/lib/admin-access';
 import { exec, insertMany, one, query, tx } from '@/lib/db';
-import { MAX_UPLOAD_POSTS, pagesForToken, postsFromCsv } from '@/lib/services/fb-posts';
+import { MAX_UPLOAD_POSTS, pagesForToken, postsFromCsv, refreshPages, saveTokenPages } from '@/lib/services/fb-posts';
 import { now, parseDate } from '@/lib/time';
 
 /** Connect Facebook Pages: a Page token connects its Page, a user / System User token every Page it manages. */
@@ -16,17 +16,7 @@ export async function addPage(_prev: ActionResult | null, fd: FormData): Promise
   if (token.length < 50) return invalid({ token: 'Paste the access token (a long text starting with EAA…).' });
   const res = await pagesForToken(token);
   if (!res.ok) return invalid({ token: res.error });
-  const t = now();
-  await tx(async (db) => {
-    for (const pg of res.pages) {
-      // Reconnecting refreshes the name and token; the client is only changed when one is chosen
-      await exec(
-        `INSERT INTO js_fb_page (fp_page_id, fp_name, fp_token, fp_user_id, fp_emp_id, fp_created_on) VALUES ($1, $2, $3, $4, $5, $6)
-         ON CONFLICT (fp_page_id) DO UPDATE SET fp_name = EXCLUDED.fp_name, fp_token = EXCLUDED.fp_token,
-           fp_user_id = CASE WHEN EXCLUDED.fp_user_id > 0 THEN EXCLUDED.fp_user_id ELSE js_fb_page.fp_user_id END`,
-        [pg.id, pg.name, pg.token, userId, admin.emp_id, t], db);
-    }
-  });
+  await saveTokenPages(res, { userId, empId: admin.emp_id });
   revalidatePath('/wamaster/fb_posts/pages');
   revalidatePath('/wamaster/fb_posts');
   const names = res.pages.map((p) => p.name);
@@ -41,6 +31,27 @@ export async function addPage(_prev: ActionResult | null, fd: FormData): Promise
     lines.push('Only one Page? When creating the token, Facebook asks which Pages to allow: choose all of them (or use a System User with the Pages assigned).');
   }
   return ok(lines.join('\n'));
+}
+
+/** "Refresh Pages": list the Pages again with every kept token and check each Page's token. */
+export async function refreshPagesAction(): Promise<void> {
+  const { admin } = await requireRight('fb_posts', 'add');
+  const r = await refreshPages(admin.emp_id);
+  const lines = [`Checked ${r.tokens} token(s) and ${r.checked} Page(s)${r.added ? `; ${r.added} new Page(s) added` : '; no new Pages'}.`];
+  if (r.tokenProblems.length) lines.push(`Token problems:\n${r.tokenProblems.slice(0, 10).join('\n')}`);
+  if (r.problems.length) lines.push(`Pages with problems (${r.problems.length}):\n${r.problems.slice(0, 15).join('\n')}`);
+  if (!r.tokens) lines.push('No token is kept yet: paste a User or System User token once and later refreshes find new Pages with it.');
+  await flash(r.tokenProblems.length || r.problems.length ? 'error' : 'success', lines.join('\n'));
+  revalidatePath('/wamaster/fb_posts/pages');
+  revalidatePath('/wamaster/fb_posts');
+}
+
+/** Forget a kept token (its Pages stay connected with their own Page tokens). */
+export async function deleteToken(id: number): Promise<void> {
+  await requireRight('fb_posts', 'delete');
+  const row = await one<{ ft_name: string }>('DELETE FROM js_fb_token WHERE ft_id = $1 RETURNING ft_name', [id]);
+  await flash(row ? 'success' : 'error', row ? `Token of “${row.ft_name}” removed. Its Pages stay connected; Refresh no longer uses it to find new Pages.` : 'This token no longer exists.');
+  revalidatePath('/wamaster/fb_posts/pages');
 }
 
 export async function deletePage(id: number): Promise<void> {

@@ -1,6 +1,6 @@
 import 'server-only';
 import { config } from '../config';
-import { exec, query } from '../db';
+import { exec, one, query, tx } from '../db';
 import { now, parseDate } from '../time';
 
 /**
@@ -35,7 +35,7 @@ async function graph(method: 'GET' | 'POST', path: string, token: string, params
   }
 }
 
-export interface FbPageToken { id: string; name: string; token: string }
+export interface FbPageToken { id: string; name: string; token: string; tasks: string[] }
 
 /** A short-lived user token (Graph API Explorer, ~1 hour) → a long-lived one, so the Page tokens taken from it don't expire. */
 async function longLived(token: string): Promise<string> {
@@ -61,7 +61,10 @@ async function graphList(path: string, token: string, params: Record<string, str
 
 export interface TokenPages {
   kind: 'page' | 'user';
+  ownerId: string;
   owner: string;                                  // the Page / person / System User the token belongs to
+  token: string;                                  // the token to keep (long-lived when it could be exchanged)
+  granted: string[];                              // permissions Facebook reports for it
   pages: FbPageToken[];                           // can post
   skipped: { name: string; reason: string }[];    // seen, but can't post
   missingPermissions: string[];
@@ -79,7 +82,9 @@ export async function pagesForToken(token: string): Promise<({ ok: true } & Toke
   const me = await graph('GET', 'me', token, { fields: 'id,name', metadata: '1' });
   if (me.error || !me.id) return { ok: false, error: `Facebook refused the token: ${me.error?.message ?? 'unknown error'}` };
   const owner = String(me.name ?? me.id);
-  if (me.metadata?.type === 'page') return { ok: true, kind: 'page', owner, pages: [{ id: String(me.id), name: owner, token }], skipped: [], missingPermissions: [] };
+  if (me.metadata?.type === 'page') {
+    return { ok: true, kind: 'page', ownerId: String(me.id), owner, token, granted: [], pages: [{ id: String(me.id), name: owner, token, tasks: [] }], skipped: [], missingPermissions: [] };
+  }
 
   const userToken = await longLived(token);
   const perms = await graph('GET', 'me/permissions', userToken);
@@ -95,7 +100,8 @@ export async function pagesForToken(token: string): Promise<({ ok: true } & Toke
     if (!pg.access_token) { skipped.set(id, { name, reason: `${via}: no posting access for this login (assign the Page to it with Content / Full control)` }); return; }
     // tasks is missing for some System User tokens; when present, posting needs CREATE_CONTENT
     if (Array.isArray(pg.tasks) && !pg.tasks.includes('CREATE_CONTENT')) { skipped.set(id, { name, reason: `${via}: access without “Create content” (${pg.tasks.join(', ').toLowerCase() || 'none'})` }); return; }
-    pages.set(id, { id, name, token: String(pg.access_token) });
+    const tasks = Array.isArray(pg.tasks) ? pg.tasks.map(String) : (pages.get(id)?.tasks ?? []);
+    pages.set(id, { id, name, token: String(pg.access_token), tasks });
     skipped.delete(id);
   };
 
@@ -125,7 +131,85 @@ export async function pagesForToken(token: string): Promise<({ ok: true } & Toke
     const seen = skipped.size ? ` Pages seen but not usable: ${[...skipped.values()].slice(0, 10).map((s) => `${s.name} (${s.reason})`).join('; ')}.` : '';
     return { ok: false, error: `The token of “${owner}” gives no Page to post to.${why}${seen} The person must have Content access to the Pages and pick them when creating the token (for a System User: Assign assets in Business Settings).` };
   }
-  return { ok: true, kind: 'user', owner, pages: [...pages.values()], skipped: [...skipped.values()], missingPermissions };
+  return { ok: true, kind: 'user', ownerId: String(me.id), owner, token: userToken, granted: [...granted].sort(), pages: [...pages.values()], skipped: [...skipped.values()], missingPermissions };
+}
+
+/** What a Page task lets us do, for the Pages list. */
+export const PAGE_TASKS: Record<string, { label: string; badge: string }> = {
+  CREATE_CONTENT: { label: 'Create content', badge: 'bg-success-subtle text-success' },
+  MANAGE: { label: 'Full control', badge: 'bg-primary-subtle text-primary' },
+  MODERATE: { label: 'Moderate', badge: 'bg-info-subtle text-info' },
+  MESSAGING: { label: 'Messaging', badge: 'bg-info-subtle text-info' },
+  ADVERTISE: { label: 'Advertise', badge: 'bg-secondary-subtle text-secondary' },
+  ANALYZE: { label: 'Insights', badge: 'bg-secondary-subtle text-secondary' },
+};
+
+/** The permissions a token needs (shown green / red in the tokens list). */
+export const NEEDED_PERMISSIONS = NEEDED;
+
+/** Keep a checked token and save its Pages (new ones added, known ones updated). Returns the token row id and new Page count. */
+export async function saveTokenPages(res: TokenPages, opts: { userId?: number; empId?: number } = {}): Promise<{ tokenId: number; added: number }> {
+  const t = now();
+  return tx(async (db) => {
+    const row = await one<{ ft_id: number }>(
+      `INSERT INTO js_fb_token (ft_fb_id, ft_name, ft_kind, ft_token, ft_permissions, ft_pages, ft_status, ft_error, ft_emp_id, ft_created_on, ft_checked_on)
+       VALUES ($1, $2, $3, $4, $5, $6, 1, '', $7, $8, $8)
+       ON CONFLICT (ft_fb_id) DO UPDATE SET ft_name = EXCLUDED.ft_name, ft_kind = EXCLUDED.ft_kind, ft_token = EXCLUDED.ft_token,
+         ft_permissions = EXCLUDED.ft_permissions, ft_pages = EXCLUDED.ft_pages, ft_status = 1, ft_error = '', ft_checked_on = EXCLUDED.ft_checked_on
+       RETURNING ft_id`,
+      [res.ownerId, res.owner, res.kind, res.token, res.granted.join(','), res.pages.length, opts.empId ?? 0, t], db);
+    let added = 0;
+    for (const pg of res.pages) {
+      // The client is only changed when one is chosen; a Page token knows no tasks, so keep what a user token reported
+      const r = await one<{ inserted: boolean }>(
+        `INSERT INTO js_fb_page (fp_page_id, fp_name, fp_token, fp_user_id, fp_emp_id, fp_created_on, fp_tasks, fp_token_id, fp_status, fp_error, fp_checked_on)
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, 1, '', $6)
+         ON CONFLICT (fp_page_id) DO UPDATE SET fp_name = EXCLUDED.fp_name, fp_token = EXCLUDED.fp_token,
+           fp_user_id = CASE WHEN EXCLUDED.fp_user_id > 0 THEN EXCLUDED.fp_user_id ELSE js_fb_page.fp_user_id END,
+           fp_tasks = CASE WHEN EXCLUDED.fp_tasks <> '' THEN EXCLUDED.fp_tasks ELSE js_fb_page.fp_tasks END,
+           fp_token_id = EXCLUDED.fp_token_id, fp_status = 1, fp_error = '', fp_checked_on = EXCLUDED.fp_checked_on
+         RETURNING (xmax = 0) AS inserted`,
+        [pg.id, pg.name, pg.token, opts.userId ?? 0, opts.empId ?? 0, t, pg.tasks.join(','), row!.ft_id], db);
+      if (r?.inserted) added++;
+    }
+    return { tokenId: row!.ft_id, added };
+  });
+}
+
+/**
+ * "Refresh Pages": ask Facebook again with every kept token (new Pages are added, rights and names updated),
+ * then check the Pages no token listed with their own Page token.
+ */
+export async function refreshPages(empId = 0): Promise<{ tokens: number; tokenProblems: string[]; checked: number; added: number; problems: string[] }> {
+  const start = now();
+  const tokens = await query<{ ft_id: number; ft_name: string; ft_token: string }>('SELECT ft_id, ft_name, ft_token FROM js_fb_token ORDER BY ft_id');
+  const tokenProblems: string[] = [];
+  let added = 0;
+  for (const tk of tokens) {
+    const res = await pagesForToken(tk.ft_token);
+    if (res.ok) {
+      added += (await saveTokenPages(res, { empId })).added;
+    } else {
+      tokenProblems.push(`${tk.ft_name}: ${res.error}`);
+      await exec('UPDATE js_fb_token SET ft_status = 2, ft_error = $2, ft_checked_on = $3 WHERE ft_id = $1', [tk.ft_id, res.error.slice(0, 1000), now()]);
+    }
+  }
+  // Pages not seen above (connected before tokens were kept, or no longer listed): test their own token
+  const rest = await query<{ fp_id: number; fp_page_id: string; fp_token: string }>(
+    'SELECT fp_id, fp_page_id, fp_token FROM js_fb_page WHERE fp_checked_on < $1 ORDER BY fp_id', [start]);
+  const problems: string[] = [];
+  for (const pg of rest) {
+    const me = await graph('GET', 'me', pg.fp_token, { fields: 'id,name' });
+    if (me.error || String(me.id) !== pg.fp_page_id) {
+      const err = `Token not working: ${me.error?.message ?? 'it belongs to another Page'}`.slice(0, 1000);
+      const r = await one<{ fp_name: string }>('UPDATE js_fb_page SET fp_status = 2, fp_error = $2, fp_checked_on = $3 WHERE fp_id = $1 RETURNING fp_name', [pg.fp_id, err, now()]);
+      problems.push(`${r?.fp_name ?? pg.fp_page_id}: ${err}`);
+    } else {
+      await exec("UPDATE js_fb_page SET fp_name = $2, fp_status = 1, fp_error = '', fp_checked_on = $3 WHERE fp_id = $1", [pg.fp_id, String(me.name ?? ''), now()]);
+    }
+  }
+  const checked = await query<{ n: number }>('SELECT COUNT(*)::int AS n FROM js_fb_page');
+  return { tokens: tokens.length, tokenProblems, checked: checked[0]?.n ?? 0, added, problems };
 }
 
 // ------------------------------------------------------------------ CSV

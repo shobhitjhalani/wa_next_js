@@ -6,7 +6,7 @@ import { requireRight } from '@/lib/admin-access';
 import { query, value } from '@/lib/db';
 import { MAX_CSV_ROWS } from '@/lib/services/fb-posts';
 import { phpDate } from '@/lib/time';
-import { type PickPage, UploadPostsForm } from './Forms';
+import { AccordionCard, type PickPage, RefreshButton, UploadPostsForm } from './Forms';
 
 export const metadata: Metadata = { title: 'Facebook Posts' };
 
@@ -44,13 +44,13 @@ export default async function FbPostsPage({ searchParams }: { searchParams: Prom
   return (
     <>
       <PageTitle title="Facebook Posts" home="/wamaster/dashboard" />
-      <div className="card">
-        <div className="card-header d-flex align-items-center flex-wrap gap-2">
-          <h5 className="card-title mb-0 me-auto"><i className="ri-facebook-circle-fill text-primary me-1" />Bulk post to Facebook Pages</h5>
+      <AccordionCard
+        title={<><i className="ri-facebook-circle-fill text-primary me-1" />Bulk post to Facebook Pages</>}
+        actions={<>
           <a href="/wamaster/fb_posts/sample" className="btn btn-sm btn-soft-secondary"><i className="ri-download-2-line" /> Sample CSV</a>
           <Link href="/wamaster/fb_posts/pages" className="btn btn-sm btn-soft-primary"><i className="ri-pages-line" /> Pages ({pages.length})</Link>
-        </div>
-        <div className="card-body">
+        </>}
+      >
           {!canAdd ? <p className="text-muted mb-0">You can view the uploads; posting needs the Add right.</p> : pages.length ? <UploadPostsForm pages={pages} /> : (
             <div className="alert alert-warning mb-0">Connect a client’s Facebook Page first: <Link href="/wamaster/fb_posts/pages">Pages → Connect Page</Link>.</div>
           )}
@@ -59,11 +59,13 @@ export default async function FbPostsPage({ searchParams }: { searchParams: Prom
             {' '}<code>link</code> (optional), <code>schedule</code> (optional, e.g. 25-11-2026 10:30; empty = as soon as possible). Up to {MAX_CSV_ROWS} posts per file.
             Tick several Pages to publish every row on each of them. Posts go out one by one, about one every two seconds.
           </div>
-        </div>
-      </div>
+      </AccordionCard>
 
       <div className="card">
-        <div className="card-header"><h5 className="card-title mb-0">Uploads</h5></div>
+        <div className="card-header d-flex align-items-center gap-2">
+          <h5 className="card-title mb-0 me-auto">Uploads</h5>
+          <RefreshButton />
+        </div>
         <div className="card-body">
           <div className="table-responsive">
             <table className="table table-hover align-middle table-nowrap mb-0">

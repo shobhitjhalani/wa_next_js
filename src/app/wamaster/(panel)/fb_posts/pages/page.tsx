@@ -41,7 +41,8 @@ export default async function FbPagesPage() {
               <ol className="small ps-3 mb-3">
                 <li><b>Recommended (never expires):</b> Business Settings → Users → <b>System users</b> → add an Admin system user → <b>Assign assets</b> → tick the client Pages (Content / Full control) → <b>Generate new token</b> for your app.</li>
                 <li>Or in <a href="https://developers.facebook.com/tools/explorer/" target="_blank" rel="noreferrer">Graph API Explorer</a>: choose your app and <b>User Token</b>, then <b>Get Token</b>.</li>
-                <li>Either way, tick the permissions <code>pages_show_list</code>, <code>pages_manage_posts</code> and <code>pages_read_engagement</code>, then copy the token and paste it below.</li>
+                <li>Either way, tick the permissions <code>pages_show_list</code>, <code>pages_manage_posts</code>, <code>pages_read_engagement</code> and <code>business_management</code> (finds the client Pages shared with your Business), then copy the token and paste it below.</li>
+                <li>When Facebook asks <b>which Pages</b> to allow, choose <b>all</b> of them: the token only covers the Pages ticked there.</li>
               </ol>
               {canAdd ? <AddPageForm clients={clients} /> : <p className="text-muted mb-0">Connecting a Page needs the Add right.</p>}
             </div>

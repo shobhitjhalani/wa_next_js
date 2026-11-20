@@ -30,9 +30,17 @@ export async function addPage(_prev: ActionResult | null, fd: FormData): Promise
   revalidatePath('/wamaster/fb_posts/pages');
   revalidatePath('/wamaster/fb_posts');
   const names = res.pages.map((p) => p.name);
-  return ok(names.length === 1
-    ? `Page “${names[0]}” connected.`
-    : `${names.length} Pages connected: ${names.slice(0, 10).join(', ')}${names.length > 10 ? ` and ${names.length - 10} more` : ''}.`);
+  const lines = [
+    res.kind === 'page'
+      ? `Page “${names[0]}” connected. This was a Page token, so only this Page was added; paste a User or System User token to add all your Pages at once.`
+      : `Token of “${res.owner}”: ${names.length} Page(s) connected: ${names.slice(0, 30).join(', ')}${names.length > 30 ? ` and ${names.length - 30} more` : ''}.`,
+  ];
+  if (res.skipped.length) lines.push(`Not connected (${res.skipped.length}): ${res.skipped.slice(0, 15).map((s) => `${s.name} – ${s.reason}`).join('; ')}.`);
+  if (res.missingPermissions.length) lines.push(`The token is missing ${res.missingPermissions.join(', ')}: posting may fail.`);
+  if (res.kind === 'user' && names.length === 1) {
+    lines.push('Only one Page? When creating the token, Facebook asks which Pages to allow: choose all of them (or use a System User with the Pages assigned).');
+  }
+  return ok(lines.join('\n'));
 }
 
 export async function deletePage(id: number): Promise<void> {

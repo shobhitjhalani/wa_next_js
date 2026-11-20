@@ -45,32 +45,87 @@ async function longLived(token: string): Promise<string> {
   return typeof res.access_token === 'string' && res.access_token ? res.access_token : token; // a token of another app can't be exchanged: keep it
 }
 
-/**
- * The Pages a token can post to. A Page token gives its own Page; a user or System User token
- * (an agency managing many Pages) gives every Page it manages with content rights, each with its Page token.
- */
-export async function pagesForToken(token: string): Promise<{ ok: true; pages: FbPageToken[] } | { ok: false; error: string }> {
-  const me = await graph('GET', 'me', token, { fields: 'id,name', metadata: '1' });
-  if (me.error || !me.id) return { ok: false, error: `Facebook refused the token: ${me.error?.message ?? 'unknown error'}` };
-  if (me.metadata?.type === 'page') return { ok: true, pages: [{ id: String(me.id), name: String(me.name ?? ''), token }] };
-
-  const userToken = await longLived(token);
-  const pages: FbPageToken[] = [];
-  let res = await graph('GET', 'me/accounts', userToken, { fields: 'id,name,access_token,tasks', limit: '100' });
+/** Every row of a Graph list, following paging.next (bounded). */
+async function graphList(path: string, token: string, params: Record<string, string>): Promise<{ data: Record<string, any>[]; error?: string }> {
+  const data: Record<string, any>[] = [];
+  let res = await graph('GET', path, token, { ...params, limit: '100' });
   for (let i = 0; i < 50; i++) {
-    if (res.error) return { ok: false, error: `Facebook did not list the Pages of this token: ${res.error.message ?? 'unknown error'}. Add the pages_show_list permission.` };
-    for (const pg of (res.data ?? []) as { id: string; name?: string; access_token?: string; tasks?: string[] }[]) {
-      // tasks is missing for some System User tokens; when present, posting needs CREATE_CONTENT
-      if (pg.access_token && (!pg.tasks || pg.tasks.includes('CREATE_CONTENT'))) pages.push({ id: String(pg.id), name: String(pg.name ?? ''), token: pg.access_token });
-    }
+    if (res.error) return { data, error: String(res.error.message ?? 'unknown error') };
+    data.push(...((res.data ?? []) as Record<string, any>[]));
     const next = res.paging?.next;
     if (!next) break;
     try { res = await (await fetch(String(next), { signal: AbortSignal.timeout(30_000) })).json(); } catch (e) { res = { error: { message: e instanceof Error ? e.message : String(e) } }; }
   }
-  if (!pages.length) {
-    return { ok: false, error: `The token of “${me.name ?? me.id}” gives no Page to post to. The person must be admin / editor of the Pages, and the token needs pages_show_list, pages_manage_posts and pages_read_engagement (for a System User: assign the Pages to it in Business Settings).` };
+  return { data };
+}
+
+export interface TokenPages {
+  kind: 'page' | 'user';
+  owner: string;                                  // the Page / person / System User the token belongs to
+  pages: FbPageToken[];                           // can post
+  skipped: { name: string; reason: string }[];    // seen, but can't post
+  missingPermissions: string[];
+}
+
+const NEEDED = ['pages_show_list', 'pages_manage_posts', 'pages_read_engagement'];
+
+/**
+ * The Pages a token can post to. A Page token gives its own Page; a user or System User token
+ * (an agency managing many Pages) gives every Page it can post to, each with its own Page token:
+ * the Pages listed for the person (me/accounts) and, with business_management, the Pages its
+ * Business accounts own or manage for clients.
+ */
+export async function pagesForToken(token: string): Promise<({ ok: true } & TokenPages) | { ok: false; error: string }> {
+  const me = await graph('GET', 'me', token, { fields: 'id,name', metadata: '1' });
+  if (me.error || !me.id) return { ok: false, error: `Facebook refused the token: ${me.error?.message ?? 'unknown error'}` };
+  const owner = String(me.name ?? me.id);
+  if (me.metadata?.type === 'page') return { ok: true, kind: 'page', owner, pages: [{ id: String(me.id), name: owner, token }], skipped: [], missingPermissions: [] };
+
+  const userToken = await longLived(token);
+  const perms = await graph('GET', 'me/permissions', userToken);
+  const granted = new Set(((perms.data ?? []) as { permission: string; status: string }[]).filter((p) => p.status === 'granted').map((p) => p.permission));
+  const missingPermissions = perms.error ? [] : NEEDED.filter((p) => !granted.has(p));
+
+  const pages = new Map<string, FbPageToken>();
+  const skipped = new Map<string, { name: string; reason: string }>();
+  const take = (pg: Record<string, any>, via: string) => {
+    const id = String(pg.id);
+    if (pages.has(id)) return;
+    const name = String(pg.name ?? id);
+    if (!pg.access_token) { skipped.set(id, { name, reason: `${via}: no posting access for this login (assign the Page to it with Content / Full control)` }); return; }
+    // tasks is missing for some System User tokens; when present, posting needs CREATE_CONTENT
+    if (Array.isArray(pg.tasks) && !pg.tasks.includes('CREATE_CONTENT')) { skipped.set(id, { name, reason: `${via}: access without “Create content” (${pg.tasks.join(', ').toLowerCase() || 'none'})` }); return; }
+    pages.set(id, { id, name, token: String(pg.access_token) });
+    skipped.delete(id);
+  };
+
+  const mine = await graphList('me/accounts', userToken, { fields: 'id,name,access_token,tasks' });
+  if (mine.error) return { ok: false, error: `Facebook did not list the Pages of this token: ${mine.error}. Add the pages_show_list permission.` };
+  mine.data.forEach((pg) => take(pg, 'your Pages'));
+
+  // Agency: Pages owned by / shared (Partner) with the Business accounts; needs business_management
+  const businesses = await graphList('me/businesses', userToken, { fields: 'id,name' });
+  for (const b of businesses.error ? [] : businesses.data.slice(0, 20)) {
+    for (const edge of ['owned_pages', 'client_pages'] as const) {
+      const list = await graphList(`${b.id}/${edge}`, userToken, { fields: 'id,name,access_token,tasks' });
+      for (const pg of list.data) {
+        if (pages.has(String(pg.id))) continue;
+        let row = pg;
+        if (!pg.access_token) { // the edge may omit it: ask the Page itself
+          const one = await graph('GET', String(pg.id), userToken, { fields: 'id,name,access_token' });
+          if (!one.error && one.access_token) row = { ...pg, access_token: one.access_token };
+        }
+        take(row, `${b.name ?? 'Business'} (${edge === 'owned_pages' ? 'owned' : 'client'})`);
+      }
+    }
   }
-  return { ok: true, pages };
+
+  if (!pages.size) {
+    const why = missingPermissions.length ? ` The token is missing: ${missingPermissions.join(', ')}.` : '';
+    const seen = skipped.size ? ` Pages seen but not usable: ${[...skipped.values()].slice(0, 10).map((s) => `${s.name} (${s.reason})`).join('; ')}.` : '';
+    return { ok: false, error: `The token of “${owner}” gives no Page to post to.${why}${seen} The person must have Content access to the Pages and pick them when creating the token (for a System User: Assign assets in Business Settings).` };
+  }
+  return { ok: true, kind: 'user', owner, pages: [...pages.values()], skipped: [...skipped.values()], missingPermissions };
 }
 
 // ------------------------------------------------------------------ CSV

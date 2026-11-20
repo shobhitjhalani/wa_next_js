@@ -15,6 +15,7 @@ import { CopyButton } from '../../../(user)/api_docs/CopyButton';
 import { deleteMedia } from './actions';
 import { fileIcon, LIBRARY_TYPES, sizeLabel } from './library';
 import { UploadForm } from './UploadForm';
+import { MediaSelection } from './UrlTools';
 
 export const metadata: Metadata = { title: 'Media Library' };
 
@@ -46,7 +47,7 @@ export default async function MediaLibraryPage({ searchParams }: { searchParams:
       <PageTitle title="Media Library" home="/wamaster/dashboard" />
       {canAdd && (
         <div className="card">
-          <div className="card-header"><h5 className="card-title mb-0"><i className="ri-upload-cloud-2-line me-1" />Upload a document or image</h5></div>
+          <div className="card-header"><h5 className="card-title mb-0"><i className="ri-upload-cloud-2-line me-1" />Upload documents or images</h5></div>
           <div className="card-body"><UploadForm folders={folders.map((f) => f.mf_folder)} /></div>
         </div>
       )}
@@ -64,10 +65,11 @@ export default async function MediaLibraryPage({ searchParams }: { searchParams:
         </div>
         <div className="card-body">
           <DataTableControls path={PATH} query={queryString(tableParams)} perPage={table.perPage} q={table.q} total={total ?? 0} placeholder="Search name or file…" />
+          <MediaSelection total={total ?? 0} exportHref={`${PATH}/export?${new URLSearchParams({ folder, q: table.q })}`}>
           <div className="table-responsive">
             <table className="table table-hover align-middle mb-0">
               <thead className="table-light">
-                <tr><th style={{ width: 64 }} /><th>Name</th><th>Folder</th><th>Size</th><th>Public URL</th><th>Uploaded</th><th className="text-end">Actions</th></tr>
+                <tr><th style={{ width: 32 }}><input type="checkbox" className="form-check-input" data-select-all aria-label="Select all files on this page" /></th><th style={{ width: 64 }} /><th>Name</th><th>Folder</th><th>Size</th><th>Public URL</th><th>Uploaded</th><th className="text-end">Actions</th></tr>
               </thead>
               <tbody>
                 {rows.length ? rows.map((f) => {
@@ -75,6 +77,7 @@ export default async function MediaLibraryPage({ searchParams }: { searchParams:
                   const link = url(`${config.mediaUrl}/${f.mf_path}`);
                   return (
                     <tr key={f.mf_id}>
+                      <td><input type="checkbox" className="form-check-input" data-url={link} data-name={f.mf_name} data-folder={f.mf_folder} aria-label={`Select ${f.mf_name}`} /></td>
                       <td>
                         {LIBRARY_TYPES[ext]?.kind === 'image'
                           ? <a href={link} target="_blank" rel="noreferrer"><img src={`${config.mediaUrl}/${f.mf_path}`} alt="" width={48} height={48} className="rounded border" style={{ objectFit: 'cover' }} /></a>
@@ -99,11 +102,12 @@ export default async function MediaLibraryPage({ searchParams }: { searchParams:
                     </tr>
                   );
                 }) : (
-                  <tr><td colSpan={7} className="text-center text-muted py-5">{table.q || folder ? 'No files match.' : 'No files yet. Upload the first one above.'}</td></tr>
+                  <tr><td colSpan={8} className="text-center text-muted py-5">{table.q || folder ? 'No files match.' : 'No files yet. Upload the first one above.'}</td></tr>
                 )}
               </tbody>
             </table>
           </div>
+          </MediaSelection>
           <Pagination path={PATH} params={tableParams} page={table.page} perPage={table.perPage} total={total ?? 0} always />
           <p className="small text-muted mt-2 mb-0">{numberFormat(folders.reduce((n, f) => n + f.n, 0))} files · {sizeLabel(folders.reduce((n, f) => n + Number(f.bytes), 0))} in total</p>
         </div>

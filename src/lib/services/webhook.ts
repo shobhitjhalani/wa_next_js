@@ -1,5 +1,5 @@
 import 'server-only';
-import { exec, insert, one, pool, value } from '../db';
+import { exec, insert, one, pool, query, value } from '../db';
 import { contactId, recordMessage } from '../models';
 import { fromWaId } from '../phone';
 import { dayStart, now } from '../time';
@@ -24,9 +24,29 @@ import { botIncoming } from './bot-flows';
 export type Defer = (task: () => Promise<unknown>) => void;
 const runInline: Defer = (task) => void task().catch((e) => console.error('[webhook] task failed', e));
 
-type HookUser = Pick<UserRow, 'u_id' | 'u_wa_no' | 'u_send_app' | 'u_wa_app_url' | 'u_wa_incoming_url' | 'u_wa_catalogue_url' | 'u_wa_form_url' | 'u_wa_enable_catalogue' | 'u_wa_phone_id'>;
+type HookUser = Pick<UserRow, 'u_id' | 'u_wa_no' | 'u_wa_incoming_url' | 'u_wa_catalogue_url' | 'u_wa_form_url' | 'u_wa_enable_catalogue' | 'u_wa_phone_id'>;
 
-export async function handleWebhook(payload: Record<string, any>, defer: Defer = runInline): Promise<void> {
+/** Meta's request as received, so "Forward to App URL" passes it on byte for byte (with its signature). */
+export interface RawHook { body: string; signature: string }
+
+/**
+ * "Forward to App URL": every active account on the phone numbers in this payload that has it switched on gets the
+ * webhook (several accounts can share one number, so not only the account that owns the messages). Once per URL.
+ */
+async function forwardRaw(payload: Record<string, any>, raw: RawHook | undefined, defer: Defer): Promise<void> {
+  const phoneIds = [...new Set<string>((payload.entry ?? []).flatMap((e: any) => (e.changes ?? []).map((c: any) => String(c.value?.metadata?.phone_number_id ?? ''))).filter(Boolean))];
+  if (!phoneIds.length) return;
+  const rows = await query<{ url: string }>(
+    `SELECT DISTINCT trim(u_wa_app_url) AS url FROM js_user
+      WHERE u_wa_phone_id = ANY($1::text[]) AND u_dstatus = 0 AND u_send_app = 1 AND trim(COALESCE(u_wa_app_url, '')) <> ''`, [phoneIds]);
+  const body = raw?.body ?? JSON.stringify(payload);
+  for (const { url } of rows) {
+    defer(() => forward(url, body, raw?.signature ? { 'X-Hub-Signature-256': raw.signature } : {}, 30));
+  }
+}
+
+export async function handleWebhook(payload: Record<string, any>, defer: Defer = runInline, raw?: RawHook): Promise<void> {
+  await forwardRaw(payload, raw, defer).catch((e) => console.error('[webhook] app forward lookup failed', e));
   const users = new Map<string, HookUser | null>();
   for (const entry of payload.entry ?? []) {
     for (const change of entry.changes ?? []) {
@@ -35,16 +55,11 @@ export async function handleWebhook(payload: Record<string, any>, defer: Defer =
       if (!phoneId) continue;
       if (!users.has(phoneId)) {
         users.set(phoneId, await one<HookUser>(
-          `SELECT u_id, u_wa_no, u_send_app, u_wa_app_url, u_wa_incoming_url, u_wa_catalogue_url, u_wa_form_url, u_wa_enable_catalogue, u_wa_phone_id
+          `SELECT u_id, u_wa_no, u_wa_incoming_url, u_wa_catalogue_url, u_wa_form_url, u_wa_enable_catalogue, u_wa_phone_id
              FROM js_user WHERE u_wa_phone_id = $1 AND u_dstatus = 0 ORDER BY u_id LIMIT 1`, [phoneId]));
       }
       const user = users.get(phoneId);
       if (!user) continue;
-
-      if (Number(user.u_send_app) === 1 && user.u_wa_app_url) {
-        const target = user.u_wa_app_url;
-        defer(() => forward(target, payload));
-      }
 
       for (const status of v.statuses ?? []) await queueStatus(status);
 
@@ -204,9 +219,15 @@ async function logIncoming(user: HookUser, sender: string, data: unknown, type: 
   }, 'il_id');
 }
 
-async function forward(target: string, data: unknown): Promise<void> {
+async function forward(target: string, data: unknown, headers: Record<string, string> = {}, seconds = 15): Promise<void> {
   try {
-    await fetch(target, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(data), signal: AbortSignal.timeout(15_000) });
+    const res = await fetch(target, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', ...headers },
+      body: typeof data === 'string' ? data : JSON.stringify(data),
+      signal: AbortSignal.timeout(seconds * 1000),
+    });
+    if (!res.ok) console.warn('[webhook] forward answered', res.status, target);
   } catch (e) {
     console.warn('[webhook] forward failed', target, (e as Error).message);
   }

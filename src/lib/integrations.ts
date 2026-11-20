@@ -309,7 +309,8 @@ export async function webhookReceive(req: Request): Promise<Response> {
     await apiLog({ adl_source: 3, adl_url: 'calls', adl_value: limit(body, 60000, '') });
   }
   try {
-    await handleWebhook(payload, (task) => after(() => task().catch((e) => console.error('[webhook] deferred task failed', e))));
+    await handleWebhook(payload, (task) => after(() => task().catch((e) => console.error('[webhook] deferred task failed', e))),
+      { body, signature: req.headers.get('X-Hub-Signature-256') ?? '' });
   } catch (e) {
     console.error('[webhook] processing failed', e);
   }

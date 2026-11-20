@@ -12,6 +12,7 @@ import { ActionForm, SubmitButton } from '@/components/ActionForm';
 import { PageTitle } from '@/components/PageTitle';
 import { ConfirmButton } from '@/components/ui';
 import { allowedCategories, categoriesLabel } from '@/lib/template-categories';
+import { PERMISSIONS } from '../flags';
 import {
   addEmail, deleteEmail, deleteKey, deleteSheet, generateKey, logoutKey, rechargeUser, registerUserNumber,
   syncUserTemplates, toggleEmail, toggleSheet,
@@ -162,7 +163,7 @@ export default async function UserShowPage({ params }: { params: Promise<{ id: s
                 <dt className="col-5">Code</dt><dd className="col-7">{user.u_code}</dd>
                 <dt className="col-5">Company</dt><dd className="col-7">{user.u_company_name}</dd>
                 <dt className="col-5">GSTIN</dt><dd className="col-7">{user.u_company_gst_no}</dd>
-                <dt className="col-5">State</dt><dd className="col-7">{stateName}</dd>
+                {Number(user.u_type) !== USER_TYPE.WHATSAPP && <><dt className="col-5">State</dt><dd className="col-7">{stateName}</dd></>}
                 <dt className="col-5">Mobile</dt><dd className="col-7">{user.u_mobile_no}</dd>
                 <dt className="col-5">Email</dt><dd className="col-7">{user.u_email_id}</dd>
                 <dt className="col-5">Username</dt><dd className="col-7">{user.u_username}</dd>
@@ -193,8 +194,13 @@ export default async function UserShowPage({ params }: { params: Promise<{ id: s
                     <dt className="col-5">MM Lite</dt><dd className="col-7">{yes(user.u_is_new_no)}</dd>
                     <dt className="col-5">Catalogue</dt><dd className="col-7">{yes(user.u_wa_enable_catalogue)}</dd>
                     <dt className="col-5">AI</dt><dd className="col-7">{yes(user.u_enable_ai)}</dd>
-                    <dt className="col-5">Chatbot Flows</dt><dd className="col-7">{yes(user.u_bot_flow)}</dd>
-                    <dt className="col-5">Leads CRM</dt><dd className="col-7">{yes(user.u_crm)}</dd>
+                    <dt className="col-5">Permissions</dt>
+                    <dd className="col-7">
+                      {PERMISSIONS.map((p) => {
+                        const on = Number((user as unknown as Record<string, unknown>)[`u_${p.flag}`]) === 1;
+                        return <span key={p.flag} className={`badge me-1 mb-1 ${on ? 'bg-success-subtle text-success' : 'bg-light text-muted text-decoration-line-through'}`}><i className={`${p.icon} me-1`} />{p.label}</span>;
+                      })}
+                    </dd>
                     <dt className="col-5">Coexistence</dt><dd className="col-7">{yes(user.u_wa_coexistence)}</dd>
                     <dt className="col-5">Incoming URL</dt><dd className="col-7 text-break">{user.u_wa_incoming_url}</dd>
                     <dt className="col-5">Forward to App URL</dt>

@@ -69,7 +69,7 @@ export interface Heading {
 /** MasterHeading::findOrFail */
 export async function findHeading(raw: string): Promise<Heading> {
   const id = /^\d+$/.test(raw) ? Number(raw) : 0;
-  const head = id ? await one<Heading>('SELECT mh_id, mh_name FROM js_master_heading WHERE mh_id = $1', [id]) : null;
+  const head = id ? await one<Heading>('SELECT mh_id, mh_name FROM js_master_heading WHERE mh_id = $1 AND mh_status = 2', [id]) : null;
   if (!head) notFound();
   return head;
 }

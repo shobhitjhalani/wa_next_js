@@ -2,6 +2,7 @@
 
 import { redirect } from 'next/navigation';
 import { fail, fBool, fStr, invalid, type ActionResult } from '@/lib/actions';
+import { logActivity } from '@/lib/activity';
 import { startAdminSession } from '@/lib/auth';
 import { exec, one } from '@/lib/db';
 import { checkPassword, hashPassword, needsUpgrade } from '@/lib/password';
@@ -21,11 +22,15 @@ export async function loginAdmin(_prev: ActionResult | null, fd: FormData): Prom
     [username],
   );
   if (!emp || !(await checkPassword(password, emp.emp_password))) {
+    // A failed sign-in is logged too (the username typed and the IP)
+    await logActivity({ module: 'auth', action: 'Failed sign-in', target: username.slice(0, 100), details: [emp ? 'Wrong password' : 'Unknown username'] },
+      { emp_id: emp?.emp_id ?? 0, emp_name: emp?.emp_name ?? username.slice(0, 100) });
     return fail('Invalid Username or Password', { username: 'Invalid Username or Password' });
   }
   const upgraded = needsUpgrade(emp.emp_password) ? await hashPassword(password) : emp.emp_password;
   await exec('UPDATE js_employee SET emp_password = $2, emp_is_login = 1, emp_last_active = $3 WHERE emp_id = $1', [emp.emp_id, upgraded, Math.floor(Date.now() / 1000)]);
 
   await startAdminSession(emp, fBool(fd, 'remember'));
+  await logActivity({ module: 'auth', action: 'Signed in' }, emp);
   redirect('/wamaster/dashboard');
 }

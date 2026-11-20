@@ -1,3 +1,4 @@
+import { logActivity } from '@/lib/activity';
 import type { NextRequest } from 'next/server';
 import { getAccess } from '@/lib/admin-access';
 import { config, url } from '@/lib/config';
@@ -10,6 +11,7 @@ export async function GET(req: NextRequest) {
   if (!(await getAccess()).can('media_library')) return new Response('Forbidden', { status: 403 });
   const folder = req.nextUrl.searchParams.get('folder') ?? '';
   const q = (req.nextUrl.searchParams.get('q') ?? '').trim();
+  await logActivity({ module: 'exports', action: 'Exported Media Library URLs (CSV)', details: req.nextUrl.search ? [`Filters: ${decodeURIComponent(req.nextUrl.search.slice(1))}`] : [] });
   return csvResponse<{ mf_folder: string; mf_name: string; mf_path: string; mf_size: string; mf_created_on: number }>(
     `${folder || 'media'}-urls.csv`,
     ['folder', 'name', 'url', 'file', 'size_bytes', 'uploaded'],

@@ -93,7 +93,8 @@ export default async function UserLayout({ children }: { children: React.ReactNo
         { label: 'Recharge History', href: '/recharge' },
       ],
     },
-    { label: 'My Team', icon: 'ri-team-line', href: '/team', match: ['/team'] },
+    // Shown when the admin gave this account Teams
+    ...(Number(user.u_team) === 1 ? [{ label: 'My Team', icon: 'ri-team-line', href: '/team', match: ['/team'] } satisfies MenuItem] : []),
   ];
 
   return (

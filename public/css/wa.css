@@ -183,3 +183,7 @@ th.num .sort-th { justify-content: flex-end; width: 100%; }
 .bar-counts .legend-dot { margin-right: .25rem; }
 @keyframes wa-spin { to { transform: rotate(360deg); } }
 .spin { display: inline-block; animation: wa-spin .8s linear infinite; }
+
+/* Menu arrows (the ::after of a parent item) are absolutely positioned; anchor them to their own row so they scroll
+   with the menu (without this, an open item's arrow stayed put when the sidebar scrolled). */
+.navbar-menu .navbar-nav .nav-link.menu-link { position: relative; }

@@ -6,7 +6,7 @@ import { getAccess, visibleUserIds } from '@/lib/admin-access';
 import { USER_TYPE, type UserRow } from '@/lib/types';
 import { ActionForm, SubmitButton } from '@/components/ActionForm';
 import { saveUser } from './actions';
-import { FLAGS } from './flags';
+import { FLAGS, PERMISSIONS } from './flags';
 import { TemplateLimitField } from './TemplateLimitField';
 import { TemplateCategoriesField } from './TemplateCategoriesField';
 import { WaOptions } from './WaOptions';
@@ -16,6 +16,7 @@ const FLAG_LABELS: Record<(typeof FLAGS)[number], string> = {
   send_wa: 'Send Flow', wa_enable_incoming: 'Incoming Webhook', wa_enable_catalogue: 'Catalogue',
   send_app: 'Forward to App URL', is_new_no: 'MM Lite (Marketing)', enable_ai: 'AI', bot_flow: 'Chatbot Flows', crm: 'Leads CRM',
   google_sheet: 'Google Sheet', wa_coexistence: 'Coexistence (Mobile & Web)', own_account: 'Client manages own WABA',
+  team: 'Teams', bulk_post: 'Bulk Posting', ads: 'Ads Management',
 };
 
 /** Add / edit user form (admin/users/form.blade.php). `user` is null when adding. */
@@ -76,6 +77,7 @@ export async function UserForm({ user, type }: { user: UserRow | null; type: num
               </select>
             </div>
           )}
+          {!isWa && (<>
           <div className="col-md-4">
             <label className="form-label" htmlFor="country">Country</label>
             <select className="form-select" id="country" name="country" defaultValue={v('country')}>
@@ -90,6 +92,7 @@ export async function UserForm({ user, type }: { user: UserRow | null; type: num
               {states.map((o) => <option key={o.value} value={o.value}>{o.label}</option>)}
             </select>
           </div>
+          </>)}
           <div className="col-md-4">
             <label className="form-label" htmlFor="assign_to">Assign To</label>
             {ownOnly ? (
@@ -101,7 +104,7 @@ export async function UserForm({ user, type }: { user: UserRow | null; type: num
               </select>
             )}
           </div>
-          <div className="col-md-4"><label className="form-label" htmlFor="balance">Previous Balance</label><input type="number" className="form-control" id="balance" name="balance" defaultValue={v('balance')} /></div>
+          {!isWa && <div className="col-md-4"><label className="form-label" htmlFor="balance">Previous Balance</label><input type="number" className="form-control" id="balance" name="balance" defaultValue={v('balance')} /></div>}
           {!isWa && (
             <div className="col-md-4"><label className="form-label" htmlFor="google_sheet_email">Google Sheet Email</label><input type="email" className="form-control" id="google_sheet_email" name="google_sheet_email" defaultValue={v('google_sheet_email')} /></div>
           )}
@@ -119,7 +122,33 @@ export async function UserForm({ user, type }: { user: UserRow | null; type: num
             <div className="col-md-3"><label className="form-label" htmlFor="daily_limit">Daily Limit</label><input type="number" min="0" className="form-control" id="daily_limit" name="daily_limit" defaultValue={v('daily_limit')} /></div>
             <div className="col-md-6"><label className="form-label" htmlFor="wa_incoming_url">Incoming URL (forward replies)</label><input type="url" className="form-control" id="wa_incoming_url" name="wa_incoming_url" defaultValue={v('wa_incoming_url')} /></div>
             <TemplateLimitField limit={Number(u.u_msg_limit ?? 0)} used={Number(u.u_msg_used ?? 0)} exists={exists} />
-            <TemplateCategoriesField value={u.u_template_categories ?? null} />
+          </div>
+        </div>
+      )}
+
+      {isWa && (
+        <div className="card">
+          <div className="card-header"><h5 className="card-title mb-0"><i className="ri-shield-keyhole-line me-1" />Permissions</h5></div>
+          <div className="card-body">
+            <p className="text-muted small mb-3">What this account&apos;s user panel offers. Switched off, the menu is hidden and its pages are closed.</p>
+            <div className="row g-3">
+              {PERMISSIONS.map((p) => (
+                <div className="col-sm-6 col-lg" key={p.flag}>
+                  <label className="border rounded p-3 h-100 d-block" htmlFor={`flag_${p.flag}`} style={{ cursor: 'pointer' }}>
+                    <div className="form-check form-switch mb-1">
+                      {/* a new account starts with Teams on; the others off */}
+                      <input className="form-check-input" type="checkbox" role="switch" id={`flag_${p.flag}`} name={p.flag} value="1"
+                        defaultChecked={exists ? v(p.flag) === '1' : p.flag === 'team'} />
+                      <span className="form-check-label fw-semibold"><i className={`${p.icon} me-1`} />{p.label}</span>
+                    </div>
+                    <span className="small text-muted">{p.hint}</span>
+                  </label>
+                </div>
+              ))}
+            </div>
+            <div className="row mt-3 pt-3 border-top">
+              <TemplateCategoriesField value={u.u_template_categories ?? null} />
+            </div>
           </div>
         </div>
       )}
@@ -129,7 +158,7 @@ export async function UserForm({ user, type }: { user: UserRow | null; type: num
         {isWa ? (
           <div className="card-body">
             <WaOptions
-              flags={Object.fromEntries(['send_wa', 'wa_enable_incoming', 'wa_enable_catalogue', 'send_app', 'enable_ai', 'bot_flow', 'crm', 'google_sheet', 'wa_coexistence'].map((f) => [f, v(f) === '1']))}
+              flags={Object.fromEntries(['send_wa', 'wa_enable_catalogue', 'send_app', 'enable_ai', 'wa_coexistence'].map((f) => [f, v(f) === '1']))}
               values={{ wa_form_url: v('wa_form_url'), wa_catalogue_url: v('wa_catalogue_url'), wa_app_url: v('wa_app_url'), ai_key: v('ai_key') }}
             />
           </div>

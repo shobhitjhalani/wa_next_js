@@ -3,6 +3,7 @@
 import { revalidatePath } from 'next/cache';
 import { redirect } from 'next/navigation';
 import { fail, fFile, fInt, flash, fStr, invalid, ok, type ActionResult } from '@/lib/actions';
+import { logActivity } from '@/lib/activity';
 import { requireRight, requireSuperAdmin } from '@/lib/admin-access';
 import { exec, insertMany, one, query, tx } from '@/lib/db';
 import { MAX_PAGE_TAGS, MAX_UPLOAD_POSTS, cleanTags, pagesForToken, postsFromCsv, refreshPages, saveTokenPages } from '@/lib/services/fb-posts';
@@ -17,6 +18,8 @@ export async function addPage(_prev: ActionResult | null, fd: FormData): Promise
   const res = await pagesForToken(token);
   if (!res.ok) return invalid({ token: res.error });
   await saveTokenPages(res, { userId, empId: admin.emp_id });
+  await logActivity({ module: 'fb_posts', action: res.kind === 'page' ? 'Connected a Facebook Page' : 'Connected Facebook Pages with a token',
+    target: res.kind === 'page' ? res.pages[0]?.name ?? '' : `Token of ${res.owner}`, details: [`${res.pages.length} Page(s): ${res.pages.slice(0, 30).map((p) => p.name).join(', ')}`] });
   revalidatePath('/wamaster/fb_posts/pages');
   revalidatePath('/wamaster/fb_posts');
   const names = res.pages.map((p) => p.name);
@@ -37,6 +40,7 @@ export async function addPage(_prev: ActionResult | null, fd: FormData): Promise
 export async function refreshPagesAction(): Promise<void> {
   const { admin } = await requireSuperAdmin();
   const r = await refreshPages(admin.emp_id);
+  await logActivity({ module: 'fb_posts', action: 'Refreshed Facebook Pages', details: [`${r.tokens} token(s), ${r.checked} Page(s) checked, ${r.added} added`] });
   const lines = [`Checked ${r.tokens} token(s) and ${r.checked} Page(s)${r.added ? `; ${r.added} new Page(s) added` : '; no new Pages'}.`];
   if (r.tokenProblems.length) lines.push(`Token problems:\n${r.tokenProblems.slice(0, 10).join('\n')}`);
   if (r.problems.length) lines.push(`Pages with problems (${r.problems.length}):\n${r.problems.slice(0, 15).join('\n')}`);
@@ -50,6 +54,7 @@ export async function refreshPagesAction(): Promise<void> {
 export async function deleteToken(id: number): Promise<void> {
   await requireSuperAdmin();
   const row = await one<{ ft_name: string }>('DELETE FROM js_fb_token WHERE ft_id = $1 RETURNING ft_name', [id]);
+  if (row) await logActivity({ module: 'fb_posts', action: 'Removed a Facebook token', target: row.ft_name, targetId: id });
   await flash(row ? 'success' : 'error', row ? `Token of “${row.ft_name}” removed. Its Pages stay connected; Refresh no longer uses it to find new Pages.` : 'This token no longer exists.');
   revalidatePath('/wamaster/fb_posts/pages');
 }
@@ -63,6 +68,7 @@ async function tidyBatches(): Promise<void> {
 export async function deletePage(id: number): Promise<void> {
   await requireSuperAdmin();
   const row = await one<{ fp_name: string }>('DELETE FROM js_fb_page WHERE fp_id = $1 RETURNING fp_name', [id]);
+  if (row) await logActivity({ module: 'fb_posts', action: 'Removed a Facebook Page', target: row.fp_name, targetId: id });
   await tidyBatches();
   await flash(row ? 'success' : 'error', row ? `Page “${row.fp_name}” removed with its post history.` : 'This Page no longer exists.');
   revalidatePath('/wamaster/fb_posts/pages');
@@ -79,6 +85,7 @@ export async function deletePages(fd: FormData): Promise<void> {
     const rows = await query<{ fp_name: string }>('DELETE FROM js_fb_page WHERE fp_id = ANY($1::int[]) RETURNING fp_name', [ids]);
     await tidyBatches();
     const names = rows.map((r) => r.fp_name);
+    await logActivity({ module: 'fb_posts', action: 'Removed Facebook Pages', target: `${names.length} Page(s)`, details: names.slice(0, 50) });
     await flash('success', `${names.length} Page(s) removed with their post history: ${names.slice(0, 20).join(', ')}${names.length > 20 ? ` and ${names.length - 20} more` : ''}.`);
   }
   revalidatePath('/wamaster/fb_posts/pages');
@@ -100,6 +107,7 @@ export async function setPageTags(id: number, fd: FormData): Promise<void> {
   await requireSuperAdmin();
   const tags = await usualSpelling(cleanTags(String(fd.get('tags') ?? '')));
   const row = await one<{ fp_name: string }>('UPDATE js_fb_page SET fp_tags = $2 WHERE fp_id = $1 RETURNING fp_name', [id, tags]);
+  if (row) await logActivity({ module: 'fb_posts', action: 'Set Page tags', target: row.fp_name, targetId: id, details: [tags.length ? `Tags: ${tags.join(', ')}` : 'Tags: none'] });
   await flash(row ? 'success' : 'error', row ? `Tags of “${row.fp_name}” saved${tags.length ? `: ${tags.join(', ')}` : ' (none)'}.` : 'This Page no longer exists.');
   revalidatePath('/wamaster/fb_posts/pages');
   revalidatePath('/wamaster/fb_posts');
@@ -121,6 +129,7 @@ export async function tagPages(fd: FormData): Promise<void> {
       : await exec(`UPDATE js_fb_page SET fp_tags = fp_tags || $2::text
                      WHERE fp_id = ANY($1::int[]) AND cardinality(fp_tags) < ${MAX_PAGE_TAGS}
                        AND NOT EXISTS (SELECT 1 FROM unnest(fp_tags) t WHERE lower(t) = lower($2))`, [ids, tag]);
+    await logActivity({ module: 'fb_posts', action: remove ? `Took tag “${tag}” off Pages` : `Tagged Pages “${tag}”`, target: `${n} Page(s)` });
     await flash('success', remove ? `Tag “${tag}” taken off ${n} Page(s).` : `Tag “${tag}” added to ${n} Page(s)${n < ids.length ? ` (${ids.length - n} already had it)` : ''}.`);
   }
   revalidatePath('/wamaster/fb_posts/pages');
@@ -165,6 +174,8 @@ export async function uploadPosts(_prev: ActionResult | null, fd: FormData): Pro
     }))), { db });
     return b!.pb_id;
   });
+  await logActivity({ module: 'fb_posts', action: 'Uploaded posts (draft)', target: file!.name, targetId: batchId,
+    details: [`${posts.length} post(s) × ${pageIds.length} Page(s) = ${total}`, ...(skipped.length ? [`${skipped.length} row(s) skipped`] : [])] });
   const ready = pageIds.length > 1 ? `${posts.length} post(s) × ${pageIds.length} Pages = ${total} posts ready` : `${posts.length} post(s) ready`;
   await flash(skipped.length ? 'error' : 'success', skipped.length
     ? `${ready}; ${skipped.length} row(s) skipped:\n${skipped.slice(0, 15).join('\n')}\nCheck the preview, then Confirm & queue.`
@@ -181,6 +192,7 @@ export async function confirmBatch(batchId: number): Promise<void> {
     if (!b) return -1;
     return exec('UPDATE js_fb_post SET po_status = 1, po_scheduled_at = GREATEST(po_scheduled_at, $2) WHERE po_batch_id = $1 AND po_status = 0', [batchId, t], db);
   });
+  if (n >= 0) await logActivity({ module: 'fb_posts', action: 'Confirmed & queued posts', target: `Upload #${batchId}`, targetId: batchId, details: [`${n} post(s) queued`] });
   await flash(n < 0 ? 'error' : 'success', n < 0 ? 'This upload was already confirmed or discarded.' : `${n} post(s) queued. They are published one by one; this page shows each result.`);
   revalidatePath(`/wamaster/fb_posts/${batchId}`);
   revalidatePath('/wamaster/fb_posts');
@@ -190,6 +202,7 @@ export async function confirmBatch(batchId: number): Promise<void> {
 export async function discardBatch(batchId: number): Promise<void> {
   await requireRight('fb_posts', 'add');
   const row = await one<{ pb_file: string }>('DELETE FROM js_fb_post_batch WHERE pb_id = $1 AND pb_status = 0 RETURNING pb_file', [batchId]);
+  if (row) await logActivity({ module: 'fb_posts', action: 'Discarded a draft upload', target: row.pb_file, targetId: batchId });
   await flash(row ? 'success' : 'error', row ? `Draft “${row.pb_file}” discarded; nothing was posted.` : 'This upload was already confirmed or discarded.');
   revalidatePath('/wamaster/fb_posts');
   redirect('/wamaster/fb_posts');
@@ -201,6 +214,7 @@ export async function retryFailed(batchId: number, pageId = 0): Promise<void> {
   const n = await exec(
     `UPDATE js_fb_post SET po_status = 1, po_error = '', po_scheduled_at = $2, po_posted_on = 0
       WHERE po_batch_id = $1 AND po_status = 4 AND ($3::int = 0 OR po_page_id = $3)`, [batchId, now(), pageId]);
+  await logActivity({ module: 'fb_posts', action: 'Retried failed posts', target: `Upload #${batchId}`, targetId: batchId, details: [`${n} post(s)`, ...(pageId ? [`Page #${pageId}`] : [])] });
   await flash('success', `${n} failed post(s) queued again.`);
   revalidatePath(`/wamaster/fb_posts/${batchId}`);
 }
@@ -209,6 +223,7 @@ export async function retryFailed(batchId: number, pageId = 0): Promise<void> {
 export async function cancelQueued(batchId: number, pageId = 0): Promise<void> {
   await requireRight('fb_posts', 'add');
   const n = await exec('UPDATE js_fb_post SET po_status = 5 WHERE po_batch_id = $1 AND po_status = 1 AND ($2::int = 0 OR po_page_id = $2)', [batchId, pageId]);
+  await logActivity({ module: 'fb_posts', action: 'Cancelled queued posts', target: `Upload #${batchId}`, targetId: batchId, details: [`${n} post(s)`, ...(pageId ? [`Page #${pageId}`] : [])] });
   await flash('success', `${n} queued post(s) cancelled.`);
   revalidatePath(`/wamaster/fb_posts/${batchId}`);
 }

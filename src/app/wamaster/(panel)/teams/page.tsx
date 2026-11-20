@@ -4,6 +4,7 @@ import { config } from '@/lib/config';
 import { like, query, value } from '@/lib/db';
 import { sp } from '@/lib/http';
 import { masterOptions } from '@/lib/models';
+import { phpDate } from '@/lib/time';
 import { SUPER_ADMIN, type EmployeeRow } from '@/lib/types';
 import { PageTitle } from '@/components/PageTitle';
 import { Pagination, pageParam } from '@/components/Pagination';
@@ -23,9 +24,11 @@ export default async function TeamsPage({ searchParams }: { searchParams: Promis
 
   const where = `emp_dstatus = 0 AND ($1 = '' OR emp_name ILIKE '%' || $1 || '%')`;
   const [members, total, roles] = await Promise.all([
-    query<EmployeeRow & { emp_right_id: number }>(
-      `SELECT emp_id, emp_code, emp_name, emp_username, emp_mobile, emp_email_id, emp_right_id, emp_m_type, emp_status
-         FROM js_employee WHERE ${where} ORDER BY emp_name LIMIT $2 OFFSET $3`,
+    query<EmployeeRow & { emp_right_id: number; last_in: number | null; last_ip: string | null }>(
+      `SELECT emp_id, emp_code, emp_name, emp_username, emp_mobile, emp_email_id, emp_right_id, emp_m_type, emp_status, s.aa_on AS last_in, s.aa_ip AS last_ip
+         FROM js_employee
+         LEFT JOIN LATERAL (SELECT aa_on, aa_ip FROM js_admin_activity WHERE aa_emp_id = emp_id AND aa_action = 'Signed in' ORDER BY aa_id DESC LIMIT 1) s ON true
+        WHERE ${where} ORDER BY emp_name LIMIT $2 OFFSET $3`,
       [like(q), perPage, (page - 1) * perPage],
     ),
     value<number>(`SELECT COUNT(*)::int FROM js_employee WHERE ${where}`, [like(q)]),
@@ -47,7 +50,7 @@ export default async function TeamsPage({ searchParams }: { searchParams: Promis
         <div className="card-body">
           <div className="table-responsive">
             <table className="table align-middle table-striped mb-0">
-              <thead className="table-light"><tr><th>Code</th><th>Name</th><th>Username</th><th>Mobile</th><th>Email</th><th>Role</th><th>Access</th><th>Status</th><th /></tr></thead>
+              <thead className="table-light"><tr><th>Code</th><th>Name</th><th>Username</th><th>Mobile</th><th>Email</th><th>Role</th><th>Access</th><th>Status</th>{me.isSuperAdmin && <th>Last sign-in · IP</th>}<th /></tr></thead>
               <tbody>
                 {members.length ? members.map((m) => (
                   <tr key={m.emp_id}>
@@ -59,6 +62,12 @@ export default async function TeamsPage({ searchParams }: { searchParams: Promis
                     <td>{roleName.get(Number(m.emp_right_id)) ?? '—'}</td>
                     <td>{Number(m.emp_m_type) === SUPER_ADMIN ? 'Super Admin' : 'Team Member'}</td>
                     <td><span className={`badge ${Number(m.emp_status) === 1 ? 'bg-success' : 'bg-secondary'}`}>{Number(m.emp_status) === 1 ? 'Active' : 'Inactive'}</span></td>
+                    {me.isSuperAdmin && (
+                      <td className="small text-nowrap">
+                        {m.last_in ? <>{phpDate('d M Y, h:i A', m.last_in)}<div><Link href={`/wamaster/activity?ip=${encodeURIComponent(m.last_ip ?? '')}`} className="font-monospace">{m.last_ip || '—'}</Link></div></> : <span className="text-muted">—</span>}
+                        <div><Link href={`/wamaster/activity?emp=${m.emp_id}`}>Activity log</Link></div>
+                      </td>
+                    )}
                     <td className="text-nowrap text-end">
                       {access.can('employee', 'edit') && <Link href={`/wamaster/teams/${m.emp_id}/edit`} className="btn btn-sm btn-soft-secondary" aria-label="Edit"><i className="ri-pencil-fill" /></Link>}
                       {m.emp_id !== me.emp_id && access.can('employee', 'delete') && (
@@ -72,7 +81,7 @@ export default async function TeamsPage({ searchParams }: { searchParams: Promis
                     </td>
                   </tr>
                 )) : (
-                  <tr><td colSpan={9} className="text-center text-muted py-4">No team members.</td></tr>
+                  <tr><td colSpan={me.isSuperAdmin ? 10 : 9} className="text-center text-muted py-4">No team members.</td></tr>
                 )}
               </tbody>
             </table>

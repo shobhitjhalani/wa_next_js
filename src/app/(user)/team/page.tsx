@@ -1,7 +1,7 @@
 import type { Metadata } from 'next';
 import { PageTitle } from '@/components/PageTitle';
 import { ConfirmButton } from '@/components/ui';
-import { requireUser, type MemberRow } from '@/lib/auth';
+import { requireTeamsUser, type MemberRow } from '@/lib/auth';
 import { query } from '@/lib/db';
 import { normalizePerms, permSummary } from '@/lib/team';
 import { phpDate } from '@/lib/time';
@@ -12,7 +12,7 @@ export const metadata: Metadata = { title: 'My Team' };
 
 /** The account's team members and their permissions (owner only). */
 export default async function TeamPage() {
-  const user = await requireUser();
+  const user = await requireTeamsUser();
   const members = await query<MemberRow & { chats: number; campaigns: number }>(
     `SELECT m.*,
             (SELECT COUNT(*) FROM js_user_contact_list c WHERE c.cl_user_id = m.um_user_id AND c.cl_assigned_member = m.um_id)::int AS chats,

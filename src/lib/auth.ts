@@ -89,6 +89,8 @@ export const getAccount = cache(async (): Promise<Account | null> => {
   const user = await one<UserRow>('SELECT * FROM js_user WHERE u_id = $1 AND u_dstatus = 0', [Number(claims.sub)]);
   if (!user) return null;
   if (!claims.mid) return { user, member: null, perms: OWNER_PERMS };
+  // Teams switched off by the admin: team members are signed out
+  if (Number(user.u_team) !== 1) return null;
   // A disabled or deleted member is signed out at once
   const member = await one<MemberRow>('SELECT * FROM js_user_member WHERE um_id = $1 AND um_user_id = $2 AND um_status = 1', [Number(claims.mid), user.u_id]);
   return member ? { user, member, perms: normalizePerms(member.um_perms) } : null;
@@ -129,6 +131,13 @@ export async function requireTeam(check: (p: TeamPerms) => boolean): Promise<Acc
 export async function teamAccount(check: (p: TeamPerms) => boolean): Promise<Account | null> {
   const account = await getAccount();
   return account && check(account.perms) ? account : null;
+}
+
+/** My Team pages are only available to accounts the admin gave Teams (u_team = 1; 403 otherwise). Owner only. */
+export async function requireTeamsUser(): Promise<UserRow> {
+  const user = await requireUser();
+  if (Number(user.u_team) !== 1) forbidden();
+  return user;
 }
 
 /** AI pages are only available to accounts with u_enable_ai = 1 (403 otherwise). */

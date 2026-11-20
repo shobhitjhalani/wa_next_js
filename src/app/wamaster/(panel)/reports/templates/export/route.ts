@@ -1,3 +1,4 @@
+import { logActivity } from '@/lib/activity';
 import { NextResponse, type NextRequest } from 'next/server';
 import { getAdmin } from '@/lib/auth';
 import { getAccess, MESSAGE_REPORTS, visibleUserIds } from '@/lib/admin-access';
@@ -20,6 +21,7 @@ export async function GET(req: NextRequest) {
   };
   const { rows, totals } = await campaignSummary(scope, readSummaryFilter(q));
   const cell = (n: number | undefined) => (n === undefined ? '' : n);
+  await logActivity({ module: 'exports', action: 'Exported campaign summary (CSV)', details: req.nextUrl.search ? [`Filters: ${decodeURIComponent(req.nextUrl.search.slice(1))}`] : [] });
   return csvFromRows(
     `campaign-summary-all-${phpDate('Y-m-d')}.csv`,
     ['Date', 'Username', 'Campaign Name', 'Template', ...STATUS_COLUMNS.map(([, label]) => label), 'Total', 'Total Data'],

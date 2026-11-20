@@ -6,21 +6,23 @@ import { config } from '@/lib/config';
 import { refreshSendSettings, SEND_BATCH_MAX, SEND_DEFAULTS, sendSettingsChanged } from '@/lib/services/settings';
 import { numberFormat } from '@/lib/text';
 import { resetSendLimits, saveSendLimits } from './actions';
+import { SettingsTabs } from './parts';
 
 export const metadata: Metadata = { title: 'Sending Limits' };
 
 const hourLabel = (h: number) => `${String(h).padStart(2, '0')}:00${h === 24 ? ' (midnight)' : ` (${h % 12 || 12} ${h < 12 ? 'AM' : 'PM'})`}`;
 
-/** Sending limits for queued campaign / template messages (super admin). */
+/** Settings → Sending Limits for queued campaign / template messages (super admin). */
 export default async function SettingsPage() {
   await requireAdminCan('super');
   const [s, changed] = await Promise.all([refreshSendSettings(true), sendSettingsChanged()]);
   const perDay = s.sendBatch * 60 * (s.sendEndHour - s.sendStartHour);
   const custom = s.sendBatch !== SEND_DEFAULTS.sendBatch || s.sendStartHour !== SEND_DEFAULTS.sendStartHour || s.sendEndHour !== SEND_DEFAULTS.sendEndHour;
-
+  const tabs = <SettingsTabs tab="limits" />;
   return (
     <>
-      <PageTitle title="Sending Limits" home="/wamaster/dashboard" />
+      <PageTitle title="Settings" home="/wamaster/dashboard" />
+      {tabs}
       <div className="row">
         <div className="col-xl-7">
           <div className="card">

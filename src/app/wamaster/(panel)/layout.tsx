@@ -53,15 +53,24 @@ export default async function AdminLayout({ children }: { children: React.ReactN
       children: types.map((t) => ({ label: t.label, href: `/wamaster/users?ut=${t.type}`, match: [] })),
     } satisfies MenuItem] : []),
     ...(reports.length ? [{ label: 'Reports', icon: 'ri-file-chart-line', children: reports } satisfies MenuItem] : []),
-    ...(me.isSuperAdmin ? [{ label: 'Sending Limits', icon: 'ri-speed-up-line', href: '/wamaster/settings' } satisfies MenuItem] : []),
     ...(access.can('fb_posts') ? [{
       label: 'Facebook Posts', icon: 'ri-facebook-circle-line', match: ['/wamaster/fb_posts'], children: [
         { label: 'Bulk Posts (CSV)', href: '/wamaster/fb_posts', match: [] },
         ...(me.isSuperAdmin ? [{ label: 'Pages', href: '/wamaster/fb_posts/pages' }] : []),
       ],
     } satisfies MenuItem] : []),
+    ...(me.isSuperAdmin ? [{ label: 'Meta Lead Ads', icon: 'ri-megaphone-line', href: '/wamaster/meta_leads' } satisfies MenuItem] : []),
     ...(access.can('media_library') ? [{ label: 'Media Library', icon: 'ri-folder-image-line', href: '/wamaster/media' } satisfies MenuItem] : []),
-    ...(me.isSuperAdmin ? [{ label: 'Database Backups', icon: 'ri-database-2-line', href: '/wamaster/backups' } satisfies MenuItem] : []),
+    // Super admins only
+    ...(me.isSuperAdmin ? [{
+      label: 'Settings', icon: 'ri-settings-3-line', match: ['/wamaster/settings', '/wamaster/backups', '/wamaster/activity'], children: [
+        { label: 'Sending Limits', href: '/wamaster/settings', exact: true },
+        { label: 'WhatsApp Token', href: '/wamaster/settings/whatsapp' },
+        { label: 'Meta Lead Ads Keys', href: '/wamaster/settings/meta' },
+        { label: 'Database Backups', href: '/wamaster/backups' },
+        { label: 'Activity Log', href: '/wamaster/activity' },
+      ],
+    } satisfies MenuItem] : []),
   ];
 
   return (

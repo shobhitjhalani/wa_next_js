@@ -11,10 +11,6 @@ const SWITCHES: [Flag, string][] = [
   ['wa_enable_catalogue', 'Catalogue'],
   ['send_app', 'Forward to App URL'],
   ['enable_ai', 'AI'],
-  ['bot_flow', 'Chatbot Flows'],
-  ['crm', 'Leads CRM'],
-  ['wa_enable_incoming', 'Incoming Webhook'],
-  ['google_sheet', 'Google Sheet'],
   ['wa_coexistence', 'Coexistence (Mobile & Web)'],
 ];
 

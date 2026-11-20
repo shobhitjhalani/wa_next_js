@@ -898,6 +898,12 @@ BEGIN
   END IF;
 END $$;
 
+-- Admin permissions of a WhatsApp account (1 Yes · 2 No): Teams (My Team menu + team member logins; on for every
+-- existing account), Bulk Posting and Ads Management (Meta Lead Ads) start off.
+ALTER TABLE js_user ADD COLUMN IF NOT EXISTS u_team smallint NOT NULL DEFAULT 1;
+ALTER TABLE js_user ADD COLUMN IF NOT EXISTS u_bulk_post smallint NOT NULL DEFAULT 2;
+ALTER TABLE js_user ADD COLUMN IF NOT EXISTS u_ads smallint NOT NULL DEFAULT 2;
+
 -- ------------------------------------------------------------ leads CRM (/crm)
 
 -- Admin switch: the account may use the Leads CRM (1 Yes · 2 No).
@@ -1010,6 +1016,10 @@ CREATE TABLE IF NOT EXISTS js_media_file (
   mf_created_on integer NOT NULL DEFAULT 0
 );
 CREATE INDEX IF NOT EXISTS js_media_file_folder_idx ON js_media_file (mf_folder, mf_id DESC);
+-- Edit: rename / replace the file in place (the URL stays the same)
+ALTER TABLE js_media_file ADD COLUMN IF NOT EXISTS mf_updated_on integer NOT NULL DEFAULT 0;
+ALTER TABLE js_media_file ADD COLUMN IF NOT EXISTS mf_updated_by integer NOT NULL DEFAULT 0;
+ALTER TABLE js_media_file ADD COLUMN IF NOT EXISTS mf_versions integer NOT NULL DEFAULT 1;
 
 -- ------------------------------------------------------------ admin: Facebook page bulk posts (/wamaster/fb_posts)
 
@@ -1094,6 +1104,17 @@ BEGIN
     INSERT INTO js_modules (mo_id, mo_name, mo_code, mo_page, mo_action, mo_group, mo_display, mo_status)
     VALUES ((SELECT COALESCE(MAX(mo_id), 0) + 1 FROM js_modules), 'Media Library', 'mlib', 'media_library', 'View,Add,Delete', 4, 1, 1);
   END IF;
+  -- Media Library "Edit" (replace a file, keeping its URL): once, given to the members who may already upload
+  IF EXISTS (SELECT 1 FROM js_modules WHERE mo_code = 'mlib' AND mo_action = 'View,Add,Delete') THEN
+    UPDATE js_modules SET mo_action = 'View,Add,Edit,Delete' WHERE mo_code = 'mlib';
+    INSERT INTO js_employee_rights (er_emp_id, er_page_action, er_created_on)
+    SELECT DISTINCT r.er_emp_id, 'mlib_' || ed.ma_id, extract(epoch FROM now())::int
+      FROM js_employee_rights r
+      JOIN js_m_actions ad ON lower(ad.ma_name) = 'add' AND r.er_page_action = 'mlib_' || ad.ma_id
+      JOIN js_m_actions ed ON lower(ed.ma_name) = 'edit'
+     WHERE r.er_dstatus = 0
+       AND NOT EXISTS (SELECT 1 FROM js_employee_rights x WHERE x.er_emp_id = r.er_emp_id AND x.er_page_action = 'mlib_' || ed.ma_id AND x.er_dstatus = 0);
+  END IF;
 END $$;
 
 -- "Forward to App URL": latest result per account (shown on the admin user page)
@@ -1110,3 +1131,159 @@ CREATE TABLE IF NOT EXISTS js_app_forward (
 -- Facebook Page tags (e.g. client group, city, brand): filter the Pages when bulk posting
 ALTER TABLE js_fb_page ADD COLUMN IF NOT EXISTS fp_tags text[] NOT NULL DEFAULT '{}';
 CREATE INDEX IF NOT EXISTS js_fb_page_tags_idx ON js_fb_page USING gin (fp_tags);
+
+-- ------------------------------------------------------------ Meta Lead Ads (agency: one common lead ad per client)
+-- Admin /wamaster/meta_leads · webhook /integrations/meta/webhook · src/lib/meta-leads.ts, src/lib/services/meta-leads.ts
+
+-- The shared "common" ad: every client config falls back to these values.
+CREATE TABLE IF NOT EXISTS js_meta_lead_template (
+  mt_id smallint PRIMARY KEY DEFAULT 1 CHECK (mt_id = 1),
+  mt_campaign_name text NOT NULL DEFAULT '{client} · Lead Ad · {date}',  -- {client} {date}
+  mt_form_name text NOT NULL DEFAULT '{client} enquiry form',
+  mt_questions jsonb NOT NULL DEFAULT '[{"type":"FULL_NAME"},{"type":"EMAIL"},{"type":"PHONE"},{"type":"CITY"}]',
+  mt_privacy_link_text text NOT NULL DEFAULT 'Privacy Policy',
+  mt_thank_you_title text NOT NULL DEFAULT 'Thank you!',
+  mt_thank_you_body text NOT NULL DEFAULT 'We have received your details and will contact you shortly.',
+  mt_thank_you_button text NOT NULL DEFAULT 'Visit website',
+  mt_locale text NOT NULL DEFAULT 'en_US',
+  mt_countries text[] NOT NULL DEFAULT '{IN}',
+  mt_age_min smallint NOT NULL DEFAULT 18,
+  mt_age_max smallint NOT NULL DEFAULT 65,
+  mt_daily_budget integer NOT NULL DEFAULT 50000,   -- minor units of the ad account currency (₹500.00)
+  mt_headline text NOT NULL DEFAULT '',
+  mt_primary_text text NOT NULL DEFAULT '',
+  mt_cta text NOT NULL DEFAULT 'SIGN_UP',
+  mt_special_ad_categories text[] NOT NULL DEFAULT '{}',
+  mt_updated_on integer NOT NULL DEFAULT 0
+);
+INSERT INTO js_meta_lead_template (mt_id) VALUES (1) ON CONFLICT DO NOTHING;
+
+-- One per client account (js_user). Empty / NULL values use the template.
+CREATE TABLE IF NOT EXISTS js_meta_client_config (
+  mc_user_id integer PRIMARY KEY REFERENCES js_user (u_id) ON DELETE CASCADE,
+  mc_ad_account_id text NOT NULL DEFAULT '',      -- act_…
+  mc_page_id text NOT NULL DEFAULT '',
+  mc_privacy_policy_url text NOT NULL DEFAULT '',
+  mc_website_url text NOT NULL DEFAULT '',
+  mc_image_url text NOT NULL DEFAULT '',          -- creative image (Media Library URL)
+  mc_daily_budget integer,                        -- minor units
+  mc_countries text[],
+  mc_age_min smallint,
+  mc_age_max smallint,
+  mc_headline text NOT NULL DEFAULT '',
+  mc_primary_text text NOT NULL DEFAULT '',
+  mc_cta text NOT NULL DEFAULT '',
+  mc_special_ad_categories text[],
+  mc_country_code text NOT NULL DEFAULT 'IN',     -- default country of the leads' phone numbers
+  mc_assignee integer NOT NULL DEFAULT 0,         -- js_user_member id new leads are assigned to (0 = nobody)
+  mc_is_active smallint NOT NULL DEFAULT 1,
+  mc_updated_on integer NOT NULL DEFAULT 0
+);
+CREATE INDEX IF NOT EXISTS js_meta_client_page_idx ON js_meta_client_config (mc_page_id) WHERE mc_page_id <> '';
+-- Lead form questions and local target area: [{type:'radius',name,lat,lng,km} | {type:'city',key,name,km?} | {type:'region'|'zip',key,name}]
+-- (template: the default; client: NULL / [] = the template's)
+ALTER TABLE js_meta_lead_template ADD COLUMN IF NOT EXISTS mt_locations jsonb NOT NULL DEFAULT '[]';
+ALTER TABLE js_meta_client_config ADD COLUMN IF NOT EXISTS mc_questions jsonb;
+ALTER TABLE js_meta_client_config ADD COLUMN IF NOT EXISTS mc_locations jsonb;
+
+-- What was created for a client (one row per "Create Lead Ad"; a failed run resumes from the first missing id).
+CREATE TABLE IF NOT EXISTS js_meta_campaign_assets (
+  ma_id integer GENERATED BY DEFAULT AS IDENTITY PRIMARY KEY,
+  ma_user_id integer NOT NULL REFERENCES js_user (u_id) ON DELETE CASCADE,
+  ma_ad_account_id text NOT NULL DEFAULT '',
+  ma_page_id text NOT NULL DEFAULT '',
+  ma_subscribed smallint NOT NULL DEFAULT 0,
+  ma_form_id text NOT NULL DEFAULT '',
+  ma_form_name text NOT NULL DEFAULT '',
+  ma_campaign_id text NOT NULL DEFAULT '',
+  ma_campaign_name text NOT NULL DEFAULT '',
+  ma_image_hash text NOT NULL DEFAULT '',
+  ma_adset_id text NOT NULL DEFAULT '',
+  ma_creative_id text NOT NULL DEFAULT '',
+  ma_ad_id text NOT NULL DEFAULT '',
+  ma_status text NOT NULL DEFAULT 'queued',       -- queued · running · paused (all created) · failed · activating · active
+  ma_note text NOT NULL DEFAULT '',
+  ma_last_error text NOT NULL DEFAULT '',
+  ma_emp_id integer NOT NULL DEFAULT 0,
+  ma_created_at integer NOT NULL DEFAULT 0,
+  ma_updated_at integer NOT NULL DEFAULT 0
+);
+CREATE INDEX IF NOT EXISTS js_meta_assets_user_idx ON js_meta_campaign_assets (ma_user_id, ma_id DESC);
+CREATE INDEX IF NOT EXISTS js_meta_assets_todo_idx ON js_meta_campaign_assets (ma_status) WHERE ma_status IN ('queued', 'activating');
+
+-- Raw inbox of leadgen notifications (one row per leadgen_id: duplicates are ignored).
+CREATE TABLE IF NOT EXISTS js_meta_lead_events (
+  me_id bigint GENERATED BY DEFAULT AS IDENTITY PRIMARY KEY,
+  me_leadgen_id text NOT NULL UNIQUE,
+  me_page_id text NOT NULL DEFAULT '',
+  me_form_id text NOT NULL DEFAULT '',
+  me_ad_id text NOT NULL DEFAULT '',
+  me_user_id integer,
+  me_raw_payload jsonb NOT NULL DEFAULT '{}',
+  me_via text NOT NULL DEFAULT 'webhook',         -- webhook · backfill
+  me_status text NOT NULL DEFAULT 'received',     -- received · synced · failed · ignored
+  me_attempts smallint NOT NULL DEFAULT 0,
+  me_next_attempt_at integer NOT NULL DEFAULT 0,
+  me_error text NOT NULL DEFAULT '',
+  me_crm_lead_id integer REFERENCES js_crm_lead (ld_id) ON DELETE SET NULL,
+  me_created_at integer NOT NULL DEFAULT 0,
+  me_updated_at integer NOT NULL DEFAULT 0
+);
+CREATE INDEX IF NOT EXISTS js_meta_events_todo_idx ON js_meta_lead_events (me_next_attempt_at) WHERE me_status IN ('received', 'failed');
+CREATE INDEX IF NOT EXISTS js_meta_events_status_idx ON js_meta_lead_events (me_status, me_id DESC);
+
+-- Backfill: the newest lead time seen per form (GET /{form_id}/leads?filtering=time_created > last_sync).
+CREATE TABLE IF NOT EXISTS js_meta_form_sync (
+  fs_form_id text PRIMARY KEY,
+  fs_last_sync integer NOT NULL DEFAULT 0,
+  fs_checked_on integer NOT NULL DEFAULT 0,
+  fs_error text NOT NULL DEFAULT ''
+);
+
+-- Leads CRM: Meta Lead Ads details and the team member a lead is assigned to
+ALTER TABLE js_crm_lead ADD COLUMN IF NOT EXISTS ld_meta_form_id text NOT NULL DEFAULT '';
+ALTER TABLE js_crm_lead ADD COLUMN IF NOT EXISTS ld_meta_form_name text NOT NULL DEFAULT '';
+ALTER TABLE js_crm_lead ADD COLUMN IF NOT EXISTS ld_meta_ad_id text NOT NULL DEFAULT '';
+ALTER TABLE js_crm_lead ADD COLUMN IF NOT EXISTS ld_meta_ad_name text NOT NULL DEFAULT '';
+ALTER TABLE js_crm_lead ADD COLUMN IF NOT EXISTS ld_meta_campaign_id text NOT NULL DEFAULT '';
+ALTER TABLE js_crm_lead ADD COLUMN IF NOT EXISTS ld_meta_campaign_name text NOT NULL DEFAULT '';
+ALTER TABLE js_crm_lead ADD COLUMN IF NOT EXISTS ld_platform text NOT NULL DEFAULT '';        -- fb · ig
+ALTER TABLE js_crm_lead ADD COLUMN IF NOT EXISTS ld_phone_e164 text NOT NULL DEFAULT '';
+ALTER TABLE js_crm_lead ADD COLUMN IF NOT EXISTS ld_assigned_member integer NOT NULL DEFAULT 0; -- js_user_member id, 0 = nobody
+CREATE INDEX IF NOT EXISTS js_crm_lead_email_idx ON js_crm_lead (ld_user_id, lower(ld_email)) WHERE ld_email <> '';
+
+-- ------------------------------------------------------------ admin activity log (/wamaster/activity, super admins)
+
+-- What staff did in the admin panel (src/lib/activity.ts): sign-ins, saves, deletes, exports.
+CREATE TABLE IF NOT EXISTS js_admin_activity (
+  aa_id bigint GENERATED BY DEFAULT AS IDENTITY PRIMARY KEY,
+  aa_emp_id integer NOT NULL DEFAULT 0,
+  aa_emp_name text NOT NULL DEFAULT '',            -- name at the time (kept if the member is deleted later)
+  aa_module text NOT NULL DEFAULT '',              -- users · teams · fb_posts … (ACTIVITY_MODULES)
+  aa_action text NOT NULL DEFAULT '',              -- "Updated user", "Deleted Page"
+  aa_target text NOT NULL DEFAULT '',              -- "TPEM TATA (#11)"
+  aa_target_id text NOT NULL DEFAULT '',
+  aa_details text[] NOT NULL DEFAULT '{}',         -- "Teams: On → Off" (secrets only as "changed")
+  aa_ip text NOT NULL DEFAULT '',
+  aa_agent text NOT NULL DEFAULT '',
+  aa_on integer NOT NULL DEFAULT 0
+);
+CREATE INDEX IF NOT EXISTS js_admin_activity_on_idx ON js_admin_activity (aa_on DESC);
+CREATE INDEX IF NOT EXISTS js_admin_activity_emp_idx ON js_admin_activity (aa_emp_id, aa_on DESC);
+CREATE INDEX IF NOT EXISTS js_admin_activity_module_idx ON js_admin_activity (aa_module, aa_on DESC);
+
+-- Data Masters not used by this app: hidden from the menu and closed (their values stay in the table).
+-- mh_status 2 = shown, 1 = hidden.
+UPDATE js_master_heading SET mh_status = 1
+ WHERE mh_status = 2 AND mh_name IN ('Banner Position', 'Cron Jobs', 'Custom Fields', 'Documents', 'Field Set', 'Location Master', 'Numbers',
+                                      'Page Position', 'Team', 'Vehicle Master');
+
+-- WhatsApp sending token (WA_TOKEN_KEY): now in Settings → WhatsApp Token (wa_settings 'wa_token_key').
+-- Copied once from the legacy Data Master row "WA Key" (Master Value), so sending keeps working; that heading is hidden
+-- (the row stays as a fallback only).
+INSERT INTO wa_settings (key, value, updated_at)
+SELECT 'wa_token_key', btrim(mv_value), now() FROM js_master_value
+ WHERE (mv_id = 56203 OR (mv_name = 'WA Key' AND mv_type = 103)) AND mv_dstatus = 0 AND btrim(COALESCE(mv_value, '')) <> ''
+ ORDER BY (mv_id = 56203) DESC LIMIT 1
+ON CONFLICT (key) DO NOTHING;
+UPDATE js_master_heading SET mh_status = 1 WHERE mh_id = 103 AND mh_status = 2;

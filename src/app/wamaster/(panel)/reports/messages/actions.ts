@@ -2,6 +2,7 @@
 
 import { redirect } from 'next/navigation';
 import { fAll, flash, fStr } from '@/lib/actions';
+import { logActivity } from '@/lib/activity';
 import { MESSAGE_REPORTS, requireRight, visibleUserIds } from '@/lib/admin-access';
 import { exec } from '@/lib/db';
 import { now } from '@/lib/time';
@@ -35,6 +36,8 @@ export async function bulkMessages(fd: FormData): Promise<void> {
       `UPDATE js_message SET m_status = 1, m_delivery_status = NULL, m_error_codes = NULL, m_status_response = NULL, m_message_id = NULL, m_updated_on = $2
         WHERE m_id = ANY($1::bigint[]) AND m_is_incoming = 2 AND ($3::int[] IS NULL OR m_user_id = ANY($3::int[]))`, [ids, now(), users]);
 
+  await logActivity({ module: 'reports', action: cstatus === '1' ? 'Deleted messages' : 'Re-queued messages',
+    target: `${n} message(s)`, details: [`Message ids: ${ids.slice(0, 50).join(', ')}${ids.length > 50 ? ` … (+${ids.length - 50})` : ''}`] });
   await flash('success', `${n} messages ${cstatus === '1' ? 'deleted' : 're-queued'}`);
   redirect(back);
 }

@@ -1,3 +1,4 @@
+import { logActivity } from '@/lib/activity';
 import { getAdmin } from '@/lib/auth';
 import { getAccess, MESSAGE_REPORTS as MESSAGE_RIGHT, visibleUserIds } from '@/lib/admin-access';
 import { messageStatusLabel } from '@/lib/format';
@@ -20,6 +21,7 @@ export async function GET(req: Request, ctx: { params: Promise<{ type: string }>
   for (const [k, v] of new URL(req.url).searchParams) if (!(k in params)) params[k] = v;
   const { where, statusWhere, args, ranged } = messageWhere(params, type, await visibleUserIds());
 
+  await logActivity({ module: 'exports', action: `Exported message report “${type}” (CSV)`, details: new URL(req.url).search ? [`Filters: ${decodeURIComponent(new URL(req.url).search.slice(1))}`] : [] });
   return csvResponse<MessageRow & { u_username: string | null } & Record<string, unknown>>(
     `wa_${type}_${phpDate('d_m_y')}.csv`,
     ['Username', 'Created', 'Mobile', 'Type', 'Template', 'Parameters', 'Content', 'Sheet ID', 'Status', 'Updated'],

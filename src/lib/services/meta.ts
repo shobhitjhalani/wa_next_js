@@ -16,16 +16,30 @@ type WaUser = Pick<UserRow, 'u_wa_phone_id' | 'u_wa_b_id'>;
 let tokenCache: { value: string; at: number } | null = null;
 let appIdCache: string | null = null;
 
+export type WaTokenSource = 'settings' | 'master' | 'env' | 'none';
+
 /**
- * The system-user token. The legacy app stored it in a master value row
- * (funGetWAKey); that row wins, WA_KEY is the fallback. Cached for 5 minutes.
+ * The WhatsApp sending token (WA_TOKEN_KEY), in this order: Settings → WhatsApp Token (wa_settings 'wa_token_key'),
+ * the legacy Data Master row (master value WA_KEY_MASTER_ID, hidden now), WA_KEY in .env. Cached for 30 s per process.
  */
-export async function metaToken(): Promise<string> {
-  if (tokenCache && Date.now() - tokenCache.at < 300_000) return tokenCache.value;
+export async function waToken(): Promise<{ value: string; source: WaTokenSource }> {
+  const fromSettings = (await value<string>("SELECT value FROM wa_settings WHERE key = 'wa_token_key'").catch(() => null))?.trim();
+  if (fromSettings) return { value: fromSettings, source: 'settings' };
   const id = config.meta.keyMasterId;
-  const fromDb = id ? await value<string>('SELECT mv_value FROM js_master_value WHERE mv_id = $1', [id]).catch(() => null) : null;
-  tokenCache = { value: fromDb || config.meta.key, at: Date.now() };
+  const fromMaster = (id ? await value<string>('SELECT mv_value FROM js_master_value WHERE mv_id = $1', [id]).catch(() => null) : null)?.trim();
+  if (fromMaster) return { value: fromMaster, source: 'master' };
+  return config.meta.key ? { value: config.meta.key, source: 'env' } : { value: '', source: 'none' };
+}
+
+export async function metaToken(): Promise<string> {
+  if (tokenCache && Date.now() - tokenCache.at < 30_000) return tokenCache.value;
+  tokenCache = { value: (await waToken()).value, at: Date.now() };
   return tokenCache.value;
+}
+
+/** After the token was changed in Settings (other processes follow within 30 s). */
+export function forgetMetaToken(): void {
+  tokenCache = null;
 }
 
 async function call(method: 'GET' | 'POST', path: string, data: Record<string, unknown> = {}, timeoutMs = 60_000): Promise<MetaResponse> {
@@ -33,7 +47,7 @@ async function call(method: 'GET' | 'POST', path: string, data: Record<string, u
   const token = await metaToken();
   if (!token) {
     // Meta answers token-less calls with a misleading "object does not exist" error
-    return { error: { message: `WhatsApp access token is not configured. Set WA_KEY in .env (or master value ${config.meta.keyMasterId}).` } };
+    return { error: { message: 'WhatsApp access token is not configured. Enter it in Settings → WhatsApp Token (or WA_KEY in .env).' } };
   }
   const init: RequestInit = {
     method,

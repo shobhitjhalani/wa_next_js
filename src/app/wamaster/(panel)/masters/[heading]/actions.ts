@@ -3,8 +3,9 @@
 import { revalidatePath } from 'next/cache';
 import { notFound, redirect } from 'next/navigation';
 import { flash, fRaw, invalid, type ActionResult } from '@/lib/actions';
+import { changes, logActivity } from '@/lib/activity';
 import { requireRight } from '@/lib/admin-access';
-import { exec, insert, one, update } from '@/lib/db';
+import { exec, insert, one, update, value } from '@/lib/db';
 import { now } from '@/lib/time';
 import { randomString } from '@/lib/text';
 import { MASTER_COLUMNS, masterFields } from './_lib';
@@ -23,7 +24,7 @@ function slug(s: string): string {
 export async function saveMaster(heading: number, id: number | null, _prev: ActionResult | null, fd: FormData): Promise<ActionResult> {
   await requireRight('masters', id === null ? 'add' : 'edit');
   if (!Number.isInteger(heading) || (id !== null && !Number.isInteger(id))) notFound();
-  const head = await one<{ mh_id: number }>('SELECT mh_id FROM js_master_heading WHERE mh_id = $1', [heading]);
+  const head = await one<{ mh_id: number }>('SELECT mh_id FROM js_master_heading WHERE mh_id = $1 AND mh_status = 2', [heading]);
   if (!head) notFound();
   const existing = id
     ? await one<{ mv_id: number; mv_code: string | null; mv_name: string | null; mv_url_slug: string | null }>(
@@ -69,6 +70,12 @@ export async function saveMaster(heading: number, id: number | null, _prev: Acti
     row.mv_url_slug = slug(`${code || name || ''}-${randomString(4)}`);
   }
 
+  const before = existing ? await one<Record<string, unknown>>('SELECT * FROM js_master_value WHERE mv_id = $1', [existing.mv_id]) : {};
+  const fields = Object.fromEntries(Object.keys(data).map((k) => [k, k.slice(3).replace(/_/g, ' ').replace(/^./, (c) => c.toUpperCase())]));
+  const diff = changes(before, row, { ...fields, mv_status: 'Status' }, (k, v) => (k === 'mv_status' ? (Number(v) === 1 ? 'Active' : 'Inactive') : v === null || v === undefined || v === '' ? '—' : String(v)));
+  const headName = (await value<string>('SELECT mh_name FROM js_master_heading WHERE mh_id = $1', [heading])) ?? `Master #${heading}`;
+  await logActivity({ module: 'masters', action: `${existing ? 'Updated' : 'Added'} ${headName}`, target: String(data.mv_name ?? existing?.mv_name ?? ''),
+    targetId: existing?.mv_id ?? '', details: existing ? (diff.length ? diff : ['No field changed']) : diff.filter((d) => !/ → —$/.test(d)) });
   if (existing) {
     await update('js_master_value', row, 'mv_id = $1 AND mv_type = $2 AND mv_dstatus = 0', [existing.mv_id, heading]);
   } else {
@@ -83,7 +90,11 @@ export async function saveMaster(heading: number, id: number | null, _prev: Acti
 export async function deleteMaster(heading: number, id: number): Promise<void> {
   await requireRight('masters', 'delete');
   if (!Number.isInteger(heading) || !Number.isInteger(id)) notFound();
-  await exec('UPDATE js_master_value SET mv_dstatus = 1 WHERE mv_id = $1 AND mv_type = $2 AND mv_dstatus = 0', [id, heading]);
+  const gone = await value<string>('UPDATE js_master_value SET mv_dstatus = 1 WHERE mv_id = $1 AND mv_type = $2 AND mv_dstatus = 0 RETURNING COALESCE(mv_name, mv_code, \'\')', [id, heading]);
+  if (gone !== null) {
+    const headName = (await value<string>('SELECT mh_name FROM js_master_heading WHERE mh_id = $1', [heading])) ?? `Master #${heading}`;
+    await logActivity({ module: 'masters', action: `Deleted ${headName}`, target: gone, targetId: id });
+  }
   await flash('success', 'Record Successfully Deleted');
   revalidatePath(`/wamaster/masters/${heading}`);
 }

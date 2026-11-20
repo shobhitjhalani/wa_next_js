@@ -35,13 +35,14 @@ export async function loginUser(_prev: ActionResult | null, fd: FormData): Promi
 
 /** A team member (js_user_member) signs in to their owner's account with their own username. */
 async function loginMember(username: string, password: string, remember: boolean): Promise<ActionResult> {
-  const member = await one<MemberRow & { um_password: string; owner_ok: boolean }>(
-    `SELECT m.*, (u.u_id IS NOT NULL) AS owner_ok FROM js_user_member m
+  const member = await one<MemberRow & { um_password: string; owner_ok: boolean; teams_on: boolean }>(
+    `SELECT m.*, (u.u_id IS NOT NULL) AS owner_ok, COALESCE(u.u_team, 2) = 1 AS teams_on FROM js_user_member m
        LEFT JOIN js_user u ON u.u_id = m.um_user_id AND u.u_dstatus = 0 AND u.u_status IN (1, 3)
       WHERE m.um_username = $1`, [username]);
   if (!member) return fail("Username doesn't exist", { username: "Username doesn't exist" });
   if (!(await checkPassword(password, member.um_password))) return fail('Invalid Password', { password: 'Invalid Password' });
   if (Number(member.um_status) !== 1 || !member.owner_ok) return fail('This team login is disabled. Ask your account owner to enable it.');
+  if (!member.teams_on) return fail('Team logins are switched off for this account. Ask your account owner to contact support.');
   await startMemberSession(member, remember);
   redirect(memberHome(normalizePerms(member.um_perms)));
 }

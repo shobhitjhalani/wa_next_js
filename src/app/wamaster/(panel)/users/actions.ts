@@ -4,6 +4,7 @@ import { revalidatePath } from 'next/cache';
 import { redirect } from 'next/navigation';
 import { fail, fAll, fBool, flash, fRaw, fStr, invalid, isEmail, ok, type ActionResult } from '@/lib/actions';
 import { categoriesValue } from '@/lib/template-categories';
+import { changes, logActivity } from '@/lib/activity';
 import { requireRight, requireUserRight, userModule, type Right } from '@/lib/admin-access';
 import { exec, insert, one, tx, update, value } from '@/lib/db';
 import { hashPassword } from '@/lib/password';
@@ -103,6 +104,37 @@ async function aliveUser(id: number) {
 
 const showPath = (id: number) => `/wamaster/users/${id}`;
 
+/** "TPEM TATA (tpem_tata) #11" for the activity log. */
+async function userLabel(id: number): Promise<string> {
+  return (await value<string>(
+    `SELECT COALESCE(NULLIF(u_company_name, ''), NULLIF(u_name, ''), u_username::text) || ' (' || COALESCE(u_username::text, '') || ') #' || u_id FROM js_user WHERE u_id = $1`, [id])) ?? `#${id}`;
+}
+
+const logUser = async (id: number, action: string, details?: string[], module = 'users') =>
+  logActivity({ module, action, target: await userLabel(id), targetId: id, details });
+
+/** Fields of a user shown in the activity log when they change. */
+const USER_FIELDS: Record<string, string> = {
+  u_name: 'Name', u_company_name: 'Company', u_company_gst_no: 'GSTIN', u_mobile_no: 'Mobile', u_email_id: 'Email', u_billing_email_id: 'Billing email',
+  u_username: 'Username', u_password: 'Password', u_status: 'Status', u_parent_id: 'Parent account', u_assign_to: 'Assigned to',
+  u_country: 'Country', u_state: 'State', u_balance: 'Previous balance', u_google_sheet_email: 'Google Sheet email',
+  u_wa_no: 'WA number', u_wa_phone_id: 'Phone number ID', u_wa_b_id: 'WABA ID', u_business_id: 'Business ID', u_daily_limit: 'Daily limit',
+  u_msg_limit: 'Template message limit', u_msg_used: 'Template messages used', u_template_categories: 'Template categories',
+  u_wa_incoming_url: 'Incoming URL', u_wa_form_url: 'Flow Response URL', u_wa_catalogue_url: 'Catalogue Order URL', u_wa_app_url: 'App URL', u_ai_key: 'AI key',
+  u_bot_flow: 'Chatbot Flows', u_crm: 'Leads CRM', u_bulk_post: 'Bulk Posting', u_team: 'Teams', u_ads: 'Ads Management',
+  u_send_wa: 'Send Flow', u_wa_enable_catalogue: 'Catalogue', u_send_app: 'Forward to App URL', u_enable_ai: 'AI', u_wa_coexistence: 'Coexistence',
+  u_own_account: 'Client manages own WABA', u_google_sheet: 'Google Sheet', u_wa_enable_incoming: 'Incoming Webhook', u_is_new_no: 'MM Lite',
+};
+const ON_OFF = new Set(['u_bot_flow', 'u_crm', 'u_bulk_post', 'u_team', 'u_ads', 'u_send_wa', 'u_wa_enable_catalogue', 'u_send_app', 'u_enable_ai',
+  'u_wa_coexistence', 'u_own_account', 'u_google_sheet', 'u_wa_enable_incoming', 'u_is_new_no']);
+const userValue = (k: string, v: unknown): string => {
+  if (ON_OFF.has(k)) return Number(v) === 1 ? 'On' : 'Off';
+  if (k === 'u_status') return Number(v) === 1 ? 'Active' : Number(v) === 2 ? 'Inactive' : String(v ?? '—');
+  if (k === 'u_msg_limit') return Number(v) ? String(v) : 'Unlimited';
+  if (k === 'u_template_categories') return v ? String(v) : 'All';
+  return v === null || v === undefined || v === '' ? '—' : String(v);
+};
+
 // ------------------------------------------------------------------ add / edit
 
 /** store() when id = 0, update() otherwise (UserController::save). */
@@ -157,7 +189,12 @@ export async function saveUser(id: number, _prev: ActionResult | null, fd: FormD
   for (const [key, v] of Object.entries(data)) {
     values[`u_${key}`] = v !== null && USER_RULES[key]?.integer ? parseInt(v, 10) : v;
   }
-  for (const flag of FLAGS) values[`u_${flag}`] = fBool(fd, flag) ? 1 : 2;
+  // Switches not on the WhatsApp form (Incoming Webhook, Google Sheet: unused) keep their stored value
+  const NOT_ON_WA_FORM = new Set<string>(['wa_enable_incoming', 'google_sheet']);
+  for (const flag of FLAGS) {
+    if (type === USER_TYPE.WHATSAPP && NOT_ON_WA_FORM.has(flag)) continue;
+    values[`u_${flag}`] = fBool(fd, flag) ? 1 : 2;
+  }
   if (type === USER_TYPE.WHATSAPP) {
     // MM Lite (marketing) is always on for WhatsApp users
     values.u_is_new_no = 1;
@@ -170,7 +207,8 @@ export async function saveUser(id: number, _prev: ActionResult | null, fd: FormD
     values.u_own_account = Number(await value<number>('SELECT u_own_account FROM js_user WHERE u_id = $1', [values.u_parent_id])) || 2;
   }
   const defaults: Record<string, number> = { u_status: 2, u_balance: 0, u_daily_limit: 0, u_msg_limit: 0, u_parent_id: 0, u_country: 4, u_state: 0, u_assign_to: 0 };
-  for (const [col, def] of Object.entries(defaults)) values[col] ??= def;
+  // Editing: a field the form does not show (WhatsApp users have no Country / State / Previous Balance) keeps its value
+  for (const [col, def] of Object.entries(defaults)) if (!existing || fd.has(col.slice(2))) values[col] ??= def;
   if (values.u_status !== null) values.u_status = Number(values.u_status);
   if (password.trim() !== '') values.u_password = await hashPassword(password);
   if (existing && fBool(fd, 'msg_used_reset')) values.u_msg_used = 0;
@@ -178,7 +216,10 @@ export async function saveUser(id: number, _prev: ActionResult | null, fd: FormD
   values.u_updated_by = me.emp_id;
 
   if (existing) {
+    const before = await one<Record<string, unknown>>('SELECT * FROM js_user WHERE u_id = $1', [id]);
     await update('js_user', values, 'u_id = $1', [id]);
+    const diff = changes(before, values, USER_FIELDS, userValue);
+    await logUser(id, 'Updated user', diff.length ? diff : ['No field changed']);
     await flash('success', 'User Successfully Updated');
     redirect(showPath(id));
   }
@@ -190,6 +231,8 @@ export async function saveUser(id: number, _prev: ActionResult | null, fd: FormD
       [row.u_id, 'U' + String(row.u_id).padStart(5, '0'), accessKey()], db);
     return row.u_id;
   });
+  await logUser(newId, `Added ${type === USER_TYPE.WHATSAPP ? 'WhatsApp' : 'Corporate'} user`,
+    changes({}, values, USER_FIELDS, userValue).filter((d) => !/ → —$/.test(d)));
   await flash('success', 'User Successfully Added');
   redirect(showPath(newId));
 }
@@ -198,8 +241,11 @@ export async function saveUser(id: number, _prev: ActionResult | null, fd: FormD
 
 export async function toggleUserStatus(id: number): Promise<void> {
   await staffFor(id, 'edit');
-  const n = await exec('UPDATE js_user SET u_status = CASE WHEN u_status = 1 THEN 2 ELSE 1 END WHERE u_id = $1 AND u_dstatus = 0', [id]);
-  if (n) await flash('success', 'Record Successfully Updated');
+  const st = await value<number>('UPDATE js_user SET u_status = CASE WHEN u_status = 1 THEN 2 ELSE 1 END WHERE u_id = $1 AND u_dstatus = 0 RETURNING u_status', [id]);
+  if (st !== null) {
+    await logUser(id, st === 1 ? 'Activated user' : 'Deactivated user', [`Status: ${st === 1 ? 'Inactive → Active' : 'Active → Inactive'}`]);
+    await flash('success', 'Record Successfully Updated');
+  }
   revalidatePath('/wamaster/users');
   revalidatePath(showPath(id));
 }
@@ -212,6 +258,7 @@ export async function destroyUser(id: number): Promise<void> {
     revalidatePath('/wamaster/users');
     return;
   }
+  await logUser(id, 'Deleted user');
   await flash('success', 'Record Successfully Deleted');
   redirect(`/wamaster/users?ut=${type}`);
 }
@@ -250,6 +297,12 @@ export async function rechargeUser(id: number, _prev: ActionResult | null, fd: F
     createdBy: me.emp_id,
     fromEmployee: true,
   });
+  await logUser(id, 'Recharged user', [
+    `Plan: ${plan.mv_name ?? `#${plan.mv_id}`}`,
+    `Amount received: ${Number(fStr(fd, 'payment_amount') || 0)}`, `Payment received: ${fBool(fd, 'payment_received') ? 'Yes' : 'No'}`,
+    ...(fStr(fd, 'payment_ref_no') ? [`Reference: ${fStr(fd, 'payment_ref_no')}`] : []), ...(fStr(fd, 'remark') ? [`Remark: ${fStr(fd, 'remark')}`] : []),
+    `Valid till ${phpDate('d-m-Y', Number(row.ur_valid_till))}`,
+  ], 'recharge');
   await flash('success', 'Recharge Successfully Done. Valid till ' + phpDate('d-m-Y', Number(row.ur_valid_till)));
   revalidatePath(showPath(id));
   return ok();
@@ -260,6 +313,7 @@ export async function syncUserTemplates(id: number): Promise<void> {
   const user = await aliveUser(id);
   if (!user) return;
   const count = await syncTemplates(user);
+  await logUser(id, 'Synced WhatsApp templates', [count === null ? 'Failed: Meta did not answer' : `${count} templates`]);
   await flash(count === null ? 'error' : 'success', count === null ? 'Unable to fetch templates from WhatsApp.' : `${count} templates synced.`);
   revalidatePath(showPath(id));
 }
@@ -294,6 +348,7 @@ export async function registerUserNumber(id: number): Promise<void> {
     ? 'Number registered.'
     : smb ? 'This is a WhatsApp Business app (coexistence) number, so it does not need registering.'
       : `Register failed: ${regMsg || 'unknown error'}.`;
+  await logUser(id, 'Registered number / webhook', [register, hook]);
   await flash(hookOk && (!reg.error || smb) ? 'success' : 'error', `${register} ${hook}`);
   revalidatePath(showPath(id));
 }
@@ -325,6 +380,7 @@ export async function addEmail(id: number, _prev: ActionResult | null, fd: FormD
     ue_created_on: now(),
     ue_created_by: me.emp_id,
   }, 'ue_id');
+  await logUser(id, 'Added Google Sheet email', [email.toLowerCase(), `Sheet limit: ${limitRaw || 'unlimited'}`]);
   await flash('success', 'Email added');
   revalidatePath(showPath(id));
   return ok();
@@ -332,14 +388,18 @@ export async function addEmail(id: number, _prev: ActionResult | null, fd: FormD
 
 export async function toggleEmail(id: number, emailId: number): Promise<void> {
   await staffFor(id, 'edit');
-  const n = await exec('UPDATE js_user_emails SET ue_status = CASE WHEN ue_status = 1 THEN 2 ELSE 1 END WHERE ue_id = $2 AND ue_user_id = $1', [id, emailId]);
-  if (n) await flash('success', 'Record Successfully Updated');
+  const em = await one<{ ue_email_id: string; ue_status: number }>('UPDATE js_user_emails SET ue_status = CASE WHEN ue_status = 1 THEN 2 ELSE 1 END WHERE ue_id = $2 AND ue_user_id = $1 RETURNING ue_email_id, ue_status', [id, emailId]);
+  if (em) {
+    await logUser(id, `${em.ue_status === 1 ? 'Enabled' : 'Disabled'} Google Sheet email`, [em.ue_email_id]);
+    await flash('success', 'Record Successfully Updated');
+  }
   revalidatePath(showPath(id));
 }
 
 export async function deleteEmail(id: number, emailId: number): Promise<void> {
   await staffFor(id, 'edit');
-  await exec('DELETE FROM js_user_emails WHERE ue_id = $2 AND ue_user_id = $1', [id, emailId]);
+  const gone = await value<string>('DELETE FROM js_user_emails WHERE ue_id = $2 AND ue_user_id = $1 RETURNING ue_email_id', [id, emailId]);
+  if (gone) await logUser(id, 'Deleted Google Sheet email', [gone]);
   await flash('success', 'Record Successfully Deleted');
   revalidatePath(showPath(id));
 }
@@ -349,13 +409,17 @@ export async function toggleSheet(id: number, sheetId: number): Promise<void> {
   const n = await exec(
     'UPDATE js_user_active_sheets SET us_status = CASE WHEN us_status = 1 THEN 2 ELSE 1 END, us_updated_on = $3 WHERE us_id = $2 AND us_user_id = $1',
     [id, sheetId, now()]);
-  if (n) await flash('success', 'Record Successfully Updated');
+  if (n) {
+    await logUser(id, 'Switched a Google Sheet on / off', [`Sheet #${sheetId}`]);
+    await flash('success', 'Record Successfully Updated');
+  }
   revalidatePath(showPath(id));
 }
 
 export async function deleteSheet(id: number, sheetId: number): Promise<void> {
   await staffFor(id, 'edit');
   await exec('UPDATE js_user_active_sheets SET us_status = 2, us_dstatus = 1 WHERE us_id = $2 AND us_user_id = $1', [id, sheetId]);
+  await logUser(id, 'Deleted Google Sheet', [`Sheet #${sheetId}`]);
   await flash('success', 'Record Successfully Deleted');
   revalidatePath(showPath(id));
 }
@@ -370,6 +434,7 @@ export async function generateKey(id: number): Promise<void> {
     dek_created_on: now(),
     dek_created_by: me.emp_id,
   }, 'dek_id');
+  await logUser(id, 'Generated data extractor key');
   await flash('success', 'Key generated');
   revalidatePath(showPath(id));
 }
@@ -377,6 +442,7 @@ export async function generateKey(id: number): Promise<void> {
 export async function logoutKey(id: number, keyId: number): Promise<void> {
   await staffFor(id, 'edit');
   await exec('UPDATE js_user_data_extractor_keys SET dek_is_login = 0, dek_last_login = 0 WHERE dek_id = $2 AND dek_user_id = $1', [id, keyId]);
+  await logUser(id, 'Logged out data extractor key', [`Key #${keyId}`]);
   await flash('success', 'Key logged out');
   revalidatePath(showPath(id));
 }
@@ -384,6 +450,7 @@ export async function logoutKey(id: number, keyId: number): Promise<void> {
 export async function deleteKey(id: number, keyId: number): Promise<void> {
   await staffFor(id, 'edit');
   await exec('UPDATE js_user_data_extractor_keys SET dek_dstatus = 1 WHERE dek_id = $2 AND dek_user_id = $1', [id, keyId]);
+  await logUser(id, 'Deleted data extractor key', [`Key #${keyId}`]);
   await flash('success', 'Key deleted');
   revalidatePath(showPath(id));
 }

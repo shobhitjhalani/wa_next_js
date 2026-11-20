@@ -14,6 +14,7 @@ import { phpDate } from '@/lib/time';
 import { CopyButton } from '../../../(user)/api_docs/CopyButton';
 import { deleteMedia } from './actions';
 import { fileIcon, LIBRARY_TYPES, sizeLabel } from './library';
+import { EditMedia } from './EditMedia';
 import { UploadForm } from './UploadForm';
 import { MediaSelection } from './UrlTools';
 
@@ -21,13 +22,14 @@ export const metadata: Metadata = { title: 'Media Library' };
 
 const PATH = '/wamaster/media';
 
-interface Row { mf_id: number; mf_folder: string; mf_name: string; mf_path: string; mf_size: number; mf_created_on: number; emp: string | null }
+interface Row { mf_id: number; mf_folder: string; mf_name: string; mf_path: string; mf_size: number; mf_created_on: number; mf_updated_on: number; mf_versions: number; emp: string | null; editor: string | null }
 
 /** Upload documents / images by folder and name and get a public URL (super admin). */
 export default async function MediaLibraryPage({ searchParams }: { searchParams: Promise<Record<string, string | string[] | undefined>> }) {
   const access = await requireRight('media_library');
   const canAdd = access.can('media_library', 'add');
   const canDelete = access.can('media_library', 'delete');
+  const canEdit = access.can('media_library', 'edit');
   const params = await searchParams;
   const table = tableState(params, { sorts: ['created'] as const, sort: 'created', dir: 'desc' });
   const folder = sp(params, 'folder');
@@ -35,7 +37,7 @@ export default async function MediaLibraryPage({ searchParams }: { searchParams:
   const where = `($1 = '' OR f.mf_folder = $1) AND ($2 = '' OR f.mf_name ILIKE $2 OR f.mf_path ILIKE $2)`;
   const [rows, total, folders] = await Promise.all([
     query<Row>(
-      `SELECT f.*, e.emp_name AS emp FROM js_media_file f LEFT JOIN js_employee e ON e.emp_id = f.mf_emp_id
+      `SELECT f.*, e.emp_name AS emp, (SELECT emp_name FROM js_employee WHERE emp_id = f.mf_updated_by) AS editor FROM js_media_file f LEFT JOIN js_employee e ON e.emp_id = f.mf_emp_id
         WHERE ${where} ORDER BY f.mf_id DESC LIMIT ${table.perPage} OFFSET ${(table.page - 1) * table.perPage}`, args),
     value<number>(`SELECT COUNT(*)::int FROM js_media_file f WHERE ${where}`, args),
     query<{ mf_folder: string; n: number; bytes: number }>('SELECT mf_folder, COUNT(*)::int AS n, SUM(mf_size)::bigint AS bytes FROM js_media_file GROUP BY mf_folder ORDER BY mf_folder'),
@@ -75,12 +77,14 @@ export default async function MediaLibraryPage({ searchParams }: { searchParams:
                 {rows.length ? rows.map((f) => {
                   const ext = f.mf_path.split('.').pop()?.toLowerCase() ?? '';
                   const link = url(`${config.mediaUrl}/${f.mf_path}`);
+                  // the thumbnail follows a replaced file (the public URL itself has no version)
+                  const thumb = `${config.mediaUrl}/${f.mf_path}${f.mf_updated_on ? `?v=${f.mf_updated_on}` : ''}`;
                   return (
                     <tr key={f.mf_id}>
                       <td><input type="checkbox" className="form-check-input" data-url={link} data-name={f.mf_name} data-folder={f.mf_folder} aria-label={`Select ${f.mf_name}`} /></td>
                       <td>
                         {LIBRARY_TYPES[ext]?.kind === 'image'
-                          ? <a href={link} target="_blank" rel="noreferrer"><img src={`${config.mediaUrl}/${f.mf_path}`} alt="" width={48} height={48} className="rounded border" style={{ objectFit: 'cover' }} /></a>
+                          ? <a href={link} target="_blank" rel="noreferrer"><img src={thumb} alt="" width={48} height={48} className="rounded border" style={{ objectFit: 'cover' }} /></a>
                           : <span className="rounded border bg-light" style={{ width: 48, height: 48, display: 'inline-grid', placeItems: 'center' }}><i className={`${fileIcon(ext)} fs-3`} /></span>}
                       </td>
                       <td><div className="fw-semibold">{f.mf_name}</div><div className="small text-muted">{ext.toUpperCase()}</div></td>
@@ -92,9 +96,11 @@ export default async function MediaLibraryPage({ searchParams }: { searchParams:
                           <CopyButton text={link} className="btn btn-soft-primary" />
                         </div>
                       </td>
-                      <td className="small text-nowrap">{phpDate('d M Y, h:i A', f.mf_created_on)}{f.emp && <div className="text-muted">{f.emp}</div>}</td>
+                      <td className="small text-nowrap">{phpDate('d M Y, h:i A', f.mf_created_on)}{f.emp && <div className="text-muted">{f.emp}</div>}
+                        {f.mf_updated_on > 0 && <div className="text-primary" title={f.mf_versions > 1 ? `File replaced ${f.mf_versions - 1} time(s)` : 'Renamed'}><i className="ri-refresh-line" /> {f.mf_versions > 1 ? 'Replaced' : 'Edited'} {phpDate('d M Y, h:i A', f.mf_updated_on)}{f.editor ? ` · ${f.editor}` : ''}</div>}</td>
                       <td className="text-end text-nowrap">
                         <a href={link} target="_blank" rel="noreferrer" className="btn btn-sm btn-soft-secondary me-1" title="Open"><i className="ri-external-link-line" /></a>
+                        {canEdit && <EditMedia id={f.mf_id} name={f.mf_name} url={link} thumb={thumb} ext={ext} size={Number(f.mf_size)} />}
                         {canDelete && <form action={deleteMedia.bind(null, f.mf_id)} className="d-inline">
                           <ConfirmButton message={`Delete “${f.mf_name}”? Its public URL stops working everywhere it was shared.`} className="btn btn-sm btn-soft-danger" title="Delete"><i className="ri-delete-bin-line" /></ConfirmButton>
                         </form>}

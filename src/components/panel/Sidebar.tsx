@@ -9,6 +9,8 @@ export interface MenuLink {
   href: string;
   /** Extra path prefixes that mark this link active (default: href itself) */
   match?: string[];
+  /** Active only on exactly this path (not on the paths below it) */
+  exact?: boolean;
 }
 
 export interface MenuItem extends Partial<MenuLink> {
@@ -18,12 +20,13 @@ export interface MenuItem extends Partial<MenuLink> {
 }
 
 function isActive(pathname: string, link: Partial<MenuLink>): boolean {
+  if (link.exact && link.href) return pathname === link.href.split('?')[0];
   const prefixes = link.match ?? (link.href ? [link.href.split('?')[0]] : []);
   return prefixes.some((p) => pathname === p || (p !== '/' && pathname.startsWith(p + '/')));
 }
 
 /** Vertical sidebar menu; active entries follow client-side navigation. */
-export function Sidebar({ items }: { items: MenuItem[] }) {
+export function Sidebar({ items, logoutUrl }: { items: MenuItem[]; logoutUrl?: string }) {
   const pathname = usePathname();
 
   // Mobile: close the off-canvas menu after navigating
@@ -63,6 +66,15 @@ export function Sidebar({ items }: { items: MenuItem[] }) {
           </li>
         );
       })}
+      {logoutUrl && (
+        <li className="nav-item mt-2 pt-2" style={{ borderTop: '1px solid rgba(255,255,255,.08)' }}>
+          <form method="post" action={logoutUrl}>
+            <button type="submit" className="nav-link menu-link w-100 text-start border-0 bg-transparent">
+              <i className="ri-logout-box-r-line" /> <span>Logout</span>
+            </button>
+          </form>
+        </li>
+      )}
     </ul>
   );
 }

@@ -2,7 +2,7 @@
 
 import { revalidatePath } from 'next/cache';
 import { fail, flash, fInt, fStr, invalid, isEmail, ok, type ActionResult } from '@/lib/actions';
-import { requireAccount, requireUser } from '@/lib/auth';
+import { requireAccount, requireTeamsUser } from '@/lib/auth';
 import { exec, one, value } from '@/lib/db';
 import { checkPassword, hashPassword } from '@/lib/password';
 import { normalizePhone } from '@/lib/phone';
@@ -11,7 +11,7 @@ import { now } from '@/lib/time';
 
 /** Add a team member, or edit one (um_id set; an empty password keeps the current one). Owner only. */
 export async function saveMember(_prev: ActionResult | null, fd: FormData): Promise<ActionResult> {
-  const user = await requireUser();
+  const user = await requireTeamsUser();
   const id = fInt(fd, 'um_id');
   const name = fStr(fd, 'name').slice(0, 100);
   const username = fStr(fd, 'username').toLowerCase();
@@ -64,7 +64,7 @@ export async function saveMember(_prev: ActionResult | null, fd: FormData): Prom
 
 /** Remove a member; chats assigned to them become unassigned. Owner only. */
 export async function deleteMember(id: number): Promise<void> {
-  const user = await requireUser();
+  const user = await requireTeamsUser();
   const m = await one<{ um_name: string }>('DELETE FROM js_user_member WHERE um_id = $1 AND um_user_id = $2 RETURNING um_name', [id, user.u_id]);
   if (m) await exec('UPDATE js_user_contact_list SET cl_assigned_member = 0 WHERE cl_user_id = $1 AND cl_assigned_member = $2', [user.u_id, id]);
   await flash(m ? 'success' : 'error', m ? `${m.um_name} removed from the team. Their chats are now unassigned.` : 'This team member no longer exists.');

@@ -1,3 +1,4 @@
+import { logActivity } from '@/lib/activity';
 import { NextResponse, type NextRequest } from 'next/server';
 import { getAdmin } from '@/lib/auth';
 import { assignFilter, getAccess, userModule } from '@/lib/admin-access';
@@ -13,6 +14,7 @@ export async function GET(req: NextRequest) {
   const type = utRaw === '' ? USER_TYPE.WHATSAPP : parseInt(utRaw, 10) || 0;
   const access = await getAccess();
   if (!access.can(userModule(type))) return new NextResponse('Forbidden', { status: 403 });
+  await logActivity({ module: 'exports', action: `Exported ${type === USER_TYPE.WHATSAPP ? 'WhatsApp' : 'Corporate'} users (CSV)`, details: req.nextUrl.search ? [`Filters: ${decodeURIComponent(req.nextUrl.search.slice(1))}`] : [] });
   return csvResponse<Record<string, any>>(
     `users_${phpDate('d_m_y')}.csv`,
     ['Code', 'Name', 'Company', 'Username', 'Mobile', 'Email', 'WA No', 'Valid Till', 'Plan Status', 'Status'],

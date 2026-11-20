@@ -1,4 +1,5 @@
 import type { Metadata } from 'next';
+import Link from 'next/link';
 import { redirect } from 'next/navigation';
 import { AuthCard } from '@/components/AuthCard';
 import { LoginForm } from '@/components/LoginForm';
@@ -14,6 +15,9 @@ export default async function AdminLoginPage() {
   return (
     <AuthCard tagline="Administration Panel">
       <LoginForm action={loginAdmin} subtitle={`Sign in to the ${config.appName} admin panel.`} />
+      <div className="mt-4 pt-3 border-top text-center">
+        <p className="mb-0 text-muted">Not an administrator? <Link href="/" className="fw-semibold text-primary text-decoration-underline">User sign in <i className="ri-arrow-right-line align-middle" /></Link></p>
+      </div>
     </AuthCard>
   );
 }

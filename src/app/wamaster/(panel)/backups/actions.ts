@@ -2,6 +2,7 @@
 
 import { revalidatePath } from 'next/cache';
 import { flash } from '@/lib/actions';
+import { logActivity } from '@/lib/activity';
 import { requireAdminCan } from '@/lib/auth';
 import { one, query } from '@/lib/db';
 import { backupMissing } from '@/lib/services/backup';
@@ -15,6 +16,7 @@ export async function backupNow(): Promise<void> {
     await flash('error', 'A backup is already queued or running.');
   } else {
     await query(`INSERT INTO wa_backup_runs (trigger, requested_by) VALUES ('manual', $1)`, [me.emp_id]);
+    await logActivity({ module: 'backups', action: 'Started a database backup' });
     await flash('success', 'Backup queued. It starts within a minute and takes a few minutes; refresh to see it.');
   }
   revalidatePath('/wamaster/backups');

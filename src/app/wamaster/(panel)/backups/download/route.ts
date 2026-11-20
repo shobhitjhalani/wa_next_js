@@ -1,3 +1,4 @@
+import { logActivity } from '@/lib/activity';
 import { getAdmin } from '@/lib/auth';
 import { backupDownloadUrl, backupMissing } from '@/lib/services/backup';
 
@@ -8,5 +9,6 @@ export async function GET(req: Request) {
   if (backupMissing().length) return new Response('Backups are not configured.', { status: 404 });
   const url = await backupDownloadUrl(new URL(req.url).searchParams.get('key') ?? '');
   if (!url) return new Response('Not found', { status: 404 });
+  await logActivity({ module: 'backups', action: 'Downloaded a database backup', target: new URL(req.url).searchParams.get('key') ?? '' });
   return Response.redirect(url, 302);
 }

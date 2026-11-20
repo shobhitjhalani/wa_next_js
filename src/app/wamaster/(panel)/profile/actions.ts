@@ -2,6 +2,7 @@
 
 import { revalidatePath } from 'next/cache';
 import { flash, fRaw, fStr, invalid, isEmail, ok, type ActionResult } from '@/lib/actions';
+import { changes, logActivity } from '@/lib/activity';
 import { requireAdmin } from '@/lib/auth';
 import { exec } from '@/lib/db';
 import { checkPassword, hashPassword } from '@/lib/password';
@@ -25,6 +26,8 @@ export async function updateProfile(_prev: ActionResult | null, fd: FormData): P
     'UPDATE js_employee SET emp_name = $2, emp_mobile = $3, emp_email_id = $4, emp_updated_on = $5 WHERE emp_id = $1',
     [me.emp_id, name, mobile || null, email || null, now()],
   );
+  await logActivity({ module: 'profile', action: 'Updated own profile',
+    details: changes(me as unknown as Record<string, unknown>, { emp_name: name, emp_mobile: mobile || null, emp_email_id: email || null }, { emp_name: 'Name', emp_mobile: 'Mobile', emp_email_id: 'Email' }) });
   await flash('success', 'Profile updated');
   revalidatePath('/wamaster', 'layout');
   return ok();
@@ -44,6 +47,7 @@ export async function changePassword(_prev: ActionResult | null, fd: FormData): 
 
   if (!(await checkPassword(current, me.emp_password))) return invalid({ current_password: 'Invalid Password' });
   await exec('UPDATE js_employee SET emp_password = $2 WHERE emp_id = $1', [me.emp_id, await hashPassword(password)]);
+  await logActivity({ module: 'profile', action: 'Changed own password' });
   await flash('success', 'Password Successfully Changed');
   revalidatePath('/wamaster/profile');
   return ok();

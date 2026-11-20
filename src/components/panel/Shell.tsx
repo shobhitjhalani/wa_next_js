@@ -76,7 +76,7 @@ export function Shell({ home, profileUrl, logoutUrl, userName, userSub, menu, ch
         <div id="scrollbar" style={{ overflowY: 'auto', height: 'calc(100% - 70px)' }}>
           <div className="container-fluid">
             <div id="two-column-menu" />
-            <Sidebar items={menu} />
+            <Sidebar items={menu} logoutUrl={logoutUrl} />
           </div>
         </div>
         <div className="sidebar-background" />

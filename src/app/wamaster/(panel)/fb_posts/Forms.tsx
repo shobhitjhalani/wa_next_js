@@ -1,33 +1,68 @@
 'use client';
 
-import { useEffect } from 'react';
+import { useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { ActionForm, FieldError, SubmitButton } from '@/components/ActionForm';
 import { addPage, uploadPosts } from './actions';
 
-export function UploadPostsForm({ pages }: { pages: { id: number; name: string }[] }) {
+export interface PickPage { id: number; name: string; client: string | null }
+
+/** Tick the Pages to post to: search by Page or client name, select all shown / none. */
+function PagePicker({ pages }: { pages: PickPage[] }) {
+  const [picked, setPicked] = useState<Set<number>>(() => new Set(pages.length === 1 ? [pages[0].id] : []));
+  const [q, setQ] = useState('');
+  const term = q.trim().toLowerCase();
+  const shown = term ? pages.filter((p) => `${p.name} ${p.client ?? ''}`.toLowerCase().includes(term)) : pages;
+  const toggle = (id: number, on: boolean) => setPicked((s) => { const n = new Set(s); if (on) n.add(id); else n.delete(id); return n; });
+  const setShown = (on: boolean) => setPicked((s) => { const n = new Set(s); shown.forEach((p) => (on ? n.add(p.id) : n.delete(p.id))); return n; });
+  return (
+    <div>
+      <div className="d-flex flex-wrap align-items-center gap-2 mb-2">
+        <label className="form-label mb-0 me-auto">Facebook Pages <span className="badge bg-primary-subtle text-primary ms-1">{picked.size} of {pages.length} selected</span></label>
+        {pages.length > 6 && (
+          <input type="search" className="form-control form-control-sm" style={{ maxWidth: 220 }} placeholder="Search Page or client…" value={q} onChange={(e) => setQ(e.target.value)} aria-label="Search Pages" />
+        )}
+        <button type="button" className="btn btn-sm btn-soft-primary" onClick={() => setShown(true)}>Select {term ? 'shown' : 'all'}</button>
+        <button type="button" className="btn btn-sm btn-light" onClick={() => setShown(false)} disabled={!picked.size}>{term ? 'Clear shown' : 'Clear'}</button>
+      </div>
+      <div className="border rounded p-2" style={{ maxHeight: 240, overflowY: 'auto' }}>
+        <div className="row g-1">
+          {shown.map((p) => (
+            <div key={p.id} className="col-sm-6 col-lg-4">
+              <div className="form-check mb-0 py-1">
+                <input className="form-check-input" type="checkbox" id={`fbp-${p.id}`} name="page_ids" value={p.id} checked={picked.has(p.id)} onChange={(e) => toggle(p.id, e.target.checked)} />
+                <label className="form-check-label text-truncate d-block" htmlFor={`fbp-${p.id}`} title={p.client ? `${p.name} · ${p.client}` : p.name}>
+                  {p.name}{p.client && <span className="small text-muted"> · {p.client}</span>}
+                </label>
+              </div>
+            </div>
+          ))}
+          {!shown.length && <div className="col-12 small text-muted py-2 text-center">No Page matches “{q}”.</div>}
+        </div>
+      </div>
+      {/* Ticked Pages hidden by the search are still sent */}
+      {[...picked].filter((id) => !shown.some((p) => p.id === id)).map((id) => <input key={id} type="hidden" name="page_ids" value={id} />)}
+      <FieldError name="page_ids" />
+    </div>
+  );
+}
+
+export function UploadPostsForm({ pages }: { pages: PickPage[] }) {
   return (
     <ActionForm action={uploadPosts}>
+      <div className="mb-3"><PagePicker pages={pages} /></div>
       <div className="row g-3 align-items-start">
-        <div className="col-md-4">
-          <label className="form-label" htmlFor="fb-page">Facebook Page</label>
-          <select className="form-select" id="fb-page" name="page_id" defaultValue={pages.length === 1 ? pages[0].id : ''}>
-            <option value="">Choose a Page…</option>
-            {pages.map((p) => <option key={p.id} value={p.id}>{p.name}</option>)}
-          </select>
-          <FieldError name="page_id" />
-        </div>
-        <div className="col-md-4">
+        <div className="col-md-6">
           <label className="form-label" htmlFor="fb-csv">CSV file</label>
           <input type="file" className="form-control" id="fb-csv" name="csv" accept=".csv,text/csv" />
           <FieldError name="csv" />
         </div>
-        <div className="col-md-2">
+        <div className="col-md-3">
           <label className="form-label" htmlFor="fb-start">Start <span className="text-muted fw-normal">(optional)</span></label>
           <input type="datetime-local" className="form-control" id="fb-start" name="start" />
           <FieldError name="start" />
         </div>
-        <div className="col-md-2 pt-md-4">
+        <div className="col-md-3 pt-md-4">
           <SubmitButton className="btn btn-success w-100 mt-md-1" pendingText="Uploading…"><i className="ri-upload-2-line" /> Queue posts</SubmitButton>
         </div>
       </div>

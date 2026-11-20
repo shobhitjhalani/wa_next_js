@@ -17,6 +17,8 @@ export const POST_STATUS: Record<number, { label: string; badge: string }> = {
 };
 
 export const MAX_CSV_ROWS = 500;
+/** Rows × Pages of one upload. */
+export const MAX_UPLOAD_POSTS = 5000;
 const PER_RUN = 20;
 
 type Graph = Record<string, any> & { error?: { message?: string; code?: number } };
@@ -120,9 +122,9 @@ export async function publishDuePosts(log: (m: string) => void = () => {}): Prom
                WHERE po_status = 2 AND po_posted_on > 0 AND po_posted_on < $1`, [t - 900]);
   const due = await query<{ po_id: number; po_message: string; po_link: string; po_image_url: string; fp_page_id: string; fp_token: string }>(
     `UPDATE js_fb_post p SET po_status = 2, po_posted_on = $1
-       FROM js_fb_post_batch b, js_fb_page f
+       FROM js_fb_page f
       WHERE p.po_id IN (SELECT po_id FROM js_fb_post WHERE po_status = 1 AND po_scheduled_at <= $1 ORDER BY po_scheduled_at, po_id LIMIT ${PER_RUN} FOR UPDATE SKIP LOCKED)
-        AND b.pb_id = p.po_batch_id AND f.fp_id = b.pb_page_id
+        AND f.fp_id = p.po_page_id
       RETURNING p.po_id, p.po_message, p.po_link, p.po_image_url, f.fp_page_id, f.fp_token`, [t]);
   let posted = 0;
   for (const p of due) {

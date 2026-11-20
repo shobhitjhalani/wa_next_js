@@ -1052,6 +1052,13 @@ CREATE TABLE IF NOT EXISTS js_fb_post (
 CREATE INDEX IF NOT EXISTS js_fb_post_batch_line_idx ON js_fb_post (po_batch_id, po_line);
 CREATE INDEX IF NOT EXISTS js_fb_post_due_idx ON js_fb_post (po_scheduled_at) WHERE po_status = 1;
 
+-- One upload can go to several Pages: each post row carries its Page (pb_page_id is only set on old single-Page uploads).
+ALTER TABLE js_fb_post_batch ALTER COLUMN pb_page_id DROP NOT NULL;
+ALTER TABLE js_fb_post ADD COLUMN IF NOT EXISTS po_page_id integer REFERENCES js_fb_page (fp_id) ON DELETE CASCADE;
+UPDATE js_fb_post p SET po_page_id = b.pb_page_id FROM js_fb_post_batch b
+ WHERE p.po_page_id IS NULL AND b.pb_id = p.po_batch_id AND b.pb_page_id IS NOT NULL;
+CREATE INDEX IF NOT EXISTS js_fb_post_page_idx ON js_fb_post (po_page_id, po_status);
+
 -- Admin team rights for the Facebook Posts and Media Library modules (tick them per staff member in /wamaster/teams).
 DO $$
 BEGIN

@@ -18,7 +18,7 @@ export default async function FbPagesPage() {
   const [pages, clients] = await Promise.all([
     query<{ fp_id: number; fp_page_id: string; fp_name: string; fp_created_on: number; client: string | null; posted: number }>(
       `SELECT f.fp_id, f.fp_page_id, f.fp_name, f.fp_created_on, COALESCE(NULLIF(u.u_company_name, ''), u.u_name) AS client,
-              (SELECT COUNT(*) FROM js_fb_post p JOIN js_fb_post_batch b ON b.pb_id = p.po_batch_id WHERE b.pb_page_id = f.fp_id AND p.po_status = 3)::int AS posted
+              (SELECT COUNT(*) FROM js_fb_post p WHERE p.po_page_id = f.fp_id AND p.po_status = 3)::int AS posted
          FROM js_fb_page f LEFT JOIN js_user u ON u.u_id = f.fp_user_id ORDER BY lower(f.fp_name)`),
     query<{ id: number; name: string }>(
       `SELECT u_id AS id, COALESCE(NULLIF(u_company_name, ''), u_name, u_username) || ' (' || u_username || ')' AS name

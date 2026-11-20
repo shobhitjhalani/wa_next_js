@@ -13,7 +13,7 @@ export const metadata: Metadata = { title: 'Facebook Posts' };
 const PER_PAGE = 25;
 
 interface Batch {
-  pb_id: number; pb_file: string; pb_total: number; pb_created_on: number; page_names: string[] | null; emp: string | null;
+  pb_id: number; pb_file: string; pb_total: number; pb_created_on: number; pb_status: number; page_names: string[] | null; emp: string | null;
   queued: number; posting: number; posted: number; failed: number; cancelled: number; next_at: number | null;
 }
 
@@ -28,7 +28,7 @@ export default async function FbPostsPage({ searchParams }: { searchParams: Prom
       `SELECT f.fp_id AS id, f.fp_name AS name, NULLIF(COALESCE(NULLIF(u.u_company_name, ''), u.u_name), '') AS client
          FROM js_fb_page f LEFT JOIN js_user u ON u.u_id = f.fp_user_id ORDER BY lower(f.fp_name)`),
     query<Batch>(
-      `SELECT b.pb_id, b.pb_file, b.pb_total, b.pb_created_on, e.emp_name AS emp,
+      `SELECT b.pb_id, b.pb_file, b.pb_total, b.pb_created_on, b.pb_status, e.emp_name AS emp,
               (SELECT array_agg(f.fp_name ORDER BY lower(f.fp_name)) FROM js_fb_page f
                 WHERE f.fp_id IN (SELECT DISTINCT po_page_id FROM js_fb_post WHERE po_batch_id = b.pb_id)) AS page_names,
               COUNT(*) FILTER (WHERE p.po_status = 1)::int AS queued, COUNT(*) FILTER (WHERE p.po_status = 2)::int AS posting,
@@ -37,7 +37,7 @@ export default async function FbPostsPage({ searchParams }: { searchParams: Prom
          FROM js_fb_post_batch b
          LEFT JOIN js_employee e ON e.emp_id = b.pb_emp_id
          LEFT JOIN js_fb_post p ON p.po_batch_id = b.pb_id
-        GROUP BY b.pb_id, e.emp_name ORDER BY b.pb_id DESC LIMIT ${PER_PAGE} OFFSET ${(page - 1) * PER_PAGE}`),
+        GROUP BY b.pb_id, b.pb_status, e.emp_name ORDER BY b.pb_id DESC LIMIT ${PER_PAGE} OFFSET ${(page - 1) * PER_PAGE}`),
     value<number>('SELECT COUNT(*)::int FROM js_fb_post_batch'),
   ]);
 
@@ -57,7 +57,7 @@ export default async function FbPostsPage({ searchParams }: { searchParams: Prom
           <div className="small text-muted mt-3">
             CSV columns (first row = headings): <code>message</code>, <code>image_url</code> (optional, a public https link; use the Media Library),
             {' '}<code>link</code> (optional), <code>schedule</code> (optional, e.g. 25-11-2026 10:30; empty = as soon as possible). Up to {MAX_CSV_ROWS} posts per file.
-            Tick several Pages to publish every row on each of them. Posts go out one by one, about one every two seconds.
+            Tick several Pages to publish every row on each of them. After uploading you see a preview of every post with its Pages; nothing is posted until you confirm. Posts go out one by one, about one every two seconds.
           </div>
       </AccordionCard>
 
@@ -90,11 +90,15 @@ export default async function FbPostsPage({ searchParams }: { searchParams: Prom
                         <div className="small text-muted mt-1">{done} of {b.pb_total} done</div>
                       </td>
                       <td className="small">
+                        {b.pb_status === 0 ? (
+                          <Link href={`/wamaster/fb_posts/${b.pb_id}`} className="badge bg-warning-subtle text-warning">Draft · preview and confirm</Link>
+                        ) : <>
                         <span className="badge bg-success-subtle text-success me-1">{b.posted} posted</span>
                         {b.failed > 0 && <span className="badge bg-danger-subtle text-danger me-1">{b.failed} failed</span>}
                         {b.queued + b.posting > 0 && <span className="badge bg-info-subtle text-info me-1">{b.queued + b.posting} queued</span>}
                         {b.cancelled > 0 && <span className="badge bg-secondary-subtle text-secondary">{b.cancelled} cancelled</span>}
                         {b.next_at && <div className="text-muted mt-1">Next: {phpDate('d M, h:i A', b.next_at)}</div>}
+                        </>}
                       </td>
                       <td className="small">{phpDate('d M Y, h:i A', b.pb_created_on)}{b.emp && <div className="text-muted">{b.emp}</div>}</td>
                     </tr>

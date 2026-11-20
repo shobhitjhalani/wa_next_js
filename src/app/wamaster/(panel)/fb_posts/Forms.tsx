@@ -64,7 +64,7 @@ export function UploadPostsForm({ pages }: { pages: PickPage[] }) {
           <FieldError name="start" />
         </div>
         <div className="col-md-3 pt-md-4">
-          <SubmitButton className="btn btn-success w-100 mt-md-1" pendingText="Uploading…"><i className="ri-upload-2-line" /> Queue posts</SubmitButton>
+          <SubmitButton className="btn btn-success w-100 mt-md-1" pendingText="Uploading…"><i className="ri-eye-line" /> Upload &amp; preview</SubmitButton>
         </div>
       </div>
     </ActionForm>

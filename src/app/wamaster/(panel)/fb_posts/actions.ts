@@ -115,19 +115,42 @@ export async function uploadPosts(_prev: ActionResult | null, fd: FormData): Pro
   }
   const batchId = await tx(async (db) => {
     const b = await one<{ pb_id: number }>(
-      'INSERT INTO js_fb_post_batch (pb_page_id, pb_file, pb_total, pb_emp_id, pb_created_on) VALUES (NULL, $1, $2, $3, $4) RETURNING pb_id',
+      'INSERT INTO js_fb_post_batch (pb_page_id, pb_file, pb_total, pb_emp_id, pb_created_on, pb_status) VALUES (NULL, $1, $2, $3, $4, 0) RETURNING pb_id',
       [file!.name.slice(0, 200), total, admin.emp_id, now()], db);
     // Row by row, each to every Page: the same post reaches all Pages close together
     await insertMany('js_fb_post', posts.flatMap((p) => pageIds.map((pageId) => ({
-      po_batch_id: b!.pb_id, po_page_id: pageId, po_line: p.line, po_message: p.message, po_link: p.link, po_image_url: p.image, po_scheduled_at: p.scheduledAt,
+      po_batch_id: b!.pb_id, po_page_id: pageId, po_line: p.line, po_message: p.message, po_link: p.link, po_image_url: p.image, po_scheduled_at: p.scheduledAt, po_status: 0,
     }))), { db });
     return b!.pb_id;
   });
-  const queued = pageIds.length > 1 ? `${posts.length} post(s) × ${pageIds.length} Pages = ${total} posts queued` : `${posts.length} post(s) queued`;
+  const ready = pageIds.length > 1 ? `${posts.length} post(s) × ${pageIds.length} Pages = ${total} posts ready` : `${posts.length} post(s) ready`;
   await flash(skipped.length ? 'error' : 'success', skipped.length
-    ? `${queued}; ${skipped.length} row(s) skipped:\n${skipped.slice(0, 15).join('\n')}`
-    : `${queued}. They are published one by one; this page shows each result.`);
+    ? `${ready}; ${skipped.length} row(s) skipped:\n${skipped.slice(0, 15).join('\n')}\nCheck the preview, then Confirm & queue.`
+    : `${ready}. Check the preview, then Confirm & queue: nothing is posted before that.`);
   redirect(`/wamaster/fb_posts/${batchId}`);
+}
+
+/** Preview checked: queue the draft posts (an empty schedule = from now). */
+export async function confirmBatch(batchId: number): Promise<void> {
+  await requireRight('fb_posts', 'add');
+  const t = now();
+  const n = await tx(async (db) => {
+    const b = await one('UPDATE js_fb_post_batch SET pb_status = 1 WHERE pb_id = $1 AND pb_status = 0 RETURNING pb_id', [batchId], db);
+    if (!b) return -1;
+    return exec('UPDATE js_fb_post SET po_status = 1, po_scheduled_at = GREATEST(po_scheduled_at, $2) WHERE po_batch_id = $1 AND po_status = 0', [batchId, t], db);
+  });
+  await flash(n < 0 ? 'error' : 'success', n < 0 ? 'This upload was already confirmed or discarded.' : `${n} post(s) queued. They are published one by one; this page shows each result.`);
+  revalidatePath(`/wamaster/fb_posts/${batchId}`);
+  revalidatePath('/wamaster/fb_posts');
+}
+
+/** Preview not wanted: delete the draft upload. */
+export async function discardBatch(batchId: number): Promise<void> {
+  await requireRight('fb_posts', 'add');
+  const row = await one<{ pb_file: string }>('DELETE FROM js_fb_post_batch WHERE pb_id = $1 AND pb_status = 0 RETURNING pb_file', [batchId]);
+  await flash(row ? 'success' : 'error', row ? `Draft “${row.pb_file}” discarded; nothing was posted.` : 'This upload was already confirmed or discarded.');
+  revalidatePath('/wamaster/fb_posts');
+  redirect('/wamaster/fb_posts');
 }
 
 /** Queue the failed posts of a batch again (of one Page when pageId is set). */

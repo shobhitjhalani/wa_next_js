@@ -9,6 +9,7 @@ import { now, parseDate } from '../time';
  */
 
 export const POST_STATUS: Record<number, { label: string; badge: string }> = {
+  0: { label: 'Draft', badge: 'bg-light text-body border' },
   1: { label: 'Queued', badge: 'bg-info-subtle text-info' },
   2: { label: 'Posting', badge: 'bg-warning-subtle text-warning' },
   3: { label: 'Posted', badge: 'bg-success-subtle text-success' },
@@ -249,8 +250,12 @@ const COLUMNS: Record<keyof Omit<CsvPost, 'line' | 'scheduledAt'> | 'schedule', 
 export function postsFromCsv(text: string, start: number): { posts: CsvPost[]; errors: string[] } {
   const rows = parseCsv(text).filter((r) => r.some((c) => c.trim() !== ''));
   if (rows.length < 2) return { posts: [], errors: ['The file has no posts: the first row must be the headings (message, image_url, link, schedule) and each next row one post.'] };
-  const head = rows[0].map((h) => h.trim().toLowerCase().replace(/[\s-]+/g, '_'));
-  const col = (k: keyof typeof COLUMNS) => head.findIndex((h) => COLUMNS[k].includes(h));
+  // Excel saves "CSV UTF-8" with a byte-order mark before the first heading; headings like "Post Caption" also count
+  const head = rows[0].map((h) => h.replace(/^\uFEFF/, '').trim().toLowerCase().replace(/[^a-z0-9]+/g, '_').replace(/^_+|_+$/g, ''));
+  const col = (k: keyof typeof COLUMNS) => {
+    const exact = head.findIndex((h) => COLUMNS[k].includes(h));
+    return exact >= 0 ? exact : head.findIndex((h) => COLUMNS[k].some((c) => h.split('_').includes(c)));
+  };
   const idx = { message: col('message'), link: col('link'), image: col('image'), schedule: col('schedule') };
   if (idx.message < 0 && idx.image < 0) return { posts: [], errors: ['No "message" or "image_url" column found in the first row.'] };
   const posts: CsvPost[] = [];
@@ -281,9 +286,14 @@ export function postsFromCsv(text: string, start: number): { posts: CsvPost[]; e
 
 // ------------------------------------------------------------------ publishing (worker)
 
+/** A photo post's text: Facebook shows `message` (the old `caption` field is ignored by current Graph versions). */
+const photoText = (text: string): Record<string, string> => (text ? { message: text, caption: text } : {});
+
 /** Publish the posts that are due (a few per run, one after another), then record the Facebook id or the error. */
 export async function publishDuePosts(log: (m: string) => void = () => {}): Promise<number> {
   const t = now();
+  // Previews nobody confirmed or discarded
+  await exec('DELETE FROM js_fb_post_batch WHERE pb_status = 0 AND pb_created_on < $1', [t - 3 * 86400]);
   // A post stuck in "Posting" (worker stopped mid-way): Facebook may or may not have it, so don't post twice
   await exec(`UPDATE js_fb_post SET po_status = 4, po_error = 'Interrupted while posting; check the Page before retrying.'
                WHERE po_status = 2 AND po_posted_on > 0 AND po_posted_on < $1`, [t - 900]);
@@ -296,7 +306,7 @@ export async function publishDuePosts(log: (m: string) => void = () => {}): Prom
   let posted = 0;
   for (const p of due) {
     const res = p.po_image_url
-      ? await graph('POST', `${p.fp_page_id}/photos`, p.fp_token, { url: p.po_image_url, caption: [p.po_message, p.po_link].filter(Boolean).join('\n\n') })
+      ? await graph('POST', `${p.fp_page_id}/photos`, p.fp_token, { url: p.po_image_url, ...photoText([p.po_message, p.po_link].filter(Boolean).join('\n\n')) })
       : await graph('POST', `${p.fp_page_id}/feed`, p.fp_token, { message: p.po_message, ...(p.po_link ? { link: p.po_link } : {}) });
     const id = String(res.post_id ?? res.id ?? '');
     if (res.error || !id) {

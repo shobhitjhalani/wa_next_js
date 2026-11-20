@@ -11,6 +11,7 @@ import { limit } from '@/lib/text';
 import { phpDate } from '@/lib/time';
 import { cancelQueued, retryFailed } from '../actions';
 import { AutoRefresh } from '../Forms';
+import { Preview } from './Preview';
 
 export const metadata: Metadata = { title: 'Facebook Posts' };
 
@@ -28,9 +29,18 @@ export default async function FbBatchPage({ params, searchParams }: { params: Pr
   const qs = await searchParams;
   const status = Number(sp(qs, 'status')) || 0;
   const pageFilter = Number(sp(qs, 'page_id')) || 0;
-  const batch = await one<{ pb_id: number; pb_file: string; pb_total: number; pb_created_on: number }>(
-    'SELECT pb_id, pb_file, pb_total, pb_created_on FROM js_fb_post_batch WHERE pb_id = $1', [id]);
+  const batch = await one<{ pb_id: number; pb_file: string; pb_total: number; pb_created_on: number; pb_status: number }>(
+    'SELECT pb_id, pb_file, pb_total, pb_created_on, pb_status FROM js_fb_post_batch WHERE pb_id = $1', [id]);
   if (!batch) notFound();
+  if (batch.pb_status === 0) {
+    return (
+      <>
+        <PageTitle title="Facebook Posts" home="/wamaster/dashboard" />
+        <div className="mb-3"><Link href="/wamaster/fb_posts" className="text-muted"><i className="ri-arrow-left-line align-middle" /> All uploads</Link></div>
+        <Preview batch={batch} canAdd={canAdd} />
+      </>
+    );
+  }
   const [posts, counts, pages] = await Promise.all([
     query<Post>(
       `SELECT p.*, f.fp_name, f.fp_page_id FROM js_fb_post p JOIN js_fb_page f ON f.fp_id = p.po_page_id

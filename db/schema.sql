@@ -1058,6 +1058,8 @@ ALTER TABLE js_fb_post ADD COLUMN IF NOT EXISTS po_page_id integer REFERENCES js
 UPDATE js_fb_post p SET po_page_id = b.pb_page_id FROM js_fb_post_batch b
  WHERE p.po_page_id IS NULL AND b.pb_id = p.po_batch_id AND b.pb_page_id IS NOT NULL;
 CREATE INDEX IF NOT EXISTS js_fb_post_page_idx ON js_fb_post (po_page_id, po_status);
+-- An upload is first a draft (posts status 0, never picked by the worker) shown as a preview; Confirm queues it.
+ALTER TABLE js_fb_post_batch ADD COLUMN IF NOT EXISTS pb_status smallint NOT NULL DEFAULT 1;   -- 0 draft (preview) · 1 confirmed
 
 -- A token pasted on /wamaster/fb_posts/pages (User / System User / Page), kept so "Refresh Pages" can list the Pages again.
 CREATE TABLE IF NOT EXISTS js_fb_token (

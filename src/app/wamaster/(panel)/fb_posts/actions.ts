@@ -5,7 +5,7 @@ import { redirect } from 'next/navigation';
 import { fail, fFile, fInt, flash, fStr, invalid, ok, type ActionResult } from '@/lib/actions';
 import { requireRight, requireSuperAdmin } from '@/lib/admin-access';
 import { exec, insertMany, one, query, tx } from '@/lib/db';
-import { MAX_UPLOAD_POSTS, pagesForToken, postsFromCsv, refreshPages, saveTokenPages } from '@/lib/services/fb-posts';
+import { MAX_PAGE_TAGS, MAX_UPLOAD_POSTS, cleanTags, pagesForToken, postsFromCsv, refreshPages, saveTokenPages } from '@/lib/services/fb-posts';
 import { now, parseDate } from '@/lib/time';
 
 /** Connect Facebook Pages: a Page token connects its Page, a user / System User token every Page it manages. */
@@ -80,6 +80,48 @@ export async function deletePages(fd: FormData): Promise<void> {
     await tidyBatches();
     const names = rows.map((r) => r.fp_name);
     await flash('success', `${names.length} Page(s) removed with their post history: ${names.slice(0, 20).join(', ')}${names.length > 20 ? ` and ${names.length - 20} more` : ''}.`);
+  }
+  revalidatePath('/wamaster/fb_posts/pages');
+  revalidatePath('/wamaster/fb_posts');
+}
+
+/** Tags in the spelling already used on other Pages ("rajasthan" → "Rajasthan"), so one tag never shows twice. */
+async function usualSpelling(tags: string[]): Promise<string[]> {
+  if (!tags.length) return tags;
+  const rows = await query<{ t: string }>(
+    `SELECT t FROM js_fb_page, unnest(fp_tags) t WHERE lower(t) = ANY($1::text[]) GROUP BY t ORDER BY COUNT(*) DESC, t`, [tags.map((t) => t.toLowerCase())]);
+  const known = new Map<string, string>();
+  for (const r of rows) if (!known.has(r.t.toLowerCase())) known.set(r.t.toLowerCase(), r.t);
+  return tags.map((t) => known.get(t.toLowerCase()) ?? t);
+}
+
+/** One Page's tags (comma separated), replacing the old ones. */
+export async function setPageTags(id: number, fd: FormData): Promise<void> {
+  await requireSuperAdmin();
+  const tags = await usualSpelling(cleanTags(String(fd.get('tags') ?? '')));
+  const row = await one<{ fp_name: string }>('UPDATE js_fb_page SET fp_tags = $2 WHERE fp_id = $1 RETURNING fp_name', [id, tags]);
+  await flash(row ? 'success' : 'error', row ? `Tags of “${row.fp_name}” saved${tags.length ? `: ${tags.join(', ')}` : ' (none)'}.` : 'This Page no longer exists.');
+  revalidatePath('/wamaster/fb_posts/pages');
+  revalidatePath('/wamaster/fb_posts');
+}
+
+/** Add a tag to the ticked Pages, or take it off them (`mode` = add | remove). */
+export async function tagPages(fd: FormData): Promise<void> {
+  await requireSuperAdmin();
+  const ids = [...new Set(fd.getAll('ids').map(Number).filter((n) => Number.isInteger(n) && n > 0))];
+  const [tag] = await usualSpelling(cleanTags(String(fd.get('tag') ?? '')));
+  const remove = fd.get('mode') === 'remove';
+  if (!ids.length || !tag) {
+    await flash('error', !ids.length ? 'Tick the Pages to tag first.' : 'Type the tag first.');
+  } else {
+    // Case-insensitive: "jaipur" removes "Jaipur", and adding "jaipur" to a Page tagged "Jaipur" changes nothing
+    const n = remove
+      ? await exec(`UPDATE js_fb_page SET fp_tags = ARRAY(SELECT t FROM unnest(fp_tags) t WHERE lower(t) <> lower($2))
+                     WHERE fp_id = ANY($1::int[]) AND EXISTS (SELECT 1 FROM unnest(fp_tags) t WHERE lower(t) = lower($2))`, [ids, tag])
+      : await exec(`UPDATE js_fb_page SET fp_tags = fp_tags || $2::text
+                     WHERE fp_id = ANY($1::int[]) AND cardinality(fp_tags) < ${MAX_PAGE_TAGS}
+                       AND NOT EXISTS (SELECT 1 FROM unnest(fp_tags) t WHERE lower(t) = lower($2))`, [ids, tag]);
+    await flash('success', remove ? `Tag “${tag}” taken off ${n} Page(s).` : `Tag “${tag}” added to ${n} Page(s)${n < ids.length ? ` (${ids.length - n} already had it)` : ''}.`);
   }
   revalidatePath('/wamaster/fb_posts/pages');
   revalidatePath('/wamaster/fb_posts');

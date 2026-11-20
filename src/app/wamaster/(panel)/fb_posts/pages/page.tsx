@@ -6,24 +6,24 @@ import { requireSuperAdmin } from '@/lib/admin-access';
 import { query } from '@/lib/db';
 import { NEEDED_PERMISSIONS, PAGE_TASKS } from '@/lib/services/fb-posts';
 import { phpDate } from '@/lib/time';
-import { deletePage, deletePages, deleteToken, refreshPagesAction } from '../actions';
-import { AddPageForm, BulkDeletePages, PendingButton } from '../Forms';
+import { deletePage, deletePages, deleteToken, refreshPagesAction, setPageTags, tagPages } from '../actions';
+import { AddPageForm, BulkDeletePages, PageTags, PendingButton } from '../Forms';
 
 export const metadata: Metadata = { title: 'Facebook Pages' };
 
 interface PageRow {
   fp_id: number; fp_page_id: string; fp_name: string; fp_created_on: number; fp_tasks: string; fp_status: number; fp_error: string;
-  fp_checked_on: number; client: string | null; via: string | null; posted: number;
+  fp_checked_on: number; fp_tags: string[]; client: string | null; via: string | null; posted: number;
 }
 interface TokenRow { ft_id: number; ft_name: string; ft_kind: string; ft_permissions: string; ft_pages: number; ft_status: number; ft_error: string; ft_checked_on: number }
 
 /** Client Facebook Pages the admin can bulk-post to (super admins only): connect with a token, refresh, see each Page's rights. */
-export default async function FbPagesPage() {
+export default async function FbPagesPage({ searchParams }: { searchParams: Promise<Record<string, string | string[] | undefined>> }) {
   // Page access tokens are kept here: super admins only
   await requireSuperAdmin();
-  const [pages, tokens, clients] = await Promise.all([
+  const [allPages, tokens, clients] = await Promise.all([
     query<PageRow>(
-      `SELECT f.fp_id, f.fp_page_id, f.fp_name, f.fp_created_on, f.fp_tasks, f.fp_status, f.fp_error, f.fp_checked_on,
+      `SELECT f.fp_id, f.fp_page_id, f.fp_name, f.fp_created_on, f.fp_tasks, f.fp_status, f.fp_error, f.fp_checked_on, f.fp_tags,
               NULLIF(COALESCE(NULLIF(u.u_company_name, ''), u.u_name), '') AS client, t.ft_name AS via,
               (SELECT COUNT(*) FROM js_fb_post p WHERE p.po_page_id = f.fp_id AND p.po_status = 3)::int AS posted
          FROM js_fb_page f LEFT JOIN js_user u ON u.u_id = f.fp_user_id LEFT JOIN js_fb_token t ON t.ft_id = f.fp_token_id
@@ -33,6 +33,20 @@ export default async function FbPagesPage() {
       `SELECT u_id AS id, COALESCE(NULLIF(u_company_name, ''), u_name, u_username) || ' (' || u_username || ')' AS name
          FROM js_user WHERE u_dstatus = 0 ORDER BY lower(COALESCE(NULLIF(u_company_name, ''), u_name, u_username)) LIMIT 2000`),
   ]);
+  // Tag filter (?tag=…, '-' = Pages without tags): every tag once (any case) with its Page count
+  const tagRaw = (await searchParams).tag;
+  const tagFilter = typeof tagRaw === 'string' ? tagRaw.trim() : '';
+  const tagCounts = new Map<string, { label: string; n: number }>();
+  for (const p of allPages) for (const t of p.fp_tags) {
+    const c = tagCounts.get(t.toLowerCase()) ?? { label: t, n: 0 };
+    c.n++;
+    tagCounts.set(t.toLowerCase(), c);
+  }
+  const allTags = [...tagCounts.values()].sort((a, b) => a.label.localeCompare(b.label));
+  const untagged = allPages.filter((p) => !p.fp_tags.length).length;
+  const pages = !tagFilter ? allPages
+    : tagFilter === '-' ? allPages.filter((p) => !p.fp_tags.length)
+      : allPages.filter((p) => p.fp_tags.some((t) => t.toLowerCase() === tagFilter.toLowerCase()));
   const problems = pages.filter((p) => p.fp_status === 2).length;
   const lastCheck = Math.max(0, ...pages.map((p) => p.fp_checked_on));
 
@@ -107,10 +121,10 @@ export default async function FbPagesPage() {
           <div className="card">
             <div className="card-header d-flex flex-wrap align-items-center gap-2">
               <div className="me-auto">
-                <h5 className="card-title mb-0">Connected Pages <span className="text-muted fw-normal small">({pages.length}{problems ? `, ${problems} with problems` : ''})</span></h5>
+                <h5 className="card-title mb-0">Connected Pages <span className="text-muted fw-normal small">({tagFilter ? `${pages.length} of ${allPages.length}` : pages.length}{problems ? `, ${problems} with problems` : ''})</span></h5>
                 {lastCheck > 0 && <div className="small text-muted">Last checked {phpDate('d M Y, h:i A', lastCheck)}</div>}
               </div>
-              {pages.length > 0 && <BulkDeletePages action={deletePages} />}
+              {pages.length > 0 && <BulkDeletePages action={deletePages} tagAction={tagPages} tags={allTags.map((t) => t.label)} />}
               {pages.length + tokens.length > 0 && (
                 <form action={refreshPagesAction}>
                   <PendingButton className="btn btn-sm btn-primary" pendingText="Checking with Facebook…"><i className="ri-refresh-line" /> Refresh Pages</PendingButton>
@@ -118,6 +132,17 @@ export default async function FbPagesPage() {
               )}
             </div>
             <div className="card-body">
+              {allTags.length > 0 && (
+                <div className="d-flex flex-wrap align-items-center gap-1 mb-3">
+                  <span className="small text-muted me-1"><i className="ri-price-tag-3-line" /> Filter by tag:</span>
+                  <Link href="/wamaster/fb_posts/pages" className={`btn btn-sm rounded-pill py-0 ${!tagFilter ? 'btn-primary' : 'btn-outline-primary'}`}>All <span className="opacity-75">{allPages.length}</span></Link>
+                  {allTags.map((t) => (
+                    <Link key={t.label} href={`/wamaster/fb_posts/pages?tag=${encodeURIComponent(t.label)}`}
+                      className={`btn btn-sm rounded-pill py-0 ${tagFilter.toLowerCase() === t.label.toLowerCase() ? 'btn-primary' : 'btn-outline-primary'}`}>{t.label} <span className="opacity-75">{t.n}</span></Link>
+                  ))}
+                  {untagged > 0 && <Link href="/wamaster/fb_posts/pages?tag=-" className={`btn btn-sm rounded-pill py-0 ${tagFilter === '-' ? 'btn-secondary' : 'btn-outline-secondary'}`}>No tag <span className="opacity-75">{untagged}</span></Link>}
+                </div>
+              )}
               <div className="table-responsive">
                 <table className="table align-middle mb-0">
                   <thead className="table-light"><tr><th style={{ width: 32 }}><input type="checkbox" className="form-check-input" id="fbp-all" aria-label="Select all Pages" /></th><th>Page</th><th>Permissions</th><th>Status</th><th>Client</th><th className="text-end">Posted</th><th /></tr></thead>
@@ -130,6 +155,7 @@ export default async function FbPagesPage() {
                           <td>
                             <a href={`https://www.facebook.com/${p.fp_page_id}`} target="_blank" rel="noreferrer" className="fw-semibold">{p.fp_name}</a>
                             <div className="small text-muted">{p.fp_page_id}{p.via && <> · via {p.via}</>}</div>
+                            <PageTags tags={p.fp_tags} action={setPageTags.bind(null, p.fp_id)} />
                           </td>
                           <td style={{ maxWidth: 260 }}>
                             {tasks.length ? (
@@ -154,7 +180,7 @@ export default async function FbPagesPage() {
                           </td>
                         </tr>
                       );
-                    }) : <tr><td colSpan={7} className="text-center text-muted py-4">No Pages connected yet.</td></tr>}
+                    }) : <tr><td colSpan={7} className="text-center text-muted py-4">{tagFilter ? 'No Page has this tag.' : 'No Pages connected yet.'}</td></tr>}
                   </tbody>
                 </table>
               </div>

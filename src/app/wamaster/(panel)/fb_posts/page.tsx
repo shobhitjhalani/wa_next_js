@@ -26,7 +26,7 @@ export default async function FbPostsPage({ searchParams }: { searchParams: Prom
   const page = pageParam(params.page);
   const [pages, batches, total] = await Promise.all([
     query<PickPage>(
-      `SELECT f.fp_id AS id, f.fp_name AS name, NULLIF(COALESCE(NULLIF(u.u_company_name, ''), u.u_name), '') AS client
+      `SELECT f.fp_id AS id, f.fp_name AS name, NULLIF(COALESCE(NULLIF(u.u_company_name, ''), u.u_name), '') AS client, f.fp_tags AS tags
          FROM js_fb_page f LEFT JOIN js_user u ON u.u_id = f.fp_user_id ORDER BY lower(f.fp_name)`),
     query<Batch>(
       `SELECT b.pb_id, b.pb_file, b.pb_total, b.pb_created_on, b.pb_status, e.emp_name AS emp,

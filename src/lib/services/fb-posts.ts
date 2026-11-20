@@ -20,6 +20,18 @@ export const POST_STATUS: Record<number, { label: string; badge: string }> = {
 export const MAX_CSV_ROWS = 500;
 /** Rows × Pages of one upload. */
 export const MAX_UPLOAD_POSTS = 5000;
+export const MAX_PAGE_TAGS = 20;
+
+/** "Jaipur, tata ,  Jaipur" → ["Jaipur", "tata"]: trimmed, single spaces, up to 40 characters, no duplicates (any case). */
+export function cleanTags(input: string | string[]): string[] {
+  const seen = new Set<string>();
+  const out: string[] = [];
+  for (const raw of Array.isArray(input) ? input : input.split(/[,\n]/)) {
+    const t = raw.replace(/\s+/g, ' ').trim().slice(0, 40);
+    if (t && !seen.has(t.toLowerCase())) { seen.add(t.toLowerCase()); out.push(t); }
+  }
+  return out.slice(0, MAX_PAGE_TAGS);
+}
 const PER_RUN = 20;
 
 type Graph = Record<string, any> & { error?: { message?: string; code?: number } };

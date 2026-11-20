@@ -1106,3 +1106,7 @@ CREATE TABLE IF NOT EXISTS js_app_forward (
   af_fails     integer NOT NULL DEFAULT 0,      -- failures since the last success
   af_signed    smallint NOT NULL DEFAULT 0      -- 1 = Meta's X-Hub-Signature-256 was passed on with the last one
 );
+
+-- Facebook Page tags (e.g. client group, city, brand): filter the Pages when bulk posting
+ALTER TABLE js_fb_page ADD COLUMN IF NOT EXISTS fp_tags text[] NOT NULL DEFAULT '{}';
+CREATE INDEX IF NOT EXISTS js_fb_page_tags_idx ON js_fb_page USING gin (fp_tags);

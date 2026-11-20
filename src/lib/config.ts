@@ -56,6 +56,22 @@ export const config = {
     registerPin: env('WA_REGISTER_PIN', ''),
   },
 
+  /** Meta Lead Ads (agency): one Meta App + one System User token for every client's Page and Ad Account. */
+  metaAds: {
+    // Same host as WA_API_URL (so a local / test WA_API_URL never reaches the real Graph API); version from META_GRAPH_VERSION
+    graphUrl: (() => {
+      const base = env('WA_API_URL', 'https://graph.facebook.com/v25.0/');
+      const origin = /^https?:\/\/[^/]+/.exec(base)?.[0] ?? 'https://graph.facebook.com';
+      const version = env('META_GRAPH_VERSION') || /\/(v\d+\.\d+)\/?/.exec(base)?.[1] || 'v25.0';
+      return `${origin}/${version}/`;
+    })(),
+    systemUserToken: env('META_SYSTEM_USER_TOKEN'),
+    appId: env('META_APP_ID') || env('FB_APP_ID'),
+    // META_LEADS_APP_SECRET when the Lead Ads app is not the WhatsApp app (META_APP_SECRET also signs /waapi/webhook)
+    appSecret: env('META_LEADS_APP_SECRET') || env('META_APP_SECRET'),
+    webhookVerifyToken: env('META_WEBHOOK_VERIFY_TOKEN'),
+  },
+
   countryCode: env('WA_COUNTRY_CODE', '91'),
 
   // Queue sender only runs between these hours (legacy cron: 7–23)

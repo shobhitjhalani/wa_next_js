@@ -15,6 +15,7 @@ import { checkDiskSpace } from '@/lib/services/disk-alert';
 import { resumeBotSessions } from '@/lib/services/bot-flows';
 import { sendCrmReminders } from '@/lib/services/crm';
 import { publishDuePosts } from '@/lib/services/fb-posts';
+import { backfillLeads, processPendingEvents, runProvisioning } from '@/lib/services/meta-leads';
 import { cleanup, dispatchCampaigns, emailReports, expireMessages, expirePlans, processWebhooks, sendQueue } from './jobs';
 
 /** dailyAt: one 'HH:MM' or several (the job runs once after each of them). */
@@ -39,6 +40,10 @@ export const JOBS: Job[] = [
   { name: 'crm-reminders', schedule: { everySeconds: 60 }, run: (log) => sendCrmReminders(log) },
   // Admin bulk Facebook Page posts (/wamaster/fb_posts): publish the due ones
   { name: 'fb-posts', schedule: { everySeconds: 60 }, run: (log) => publishDuePosts(log) },
+  // Meta Lead Ads: create the queued common ads / confirmed activations; save leadgen events (new + retries); backfill missed leads
+  { name: 'meta-provision', schedule: { everySeconds: 30 }, run: (log) => runProvisioning(log) },
+  { name: 'meta-leads', schedule: { everySeconds: 30 }, run: (log) => processPendingEvents(log) },
+  { name: 'meta-leads-backfill', schedule: { everySeconds: 1800 }, run: (log) => backfillLeads(log) },
   { name: 'expire-plans', schedule: { hourly: true }, run: (log) => expirePlans(log) },
   { name: 'cleanup', schedule: { dailyAt: '02:30' }, run: (log) => cleanup(log) },
   // Email DISK_ALERT_EMAIL when the disk is DISK_ALERT_PERCENT (90) % full — once a day while it stays full

@@ -1,7 +1,8 @@
 import 'server-only';
 import { createHmac, timingSafeEqual } from 'node:crypto';
 import { config, url } from '../config';
-import { exec, insert, one, query, tx } from '../db';
+import { exec, insert, one, query, tx, type Queryable } from '../db';
+import { matchLead } from '../meta-leads';
 import { CRM_LIMITS, LEAD_STATUS, normalizeSource, OPEN_STATUSES, sourceInfo } from '../crm';
 import { normalizePhone } from '../phone';
 import { randomString } from '../text';
@@ -49,6 +50,14 @@ async function resolveSource(userId: number, raw: string | undefined): Promise<s
 export interface LeadInput {
   name?: string; mobile?: string; email?: string; source?: string; campaign?: string; notes?: string;
   fields?: Record<string, string>; externalId?: string | null; nextFollowup?: number;
+  /** Also treat an open lead with the same e-mail as the same person (Meta Lead Ads). */
+  matchEmail?: boolean;
+  /** Team member (js_user_member id) a new lead is assigned to; an existing lead keeps its member. */
+  assignedMember?: number;
+  /** Meta Lead Ads details (js_crm_lead.ld_meta_*), filled on a new lead and where empty on an existing one. */
+  meta?: { formId: string; formName: string; adId: string; adName: string; campaignId: string; campaignName: string; platform: string; phoneE164: string };
+  /** History note instead of "Lead received from ...". */
+  activity?: string;
 }
 
 const clip = (v: unknown, max: number) => String(v ?? '').replace(/\s+/g, ' ').trim().slice(0, max);
@@ -77,22 +86,31 @@ export async function saveLead(userId: number, input: LeadInput, via: string): P
       const seen = await one<{ ld_id: number }>('SELECT ld_id FROM js_crm_lead WHERE ld_user_id = $1 AND ld_external_id = $2', [userId, input.externalId], db);
       if (seen) return { id: seen.ld_id, duplicate: true };
     }
-    if (mobile) {
-      const open = await one<{ ld_id: number }>(
-        `SELECT ld_id FROM js_crm_lead WHERE ld_user_id = $1 AND ld_mobile = $2 AND ld_status = ANY($3::smallint[]) ORDER BY ld_id DESC LIMIT 1 FOR UPDATE`,
-        [userId, mobile, OPEN_STATUSES], db);
+    const byEmail = !!input.matchEmail && lead.email !== '';
+    if (mobile || byEmail) {
+      // Same client only (ld_user_id): an open lead with this mobile, or (Meta) this e-mail
+      const candidates = await query<{ ld_id: number; ld_mobile: string; ld_email: string }>(
+        `SELECT ld_id, ld_mobile, ld_email FROM js_crm_lead
+          WHERE ld_user_id = $1 AND ld_status = ANY($3::smallint[])
+            AND (($2 <> '' AND ld_mobile = $2) OR ($4 AND ld_email <> '' AND lower(ld_email) = $5))
+          ORDER BY ld_id DESC LIMIT 20 FOR UPDATE`,
+        [userId, mobile, OPEN_STATUSES, byEmail, lead.email], db);
+      const hit = matchLead(candidates.map((c) => ({ id: c.ld_id, mobile: c.ld_mobile, email: c.ld_email })), mobile, byEmail ? lead.email : '');
+      const open = hit ? { ld_id: hit.id } : null;
       if (open) {
         const extra = [lead.campaign && `Campaign: ${lead.campaign}`, lead.notes, ...Object.entries(fields).map(([k, v]) => `${k}: ${v}`)].filter(Boolean).join('\n');
         const next = input.nextFollowup ?? 0;
         await insert('js_crm_followup', {
           fu_lead_id: open.ld_id, fu_user_id: userId, fu_type: 'system', fu_created_on: t, fu_next_followup: next,
-          fu_note: `Enquired again via ${sourceInfo(source).label}${via ? ` (${via})` : ''}.${extra ? '\n' + extra : ''}`.slice(0, CRM_LIMITS.note),
+          fu_note: `Enquired again via ${sourceInfo(source).label}${via ? ` (${via})` : ''}.${input.activity ? `\n${input.activity}.` : ''}${extra ? '\n' + extra : ''}`.slice(0, CRM_LIMITS.note),
         }, 'fu_id', db);
         await exec(
-          `UPDATE js_crm_lead SET ld_updated_on = $2, ld_fields = ld_fields || $3::jsonb,
+          `UPDATE js_crm_lead SET ld_updated_on = $2, ld_fields = CASE WHEN $8 THEN $3::jsonb || ld_fields ELSE ld_fields || $3::jsonb END,
                   ld_name = CASE WHEN ld_name = '' THEN $4 ELSE ld_name END, ld_email = CASE WHEN ld_email = '' THEN $5 ELSE ld_email END,
-                  ld_next_followup = CASE WHEN $6::int > 0 THEN $6::int ELSE ld_next_followup END
-            WHERE ld_id = $1`, [open.ld_id, t, JSON.stringify(fields), lead.name, lead.email, next], db);
+                  ld_next_followup = CASE WHEN $6::int > 0 THEN $6::int ELSE ld_next_followup END,
+                  ld_mobile = CASE WHEN ld_mobile = '' THEN $7 ELSE ld_mobile END
+            WHERE ld_id = $1`, [open.ld_id, t, JSON.stringify(fields), lead.name, lead.email, next, mobile, !!input.meta], db);
+        if (input.meta || input.assignedMember) await fillMeta(open.ld_id, input, true, db);
         return { id: open.ld_id, duplicate: true };
       }
     }
@@ -104,10 +122,32 @@ export async function saveLead(userId: number, input: LeadInput, via: string): P
     await insert('js_crm_followup', {
       fu_lead_id: row.ld_id, fu_user_id: userId, fu_type: 'system', fu_status: LEAD_STATUS.NEW, fu_created_on: t,
       fu_next_followup: input.nextFollowup ?? 0,
-      fu_note: `Lead received from ${sourceInfo(source).label}${via ? ` (${via})` : ''}.`,
+      fu_note: input.activity ? `${input.activity}.` : `Lead received from ${sourceInfo(source).label}${via ? ` (${via})` : ''}.`,
     }, 'fu_id', db);
+    if (input.meta || input.assignedMember) await fillMeta(row.ld_id, input, false, db);
     return { id: row.ld_id, duplicate: false };
   });
+}
+
+/** Meta Lead Ads columns and the assigned member; on an existing lead (`onlyEmpty`) only the empty ones. */
+async function fillMeta(id: number, input: LeadInput, onlyEmpty: boolean, db: Queryable): Promise<void> {
+  const m = input.meta;
+  const cols: [string, unknown][] = [
+    ['ld_meta_form_id', m?.formId], ['ld_meta_form_name', m?.formName], ['ld_meta_ad_id', m?.adId], ['ld_meta_ad_name', m?.adName],
+    ['ld_meta_campaign_id', m?.campaignId], ['ld_meta_campaign_name', m?.campaignName], ['ld_platform', m?.platform], ['ld_phone_e164', m?.phoneE164],
+  ];
+  const sets: string[] = [];
+  const args: unknown[] = [id];
+  for (const [col, v] of cols) {
+    if (!v) continue;
+    args.push(String(v).slice(0, 300));
+    sets.push(onlyEmpty ? `${col} = CASE WHEN ${col} = '' THEN $${args.length} ELSE ${col} END` : `${col} = $${args.length}`);
+  }
+  if (input.assignedMember) {
+    args.push(input.assignedMember);
+    sets.push(`ld_assigned_member = CASE WHEN ld_assigned_member = 0 THEN $${args.length}::int ELSE ld_assigned_member END`);
+  }
+  if (sets.length) await exec(`UPDATE js_crm_lead SET ${sets.join(', ')} WHERE ld_id = $1`, args, db);
 }
 
 // ------------------------------------------------------------------ webhook

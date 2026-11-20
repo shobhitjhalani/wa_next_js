@@ -20,6 +20,8 @@ export const metadata: Metadata = { title: 'Lead' };
 interface Lead {
   ld_id: number; ld_name: string; ld_mobile: string; ld_email: string; ld_source: string; ld_campaign: string; ld_status: number;
   ld_notes: string; ld_fields: Record<string, string>; ld_next_followup: number; ld_created_on: number; ld_updated_on: number;
+  ld_meta_form_name: string; ld_meta_form_id: string; ld_meta_ad_name: string; ld_meta_ad_id: string; ld_meta_campaign_name: string;
+  ld_meta_campaign_id: string; ld_platform: string; ld_phone_e164: string; ld_assigned_member: number; member: string | null;
 }
 interface Followup { fu_id: number; fu_type: string; fu_note: string; fu_status: number; fu_next_followup: number; fu_created_on: number }
 
@@ -28,7 +30,7 @@ export default async function LeadPage({ params }: { params: Promise<{ id: strin
   const id = Number((await params).id);
   if (!Number.isInteger(id) || id <= 0) notFound();
   const [lead, history, own] = await Promise.all([
-    one<Lead>('SELECT * FROM js_crm_lead WHERE ld_id = $1 AND ld_user_id = $2', [id, user.u_id]),
+    one<Lead>('SELECT l.*, (SELECT um_name FROM js_user_member WHERE um_id = l.ld_assigned_member AND um_user_id = l.ld_user_id) AS member FROM js_crm_lead l WHERE l.ld_id = $1 AND l.ld_user_id = $2', [id, user.u_id]),
     query<Followup>('SELECT fu_id, fu_type, fu_note, fu_status, fu_next_followup, fu_created_on FROM js_crm_followup WHERE fu_lead_id = $1 AND fu_user_id = $2 ORDER BY fu_id DESC LIMIT 300', [id, user.u_id]),
     customSources(user.u_id),
   ]);
@@ -71,6 +73,11 @@ export default async function LeadPage({ params }: { params: Promise<{ id: strin
                 <dd className="col-8">{lead.ld_email ? <a href={`mailto:${lead.ld_email}`}>{lead.ld_email}</a> : <span className="text-muted">—</span>}</dd>
                 <dt className="col-4">Campaign</dt>
                 <dd className="col-8">{lead.ld_campaign || <span className="text-muted">—</span>}</dd>
+                {lead.ld_meta_campaign_name && (<><dt className="col-4">Meta campaign</dt><dd className="col-8">{lead.ld_meta_campaign_name}</dd></>)}
+                {lead.ld_meta_ad_name && (<><dt className="col-4">Meta ad</dt><dd className="col-8">{lead.ld_meta_ad_name}</dd></>)}
+                {lead.ld_meta_form_name && (<><dt className="col-4">Lead form</dt><dd className="col-8">{lead.ld_meta_form_name}</dd></>)}
+                {lead.ld_platform && (<><dt className="col-4">Platform</dt><dd className="col-8">{lead.ld_platform === 'ig' ? <><i className="ri-instagram-line text-danger" /> Instagram</> : <><i className="ri-facebook-circle-fill text-primary" /> Facebook</>}</dd></>)}
+                {lead.member && (<><dt className="col-4">Assigned to</dt><dd className="col-8">{lead.member}</dd></>)}
                 <dt className="col-4">Received</dt>
                 <dd className="col-8">{phpDate('d M Y, h:i A', lead.ld_created_on)}</dd>
                 {lead.ld_notes && (<><dt className="col-4">Notes</dt><dd className="col-8 crm-tl-note">{lead.ld_notes}</dd></>)}

@@ -16,6 +16,7 @@ export const STATUS_INFO: Record<number, { label: string; badge: string }> = {
 };
 
 export const LEAD_SOURCES: { value: string; label: string; icon: string }[] = [
+  { value: 'meta_lead_ad', label: 'Meta Lead Ad', icon: 'ri-megaphone-line text-primary' },
   { value: 'facebook', label: 'Facebook', icon: 'ri-facebook-circle-fill text-primary' },
   { value: 'instagram', label: 'Instagram', icon: 'ri-instagram-line text-danger' },
   { value: 'google', label: 'Google', icon: 'ri-google-fill text-warning' },
@@ -50,6 +51,7 @@ export const MAX_SOURCE_NAME = 40;
 export function normalizeSource(raw: unknown): string {
   const v = String(raw ?? '').trim().toLowerCase();
   if (!v) return 'other';
+  if (LEAD_SOURCES.some((s) => s.value === v)) return v; // a built-in key as it is (e.g. meta_lead_ad)
   if (v === 'fb' || v.includes('facebook') || v.includes('meta')) return 'facebook';
   if (v === 'ig' || v.includes('instagram') || v.includes('insta')) return 'instagram';
   if (v.includes('google') || v.includes('adwords')) return 'google';

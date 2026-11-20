@@ -35,14 +35,42 @@ async function graph(method: 'GET' | 'POST', path: string, token: string, params
   }
 }
 
-/** Check a Page access token: the Page it belongs to, or why it can't be used. */
-export async function checkPageToken(token: string): Promise<{ ok: true; id: string; name: string } | { ok: false; error: string }> {
-  const me = await graph('GET', 'me', token, { fields: 'id,name' });
-  if (me.error || !me.id) return { ok: false, error: `Facebook refused the token: ${me.error?.message ?? 'no Page found'}` };
-  // A user token answers too, but it can't post as the Page
-  const page = await graph('GET', String(me.id), token, { fields: 'id,name,category' });
-  if (page.error || !page.category) return { ok: false, error: 'This is not a Page access token. Create one for the Page (with pages_manage_posts) and paste it.' };
-  return { ok: true, id: String(me.id), name: String(me.name ?? '') };
+export interface FbPageToken { id: string; name: string; token: string }
+
+/** A short-lived user token (Graph API Explorer, ~1 hour) → a long-lived one, so the Page tokens taken from it don't expire. */
+async function longLived(token: string): Promise<string> {
+  const { fbAppId, appSecret } = config.meta;
+  if (!fbAppId || !appSecret) return token;
+  const res = await graph('GET', 'oauth/access_token', token, { grant_type: 'fb_exchange_token', client_id: fbAppId, client_secret: appSecret, fb_exchange_token: token });
+  return typeof res.access_token === 'string' && res.access_token ? res.access_token : token; // a token of another app can't be exchanged: keep it
+}
+
+/**
+ * The Pages a token can post to. A Page token gives its own Page; a user or System User token
+ * (an agency managing many Pages) gives every Page it manages with content rights, each with its Page token.
+ */
+export async function pagesForToken(token: string): Promise<{ ok: true; pages: FbPageToken[] } | { ok: false; error: string }> {
+  const me = await graph('GET', 'me', token, { fields: 'id,name', metadata: '1' });
+  if (me.error || !me.id) return { ok: false, error: `Facebook refused the token: ${me.error?.message ?? 'unknown error'}` };
+  if (me.metadata?.type === 'page') return { ok: true, pages: [{ id: String(me.id), name: String(me.name ?? ''), token }] };
+
+  const userToken = await longLived(token);
+  const pages: FbPageToken[] = [];
+  let res = await graph('GET', 'me/accounts', userToken, { fields: 'id,name,access_token,tasks', limit: '100' });
+  for (let i = 0; i < 50; i++) {
+    if (res.error) return { ok: false, error: `Facebook did not list the Pages of this token: ${res.error.message ?? 'unknown error'}. Add the pages_show_list permission.` };
+    for (const pg of (res.data ?? []) as { id: string; name?: string; access_token?: string; tasks?: string[] }[]) {
+      // tasks is missing for some System User tokens; when present, posting needs CREATE_CONTENT
+      if (pg.access_token && (!pg.tasks || pg.tasks.includes('CREATE_CONTENT'))) pages.push({ id: String(pg.id), name: String(pg.name ?? ''), token: pg.access_token });
+    }
+    const next = res.paging?.next;
+    if (!next) break;
+    try { res = await (await fetch(String(next), { signal: AbortSignal.timeout(30_000) })).json(); } catch (e) { res = { error: { message: e instanceof Error ? e.message : String(e) } }; }
+  }
+  if (!pages.length) {
+    return { ok: false, error: `The token of “${me.name ?? me.id}” gives no Page to post to. The person must be admin / editor of the Pages, and the token needs pages_show_list, pages_manage_posts and pages_read_engagement (for a System User: assign the Pages to it in Business Settings).` };
+  }
+  return { ok: true, pages };
 }
 
 // ------------------------------------------------------------------ CSV

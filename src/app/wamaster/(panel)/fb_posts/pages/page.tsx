@@ -31,12 +31,17 @@ export default async function FbPagesPage() {
       <div className="row">
         <div className="col-xl-5">
           <div className="card">
-            <div className="card-header"><h5 className="card-title mb-0">Connect a Page</h5></div>
+            <div className="card-header"><h5 className="card-title mb-0">Connect Pages</h5></div>
             <div className="card-body">
+              <p className="small mb-2">Paste either token:</p>
+              <ul className="small ps-3 mb-2">
+                <li><b>User or System User token</b>: every Page it manages is connected at once (best for an agency).</li>
+                <li><b>Page token</b>: only that Page is connected.</li>
+              </ul>
               <ol className="small ps-3 mb-3">
-                <li>In <a href="https://developers.facebook.com/tools/explorer/" target="_blank" rel="noreferrer">Graph API Explorer</a> (or Business Settings → System users), choose your app.</li>
-                <li>Add the permissions <code>pages_manage_posts</code>, <code>pages_read_engagement</code> and <code>pages_show_list</code>; the client must be an admin of the Page and approve.</li>
-                <li>Select <b>Get Page Access Token</b> for the client’s Page, copy it and paste it below. A System User token does not expire.</li>
+                <li><b>Recommended (never expires):</b> Business Settings → Users → <b>System users</b> → add an Admin system user → <b>Assign assets</b> → tick the client Pages (Content / Full control) → <b>Generate new token</b> for your app.</li>
+                <li>Or in <a href="https://developers.facebook.com/tools/explorer/" target="_blank" rel="noreferrer">Graph API Explorer</a>: choose your app and <b>User Token</b>, then <b>Get Token</b>.</li>
+                <li>Either way, tick the permissions <code>pages_show_list</code>, <code>pages_manage_posts</code> and <code>pages_read_engagement</code>, then copy the token and paste it below.</li>
               </ol>
               {canAdd ? <AddPageForm clients={clients} /> : <p className="text-muted mb-0">Connecting a Page needs the Add right.</p>}
             </div>
@@ -66,7 +71,7 @@ export default async function FbPagesPage() {
                   </tbody>
                 </table>
               </div>
-              <p className="small text-muted mt-2 mb-0">To refresh an expired token, connect the same Page again: it is updated.</p>
+              <p className="small text-muted mt-2 mb-0">To refresh expired tokens, paste a new token: Pages already connected are updated, not duplicated.</p>
             </div>
           </div>
         </div>

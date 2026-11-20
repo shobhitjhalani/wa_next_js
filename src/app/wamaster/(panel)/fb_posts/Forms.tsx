@@ -74,19 +74,19 @@ export function AddPageForm({ clients }: { clients: { id: number; name: string }
   return (
     <ActionForm action={addPage} resetOnSuccess>
       <div className="mb-3">
-        <label className="form-label" htmlFor="fp-token">Page access token</label>
+        <label className="form-label" htmlFor="fp-token">Access token <span className="text-muted fw-normal">(User, System User or Page)</span></label>
         <textarea className="form-control font-monospace small" id="fp-token" name="token" rows={3} autoComplete="off" spellCheck={false}
-          placeholder="EAAB… (a Page token with pages_manage_posts and pages_read_engagement)" />
+          placeholder="EAAB… (with pages_show_list, pages_manage_posts and pages_read_engagement)" />
         <FieldError name="token" />
       </div>
       <div className="mb-3">
-        <label className="form-label" htmlFor="fp-user">Client account <span className="text-muted fw-normal">(optional)</span></label>
+        <label className="form-label" htmlFor="fp-user">Client account <span className="text-muted fw-normal">(optional, set for every Page this token connects)</span></label>
         <select className="form-select" id="fp-user" name="user_id" defaultValue="0">
           <option value="0">—</option>
           {clients.map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}
         </select>
       </div>
-      <SubmitButton className="btn btn-primary" pendingText="Checking with Facebook…"><i className="ri-facebook-circle-line" /> Connect Page</SubmitButton>
+      <SubmitButton className="btn btn-primary" pendingText="Checking with Facebook…"><i className="ri-facebook-circle-line" /> Connect Pages</SubmitButton>
     </ActionForm>
   );
 }

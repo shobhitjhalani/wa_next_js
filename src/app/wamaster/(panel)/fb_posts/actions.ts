@@ -5,23 +5,34 @@ import { redirect } from 'next/navigation';
 import { fail, fFile, fInt, flash, fStr, invalid, ok, type ActionResult } from '@/lib/actions';
 import { requireRight } from '@/lib/admin-access';
 import { exec, insertMany, one, query, tx } from '@/lib/db';
-import { checkPageToken, MAX_UPLOAD_POSTS, postsFromCsv } from '@/lib/services/fb-posts';
+import { MAX_UPLOAD_POSTS, pagesForToken, postsFromCsv } from '@/lib/services/fb-posts';
 import { now, parseDate } from '@/lib/time';
 
-/** Connect a Facebook Page by its Page access token (optionally for a client account). */
+/** Connect Facebook Pages: a Page token connects its Page, a user / System User token every Page it manages. */
 export async function addPage(_prev: ActionResult | null, fd: FormData): Promise<ActionResult> {
   const { admin } = await requireRight('fb_posts', 'add');
-  const token = fStr(fd, 'token');
+  const token = fStr(fd, 'token').replace(/\s+/g, '');
   const userId = fInt(fd, 'user_id');
-  if (token.length < 50) return invalid({ token: 'Paste the Page access token (a long text starting with EAA…).' });
-  const page = await checkPageToken(token);
-  if (!page.ok) return invalid({ token: page.error });
-  await exec(
-    `INSERT INTO js_fb_page (fp_page_id, fp_name, fp_token, fp_user_id, fp_emp_id, fp_created_on) VALUES ($1, $2, $3, $4, $5, $6)
-     ON CONFLICT (fp_page_id) DO UPDATE SET fp_name = EXCLUDED.fp_name, fp_token = EXCLUDED.fp_token, fp_user_id = EXCLUDED.fp_user_id`,
-    [page.id, page.name, token, userId, admin.emp_id, now()]);
+  if (token.length < 50) return invalid({ token: 'Paste the access token (a long text starting with EAA…).' });
+  const res = await pagesForToken(token);
+  if (!res.ok) return invalid({ token: res.error });
+  const t = now();
+  await tx(async (db) => {
+    for (const pg of res.pages) {
+      // Reconnecting refreshes the name and token; the client is only changed when one is chosen
+      await exec(
+        `INSERT INTO js_fb_page (fp_page_id, fp_name, fp_token, fp_user_id, fp_emp_id, fp_created_on) VALUES ($1, $2, $3, $4, $5, $6)
+         ON CONFLICT (fp_page_id) DO UPDATE SET fp_name = EXCLUDED.fp_name, fp_token = EXCLUDED.fp_token,
+           fp_user_id = CASE WHEN EXCLUDED.fp_user_id > 0 THEN EXCLUDED.fp_user_id ELSE js_fb_page.fp_user_id END`,
+        [pg.id, pg.name, pg.token, userId, admin.emp_id, t], db);
+    }
+  });
   revalidatePath('/wamaster/fb_posts/pages');
-  return ok(`Page “${page.name}” connected.`);
+  revalidatePath('/wamaster/fb_posts');
+  const names = res.pages.map((p) => p.name);
+  return ok(names.length === 1
+    ? `Page “${names[0]}” connected.`
+    : `${names.length} Pages connected: ${names.slice(0, 10).join(', ')}${names.length > 10 ? ` and ${names.length - 10} more` : ''}.`);
 }
 
 export async function deletePage(id: number): Promise<void> {

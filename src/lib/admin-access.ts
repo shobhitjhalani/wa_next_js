@@ -68,6 +68,13 @@ export async function requireRight(page: string, right: Right = 'view'): Promise
   return access;
 }
 
+/** Super-admin-only screens and actions (e.g. Facebook Pages with their access tokens): 403 for team members. */
+export async function requireSuperAdmin(): Promise<Access> {
+  const access = await getAccess();
+  if (!access.admin.isSuperAdmin) forbidden();
+  return access;
+}
+
 /** Whether this member may see the user (by type right and assignment). */
 export function canSeeUser(access: Access, user: { u_type: number; u_assign_to: number | null }): boolean {
   if (!access.can(userModule(user.u_type))) return false;

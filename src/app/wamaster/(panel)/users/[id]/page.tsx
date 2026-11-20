@@ -83,6 +83,10 @@ export default async function UserShowPage({ params }: { params: Promise<{ id: s
   const canEdit = access.can(userModule(user.u_type), 'edit');
   const canAddWa = access.can(userModule(USER_TYPE.WHATSAPP), 'add');
 
+  const fwd = isWa
+    ? await one<{ af_url: string; af_ok_on: number; af_failed_on: number; af_error: string; af_fails: number; af_signed: number }>(
+      'SELECT af_url, af_ok_on, af_failed_on, af_error, af_fails, af_signed FROM js_app_forward WHERE af_user_id = $1', [id])
+    : null;
   const [stateName, summary, recharges, templates, plans, gateways, children, emails, sheets, sheetTypes, keys] = await Promise.all([
     masterName(user.u_state),
     isWa ? waSummary(id) : Promise.resolve({} as Record<string, Record<string, number>>),
@@ -193,6 +197,26 @@ export default async function UserShowPage({ params }: { params: Promise<{ id: s
                     <dt className="col-5">Leads CRM</dt><dd className="col-7">{yes(user.u_crm)}</dd>
                     <dt className="col-5">Coexistence</dt><dd className="col-7">{yes(user.u_wa_coexistence)}</dd>
                     <dt className="col-5">Incoming URL</dt><dd className="col-7 text-break">{user.u_wa_incoming_url}</dd>
+                    <dt className="col-5">Forward to App URL</dt>
+                    <dd className="col-7 text-break">
+                      {Number(user.u_send_app) === 1 ? <>Yes · {user.u_wa_app_url || <span className="text-danger">no App URL set</span>}</> : 'No'}
+                      {Number(user.u_send_app) === 1 && fwd && fwd.af_url === (user.u_wa_app_url ?? '').trim() && (
+                        fwd.af_fails > 0 && fwd.af_failed_on >= fwd.af_ok_on ? (
+                          <div className="alert alert-danger small p-2 mt-1 mb-0">
+                            <b>Forwarding fails</b> ({numberFormat(fwd.af_fails)} time(s) in a row, last {phpDate('d M Y, h:i A', fwd.af_failed_on)})
+                            <div className="mt-1">The App URL answered: <code className="text-danger">{fwd.af_error}</code></div>
+                            {/^HTTP 40[13]/.test(fwd.af_error) && /signature/i.test(fwd.af_error) && (
+                              <div className="mt-1">{fwd.af_signed
+                                ? 'The webhook is passed on exactly as Meta sent it, with Meta’s X-Hub-Signature-256. The App URL checks it with a different App Secret: it must use the App Secret of the Meta app that sends this number’s webhooks.'
+                                : 'Meta’s request had no X-Hub-Signature-256, so there was no signature to pass on.'}</div>
+                            )}
+                            {fwd.af_ok_on > 0 && <div className="text-muted mt-1">Last accepted {phpDate('d M Y, h:i A', fwd.af_ok_on)}</div>}
+                          </div>
+                        ) : fwd.af_ok_on > 0 && (
+                          <div className="small text-success mt-1"><i className="ri-checkbox-circle-line" /> Working · last accepted {phpDate('d M Y, h:i A', fwd.af_ok_on)}</div>
+                        )
+                      )}
+                    </dd>
                   </>
                 )}
               </dl>

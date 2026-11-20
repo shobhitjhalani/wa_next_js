@@ -36,13 +36,35 @@ export interface RawHook { body: string; signature: string }
 async function forwardRaw(payload: Record<string, any>, raw: RawHook | undefined, defer: Defer): Promise<void> {
   const phoneIds = [...new Set<string>((payload.entry ?? []).flatMap((e: any) => (e.changes ?? []).map((c: any) => String(c.value?.metadata?.phone_number_id ?? ''))).filter(Boolean))];
   if (!phoneIds.length) return;
-  const rows = await query<{ url: string }>(
-    `SELECT DISTINCT trim(u_wa_app_url) AS url FROM js_user
-      WHERE u_wa_phone_id = ANY($1::text[]) AND u_dstatus = 0 AND u_send_app = 1 AND trim(COALESCE(u_wa_app_url, '')) <> ''`, [phoneIds]);
+  const rows = await query<{ url: string; ids: number[] }>(
+    `SELECT trim(u_wa_app_url) AS url, array_agg(u_id) AS ids FROM js_user
+      WHERE u_wa_phone_id = ANY($1::text[]) AND u_dstatus = 0 AND u_send_app = 1 AND trim(COALESCE(u_wa_app_url, '')) <> ''
+      GROUP BY 1`, [phoneIds]);
   const body = raw?.body ?? JSON.stringify(payload);
-  for (const { url } of rows) {
-    defer(() => forward(url, body, raw?.signature ? { 'X-Hub-Signature-256': raw.signature } : {}, 30));
+  const signed = raw?.signature ? 1 : 0;
+  for (const { url, ids } of rows) {
+    defer(async () => {
+      const error = await forward(url, body, raw?.signature ? { 'X-Hub-Signature-256': raw.signature } : {}, 30);
+      await recordForward(ids, url, error, signed);
+    });
   }
+}
+
+/** Keep the latest App URL result per account, so the admin user page can show why forwarding fails. */
+async function recordForward(ids: number[], url: string, error: string, signed: number): Promise<void> {
+  const t = now();
+  await exec(
+    error
+      ? `INSERT INTO js_app_forward (af_user_id, af_url, af_failed_on, af_error, af_fails, af_signed)
+           SELECT unnest($1::int[]), $2, $3, $4, 1, $5
+         ON CONFLICT (af_user_id) DO UPDATE SET af_url = $2, af_failed_on = $3, af_error = $4, af_signed = $5,
+           af_fails = CASE WHEN js_app_forward.af_url = $2 THEN js_app_forward.af_fails + 1 ELSE 1 END`
+      : `INSERT INTO js_app_forward (af_user_id, af_url, af_ok_on, af_signed)
+           SELECT unnest($1::int[]), $2, $3, $4
+         ON CONFLICT (af_user_id) DO UPDATE SET af_url = $2, af_ok_on = $3, af_fails = 0, af_signed = $4
+         WHERE js_app_forward.af_fails > 0 OR js_app_forward.af_ok_on < $3 - 60 OR js_app_forward.af_url <> $2`,
+    error ? [ids, url, t, error, signed] : [ids, url, t, signed],
+  ).catch((e) => console.error('[webhook] recording the forward result failed', e));
 }
 
 export async function handleWebhook(payload: Record<string, any>, defer: Defer = runInline, raw?: RawHook): Promise<void> {
@@ -219,7 +241,8 @@ async function logIncoming(user: HookUser, sender: string, data: unknown, type: 
   }, 'il_id');
 }
 
-async function forward(target: string, data: unknown, headers: Record<string, string> = {}, seconds = 15): Promise<void> {
+/** POST to a client URL; returns '' when it answered 2xx, else the reason (status and the start of its answer). */
+async function forward(target: string, data: unknown, headers: Record<string, string> = {}, seconds = 15): Promise<string> {
   try {
     const res = await fetch(target, {
       method: 'POST',
@@ -227,9 +250,16 @@ async function forward(target: string, data: unknown, headers: Record<string, st
       body: typeof data === 'string' ? data : JSON.stringify(data),
       signal: AbortSignal.timeout(seconds * 1000),
     });
-    if (!res.ok) console.warn('[webhook] forward answered', res.status, target);
+    if (res.ok) { void res.body?.cancel().catch(() => undefined); return ''; }
+    const text = (await res.text().catch(() => '')).replace(/<[^>]*>/g, ' ').replace(/\s+/g, ' ').trim().slice(0, 300);
+    const error = `HTTP ${res.status}${res.statusText ? ` ${res.statusText}` : ''}${text ? `: ${text}` : ''}`;
+    console.warn('[webhook] forward answered', error.slice(0, 120), target);
+    return error;
   } catch (e) {
-    console.warn('[webhook] forward failed', target, (e as Error).message);
+    const err = e as Error & { cause?: { code?: string; message?: string } };
+    const error = err.name === 'TimeoutError' ? `No answer within ${seconds} seconds` : `Could not connect: ${err.cause?.code ?? err.cause?.message ?? err.message}`;
+    console.warn('[webhook] forward failed', target, error);
+    return error;
   }
 }
 

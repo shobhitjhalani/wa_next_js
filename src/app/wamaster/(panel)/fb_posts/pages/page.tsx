@@ -2,7 +2,7 @@ import type { Metadata } from 'next';
 import Link from 'next/link';
 import { PageTitle } from '@/components/PageTitle';
 import { ConfirmButton } from '@/components/ui';
-import { requireRight } from '@/lib/admin-access';
+import { requireSuperAdmin } from '@/lib/admin-access';
 import { query } from '@/lib/db';
 import { NEEDED_PERMISSIONS, PAGE_TASKS } from '@/lib/services/fb-posts';
 import { phpDate } from '@/lib/time';
@@ -17,11 +17,10 @@ interface PageRow {
 }
 interface TokenRow { ft_id: number; ft_name: string; ft_kind: string; ft_permissions: string; ft_pages: number; ft_status: number; ft_error: string; ft_checked_on: number }
 
-/** Client Facebook Pages the admin can bulk-post to: connect with a token, refresh, see each Page's rights. */
+/** Client Facebook Pages the admin can bulk-post to (super admins only): connect with a token, refresh, see each Page's rights. */
 export default async function FbPagesPage() {
-  const access = await requireRight('fb_posts');
-  const canAdd = access.can('fb_posts', 'add');
-  const canDelete = access.can('fb_posts', 'delete');
+  // Page access tokens are kept here: super admins only
+  await requireSuperAdmin();
   const [pages, tokens, clients] = await Promise.all([
     query<PageRow>(
       `SELECT f.fp_id, f.fp_page_id, f.fp_name, f.fp_created_on, f.fp_tasks, f.fp_status, f.fp_error, f.fp_checked_on,
@@ -57,7 +56,7 @@ export default async function FbPagesPage() {
                 <li>Either way, tick the permissions {NEEDED_PERMISSIONS.map((p, i) => <span key={p}>{i > 0 && ', '}<code>{p}</code></span>)} and <code>business_management</code> (finds the client Pages shared with your Business), then copy the token and paste it below.</li>
                 <li>When Facebook asks <b>which Pages</b> to allow, choose <b>all</b> of them: the token only covers the Pages ticked there.</li>
               </ol>
-              {canAdd ? <AddPageForm clients={clients} /> : <p className="text-muted mb-0">Connecting Pages needs the Add right.</p>}
+              <AddPageForm clients={clients} />
             </div>
           </div>
 
@@ -77,11 +76,9 @@ export default async function FbPagesPage() {
                               {t.ft_status === 2 ? <span className="text-danger">{t.ft_error}</span> : `${t.ft_pages} Page(s)`} · checked {phpDate('d M, h:i A', t.ft_checked_on)}
                             </div>
                           </div>
-                          {canDelete && (
-                            <form action={deleteToken.bind(null, t.ft_id)}>
+                          <form action={deleteToken.bind(null, t.ft_id)}>
                               <ConfirmButton message={`Remove the token of “${t.ft_name}”? Its Pages stay connected, but Refresh no longer uses it to find new Pages.`} className="btn btn-sm btn-soft-danger" title="Remove token"><i className="ri-delete-bin-line" /></ConfirmButton>
                             </form>
-                          )}
                         </div>
                         {t.ft_kind === 'user' && (
                           <div className="d-flex flex-wrap gap-1 mt-1">
@@ -113,8 +110,8 @@ export default async function FbPagesPage() {
                 <h5 className="card-title mb-0">Connected Pages <span className="text-muted fw-normal small">({pages.length}{problems ? `, ${problems} with problems` : ''})</span></h5>
                 {lastCheck > 0 && <div className="small text-muted">Last checked {phpDate('d M Y, h:i A', lastCheck)}</div>}
               </div>
-              {canDelete && pages.length > 0 && <BulkDeletePages action={deletePages} />}
-              {canAdd && pages.length + tokens.length > 0 && (
+              {pages.length > 0 && <BulkDeletePages action={deletePages} />}
+              {pages.length + tokens.length > 0 && (
                 <form action={refreshPagesAction}>
                   <PendingButton className="btn btn-sm btn-primary" pendingText="Checking with Facebook…"><i className="ri-refresh-line" /> Refresh Pages</PendingButton>
                 </form>
@@ -123,15 +120,13 @@ export default async function FbPagesPage() {
             <div className="card-body">
               <div className="table-responsive">
                 <table className="table align-middle mb-0">
-                  <thead className="table-light"><tr>{canDelete && <th style={{ width: 32 }}><input type="checkbox" className="form-check-input" id="fbp-all" aria-label="Select all Pages" /></th>}<th>Page</th><th>Permissions</th><th>Status</th><th>Client</th><th className="text-end">Posted</th><th /></tr></thead>
+                  <thead className="table-light"><tr><th style={{ width: 32 }}><input type="checkbox" className="form-check-input" id="fbp-all" aria-label="Select all Pages" /></th><th>Page</th><th>Permissions</th><th>Status</th><th>Client</th><th className="text-end">Posted</th><th /></tr></thead>
                   <tbody>
                     {pages.length ? pages.map((p) => {
                       const tasks = p.fp_tasks.split(',').filter(Boolean);
                       return (
                         <tr key={p.fp_id}>
-                          {canDelete && (
-                            <td><input type="checkbox" className="form-check-input" form="fbp-bulk" name="ids" value={p.fp_id} data-problem={p.fp_status === 2 ? '1' : '0'} aria-label={`Select ${p.fp_name}`} /></td>
-                          )}
+                          <td><input type="checkbox" className="form-check-input" form="fbp-bulk" name="ids" value={p.fp_id} data-problem={p.fp_status === 2 ? '1' : '0'} aria-label={`Select ${p.fp_name}`} /></td>
                           <td>
                             <a href={`https://www.facebook.com/${p.fp_page_id}`} target="_blank" rel="noreferrer" className="fw-semibold">{p.fp_name}</a>
                             <div className="small text-muted">{p.fp_page_id}{p.via && <> · via {p.via}</>}</div>
@@ -153,13 +148,13 @@ export default async function FbPagesPage() {
                           <td className="small">{p.client ?? <span className="text-muted">—</span>}</td>
                           <td className="text-end">{p.posted}</td>
                           <td className="text-end">
-                            {canDelete && <form action={deletePage.bind(null, p.fp_id)}>
+                            <form action={deletePage.bind(null, p.fp_id)}>
                               <ConfirmButton message={`Remove the Page “${p.fp_name}”? Its uploads and their status are deleted here (posts already on Facebook stay).`} className="btn btn-sm btn-soft-danger"><i className="ri-delete-bin-line" /></ConfirmButton>
-                            </form>}
+                            </form>
                           </td>
                         </tr>
                       );
-                    }) : <tr><td colSpan={canDelete ? 7 : 6} className="text-center text-muted py-4">No Pages connected yet.</td></tr>}
+                    }) : <tr><td colSpan={7} className="text-center text-muted py-4">No Pages connected yet.</td></tr>}
                   </tbody>
                 </table>
               </div>

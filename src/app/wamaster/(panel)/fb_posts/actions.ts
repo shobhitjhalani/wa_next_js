@@ -3,14 +3,14 @@
 import { revalidatePath } from 'next/cache';
 import { redirect } from 'next/navigation';
 import { fail, fFile, fInt, flash, fStr, invalid, ok, type ActionResult } from '@/lib/actions';
-import { requireRight } from '@/lib/admin-access';
+import { requireRight, requireSuperAdmin } from '@/lib/admin-access';
 import { exec, insertMany, one, query, tx } from '@/lib/db';
 import { MAX_UPLOAD_POSTS, pagesForToken, postsFromCsv, refreshPages, saveTokenPages } from '@/lib/services/fb-posts';
 import { now, parseDate } from '@/lib/time';
 
 /** Connect Facebook Pages: a Page token connects its Page, a user / System User token every Page it manages. */
 export async function addPage(_prev: ActionResult | null, fd: FormData): Promise<ActionResult> {
-  const { admin } = await requireRight('fb_posts', 'add');
+  const { admin } = await requireSuperAdmin();
   const token = fStr(fd, 'token').replace(/\s+/g, '');
   const userId = fInt(fd, 'user_id');
   if (token.length < 50) return invalid({ token: 'Paste the access token (a long text starting with EAA…).' });
@@ -35,7 +35,7 @@ export async function addPage(_prev: ActionResult | null, fd: FormData): Promise
 
 /** "Refresh Pages": list the Pages again with every kept token and check each Page's token. */
 export async function refreshPagesAction(): Promise<void> {
-  const { admin } = await requireRight('fb_posts', 'add');
+  const { admin } = await requireSuperAdmin();
   const r = await refreshPages(admin.emp_id);
   const lines = [`Checked ${r.tokens} token(s) and ${r.checked} Page(s)${r.added ? `; ${r.added} new Page(s) added` : '; no new Pages'}.`];
   if (r.tokenProblems.length) lines.push(`Token problems:\n${r.tokenProblems.slice(0, 10).join('\n')}`);
@@ -48,7 +48,7 @@ export async function refreshPagesAction(): Promise<void> {
 
 /** Forget a kept token (its Pages stay connected with their own Page tokens). */
 export async function deleteToken(id: number): Promise<void> {
-  await requireRight('fb_posts', 'delete');
+  await requireSuperAdmin();
   const row = await one<{ ft_name: string }>('DELETE FROM js_fb_token WHERE ft_id = $1 RETURNING ft_name', [id]);
   await flash(row ? 'success' : 'error', row ? `Token of “${row.ft_name}” removed. Its Pages stay connected; Refresh no longer uses it to find new Pages.` : 'This token no longer exists.');
   revalidatePath('/wamaster/fb_posts/pages');
@@ -61,7 +61,7 @@ async function tidyBatches(): Promise<void> {
 }
 
 export async function deletePage(id: number): Promise<void> {
-  await requireRight('fb_posts', 'delete');
+  await requireSuperAdmin();
   const row = await one<{ fp_name: string }>('DELETE FROM js_fb_page WHERE fp_id = $1 RETURNING fp_name', [id]);
   await tidyBatches();
   await flash(row ? 'success' : 'error', row ? `Page “${row.fp_name}” removed with its post history.` : 'This Page no longer exists.');
@@ -71,7 +71,7 @@ export async function deletePage(id: number): Promise<void> {
 
 /** Remove the ticked Pages (with their queued posts and history here; posts already on Facebook stay). */
 export async function deletePages(fd: FormData): Promise<void> {
-  await requireRight('fb_posts', 'delete');
+  await requireSuperAdmin();
   const ids = [...new Set(fd.getAll('ids').map(Number).filter((n) => Number.isInteger(n) && n > 0))];
   if (!ids.length) {
     await flash('error', 'Tick the Pages to remove first.');

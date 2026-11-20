@@ -1095,3 +1095,14 @@ BEGIN
     VALUES ((SELECT COALESCE(MAX(mo_id), 0) + 1 FROM js_modules), 'Media Library', 'mlib', 'media_library', 'View,Add,Delete', 4, 1, 1);
   END IF;
 END $$;
+
+-- "Forward to App URL": latest result per account (shown on the admin user page)
+CREATE TABLE IF NOT EXISTS js_app_forward (
+  af_user_id   integer PRIMARY KEY REFERENCES js_user(u_id) ON DELETE CASCADE,
+  af_url       text NOT NULL DEFAULT '',
+  af_ok_on     integer NOT NULL DEFAULT 0,      -- last webhook the App URL accepted (2xx)
+  af_failed_on integer NOT NULL DEFAULT 0,      -- last refusal / connection error
+  af_error     text NOT NULL DEFAULT '',        -- e.g. "HTTP 401: Invalid signature"
+  af_fails     integer NOT NULL DEFAULT 0,      -- failures since the last success
+  af_signed    smallint NOT NULL DEFAULT 0      -- 1 = Meta's X-Hub-Signature-256 was passed on with the last one
+);

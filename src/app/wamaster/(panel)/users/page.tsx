@@ -73,17 +73,21 @@ export default async function UsersPage({ searchParams }: { searchParams: SP }) 
         LIMIT $6 OFFSET $7`,
       [...args, table.perPage, (table.page - 1) * table.perPage],
     ),
-    // Parent accounts the users of this type have (only users this admin may see)
+    // Parent company filter: every active Corporate account once (also those without users yet), then "No parent";
+    // n = this type's users under it that this admin may see
     query<{ id: number; label: string; n: number }>(
-      `SELECT u.u_parent_id AS id,
-              COALESCE(NULLIF(p.u_company_name, ''), NULLIF(p.u_name, ''), p.u_username::text, 'Account #' || u.u_parent_id) AS label,
-              COUNT(*)::int AS n
-         FROM js_user u LEFT JOIN js_user p ON p.u_id = u.u_parent_id AND u.u_parent_id > 0
-        WHERE u.u_dstatus = 0 AND u.u_type = $1 AND ($2::int IS NULL OR u.u_assign_to = $2::int)
-        GROUP BY u.u_parent_id, p.u_company_name, p.u_name, p.u_username
-        ORDER BY u.u_parent_id = 0, lower(COALESCE(NULLIF(p.u_company_name, ''), NULLIF(p.u_name, ''), p.u_username::text, ''))`,
+      `SELECT * FROM (SELECT p.u_id AS id,
+              COALESCE(NULLIF(p.u_company_name, ''), NULLIF(p.u_name, ''), p.u_username::text, 'Account #' || p.u_id) AS label,
+              (SELECT COUNT(*)::int FROM js_user u WHERE u.u_parent_id = p.u_id AND u.u_dstatus = 0 AND u.u_type = $1
+                  AND ($2::int IS NULL OR u.u_assign_to = $2::int)) AS n
+         FROM js_user p
+        WHERE p.u_dstatus = 0 AND p.u_type = ${USER_TYPE.CORPORATE}
+       UNION ALL
+       SELECT 0, 'No parent', COUNT(*)::int FROM js_user u
+        WHERE u.u_dstatus = 0 AND u.u_type = $1 AND COALESCE(u.u_parent_id, 0) = 0 AND ($2::int IS NULL OR u.u_assign_to = $2::int)) x
+        ORDER BY x.id = 0, lower(x.label)`,
       [type, assigned],
-    ),
+    ).then((rows) => rows.filter((r) => Number(r.id) > 0 || r.n > 0)),
   ]);
   const isWa = type === USER_TYPE.WHATSAPP;
   const th = { path: PATH, params, state: table };

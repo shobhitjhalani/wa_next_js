@@ -21,6 +21,7 @@ interface Batch {
 export default async function FbPostsPage({ searchParams }: { searchParams: Promise<Record<string, string | string[] | undefined>> }) {
   const access = await requireRight('fb_posts');
   const canAdd = access.can('fb_posts', 'add');
+  const isSuper = access.admin.isSuperAdmin;
   const params = await searchParams;
   const page = pageParam(params.page);
   const [pages, batches, total] = await Promise.all([
@@ -48,11 +49,11 @@ export default async function FbPostsPage({ searchParams }: { searchParams: Prom
         title={<><i className="ri-facebook-circle-fill text-primary me-1" />Bulk post to Facebook Pages</>}
         actions={<>
           <a href="/wamaster/fb_posts/sample" className="btn btn-sm btn-soft-secondary"><i className="ri-download-2-line" /> Sample CSV</a>
-          <Link href="/wamaster/fb_posts/pages" className="btn btn-sm btn-soft-primary"><i className="ri-pages-line" /> Pages ({pages.length})</Link>
+          {isSuper && <Link href="/wamaster/fb_posts/pages" className="btn btn-sm btn-soft-primary"><i className="ri-pages-line" /> Pages ({pages.length})</Link>}
         </>}
       >
           {!canAdd ? <p className="text-muted mb-0">You can view the uploads; posting needs the Add right.</p> : pages.length ? <UploadPostsForm pages={pages} /> : (
-            <div className="alert alert-warning mb-0">Connect a client’s Facebook Page first: <Link href="/wamaster/fb_posts/pages">Pages → Connect Page</Link>.</div>
+            <div className="alert alert-warning mb-0">{isSuper ? <>Connect a client’s Facebook Page first: <Link href="/wamaster/fb_posts/pages">Pages → Connect Page</Link>.</> : 'No Facebook Pages are connected yet; a super admin connects them.'}</div>
           )}
           <div className="small text-muted mt-3">
             CSV columns (first row = headings): <code>message</code>, <code>image_url</code> (optional, a public https link; use the Media Library),

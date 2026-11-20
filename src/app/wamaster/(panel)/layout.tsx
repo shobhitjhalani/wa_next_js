@@ -54,6 +54,13 @@ export default async function AdminLayout({ children }: { children: React.ReactN
     } satisfies MenuItem] : []),
     ...(reports.length ? [{ label: 'Reports', icon: 'ri-file-chart-line', children: reports } satisfies MenuItem] : []),
     ...(me.isSuperAdmin ? [{ label: 'Sending Limits', icon: 'ri-speed-up-line', href: '/wamaster/settings' } satisfies MenuItem] : []),
+    ...(access.can('fb_posts') ? [{
+      label: 'Facebook Posts', icon: 'ri-facebook-circle-line', match: ['/wamaster/fb_posts'], children: [
+        { label: 'Bulk Posts (CSV)', href: '/wamaster/fb_posts', match: [] },
+        { label: 'Pages', href: '/wamaster/fb_posts/pages' },
+      ],
+    } satisfies MenuItem] : []),
+    ...(access.can('media_library') ? [{ label: 'Media Library', icon: 'ri-folder-image-line', href: '/wamaster/media' } satisfies MenuItem] : []),
     ...(me.isSuperAdmin ? [{ label: 'Database Backups', icon: 'ri-database-2-line', href: '/wamaster/backups' } satisfies MenuItem] : []),
   ];
 

@@ -1,6 +1,6 @@
 import { getUser } from '@/lib/auth';
 import { exec } from '@/lib/db';
-import { registerNumber, subscribeApp } from '@/lib/services/meta';
+import { metaGet, registerNumber, subscribeApp } from '@/lib/services/meta';
 
 /**
  * Embedded Signup callback (User\DashboardController::saveWhatsAppAccount,
@@ -27,9 +27,23 @@ export async function POST(request: Request) {
     input = {};
   }
   const str = (k: string) => (typeof input[k] === 'string' ? (input[k] as string).trim() : input[k] == null ? '' : String(input[k]));
+  // Coexistence: a number that stays on the WhatsApp Business app (event FINISH_WHATSAPP_BUSINESS_APP_ONBOARDING)
+  const coexistence = str('coexistence') === '1';
   // An id Meta did not send keeps the account's current one (e.g. only the WABA was missing)
-  const phoneId = str('phone_number_id') || (user.u_wa_phone_id ?? '').trim();
   const wabaId = str('waba_id') || (user.u_wa_b_id ?? '').trim();
+  let phoneId = str('phone_number_id') || (user.u_wa_phone_id ?? '').trim();
+  // Meta's coexistence message may carry only the WABA: take its phone number from the WABA
+  let display = '';
+  if (wabaId && (!phoneId || coexistence)) {
+    const list = await metaGet(`${wabaId}/phone_numbers`, { fields: 'id,display_phone_number,verified_name' });
+    const numbers = Array.isArray(list.data) ? list.data as { id?: string; display_phone_number?: string }[] : [];
+    const own = numbers.find((n) => n.id === phoneId) ?? numbers[0];
+    if (!phoneId && own?.id) phoneId = String(own.id);
+    display = String(own?.display_phone_number ?? '');
+    if (list.error) console.warn('[signup] phone numbers of the WABA not read', { user: user.u_id, waba: wabaId, error: list.error.message });
+  } else if (phoneId) {
+    display = String((await metaGet(phoneId, { fields: 'display_phone_number' })).display_phone_number ?? '');
+  }
   const businessId = str('business_id') || (user.u_business_id ?? '').trim();
 
   const errors: Record<string, string[]> = {};
@@ -42,14 +56,19 @@ export async function POST(request: Request) {
   }
 
   const ids = { u_id: user.u_id, u_wa_phone_id: phoneId, u_wa_b_id: wabaId || null, u_business_id: businessId || null };
+  const waNo = display.replace(/\D/g, '');
   await exec(
-    'UPDATE js_user SET u_wa_phone_id = $2, u_wa_b_id = $3, u_business_id = $4 WHERE u_id = $1',
-    [ids.u_id, ids.u_wa_phone_id, ids.u_wa_b_id, ids.u_business_id],
+    `UPDATE js_user SET u_wa_phone_id = $2, u_wa_b_id = $3, u_business_id = $4,
+            u_wa_no = CASE WHEN $5 <> '' AND COALESCE(u_wa_no, '') = '' THEN $5 ELSE u_wa_no END,
+            u_wa_coexistence = CASE WHEN $6 THEN 1 ELSE u_wa_coexistence END WHERE u_id = $1`,
+    [ids.u_id, ids.u_wa_phone_id, ids.u_wa_b_id, ids.u_business_id, waNo, coexistence],
   );
 
-  const register = await registerNumber(ids);
-  const subscribe = await subscribeApp(ids);
-  console.info('WA number registered', { user: user.u_id, register, subscribe });
+  // A coexistence number is already registered through the WhatsApp Business app: registering it again fails
+  const register = coexistence ? { skipped: 'coexistence number (registered through the WhatsApp Business app)' } : await registerNumber(ids);
+  // Subscribing the app to the WABA is what makes Meta send its webhooks (messages, statuses)
+  const subscribe = wabaId ? await subscribeApp(ids) : { error: { message: 'no WABA id' } };
+  console.info('WA number registered', { user: user.u_id, coexistence, phone: phoneId, waba: wabaId, register, subscribe });
 
-  return Response.json({ status: 'ok' });
+  return Response.json({ status: 'ok', coexistence, webhook: !subscribe.error });
 }

@@ -1,5 +1,6 @@
 import type { Metadata } from 'next';
 import Link from 'next/link';
+import { Suspense } from 'react';
 import { PageTitle } from '@/components/PageTitle';
 import { StatusMatrix } from '@/components/StatusMatrix';
 import { DateRangeInput } from '@/components/ui';
@@ -13,6 +14,7 @@ import { buildMatrix, TEMPLATE_TYPES } from '@/lib/services/reports';
 import { numberFormat } from '@/lib/text';
 import { addDays, dayStart, parseDateRange, phpDate, todayString } from '@/lib/time';
 import { WhatsAppSignup } from './WhatsAppSignup';
+import { MetaLimitCard, MetaLimitLoading } from './MetaLimitCard';
 import { signupIds } from '@/lib/services/meta';
 
 export const metadata: Metadata = { title: 'Dashboard' };
@@ -185,6 +187,11 @@ export default async function DashboardPage({ searchParams }: { searchParams: Pa
           </div>
         </div>
         <div className="col-xl-3">
+          {!signup && (
+            <Suspense fallback={<MetaLimitLoading />}>
+              <MetaLimitCard user={user} />
+            </Suspense>
+          )}
           <div className="card">
             <div className="card-body">
               <p className="text-uppercase fw-medium text-muted mb-2">Incoming (period)</p>

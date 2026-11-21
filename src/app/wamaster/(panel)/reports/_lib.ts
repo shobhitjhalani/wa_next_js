@@ -80,6 +80,11 @@ export function messageWhere(params: Params, type: string, ids: number[] | null)
   if (filled(params, 'user_id')) c.push(`m_user_id = ${p(intParam(params, 'user_id'))}`);
   if (filled(params, 'mobile_no')) c.push(`m_mobile_no = ${p(input(params, 'mobile_no'))}`);
   if (filled(params, 'sheet_id')) c.push(`m_sheet_id = ${p(input(params, 'sheet_id'))}`);
+  // Failed: one delivery failure reason (Meta's error title); "-" = no reason recorded
+  if (type === 'failed' && filled(params, 'reason')) {
+    const reason = input(params, 'reason') ?? '';
+    c.push(reason === '-' ? "COALESCE(m_status_response, '') = ''" : `m_status_response = ${p(reason)}`);
+  }
   const template = input(params, 'template') ?? '';
   if (template === '-1') c.push("(m_msg_template_name IS NULL OR m_msg_template_name = '')");
   else if (template !== '') c.push(`m_msg_template_name = ${p(template)}`);

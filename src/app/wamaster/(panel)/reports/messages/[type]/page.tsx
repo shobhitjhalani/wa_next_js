@@ -1,4 +1,5 @@
 import { notFound } from 'next/navigation';
+import { failureHelp, NO_REASON } from '@/lib/wa-errors';
 import { MESSAGE_REPORTS as MESSAGE_RIGHT, requireRight, visibleUserIds } from '@/lib/admin-access';
 import { config } from '@/lib/config';
 import { one, query, value } from '@/lib/db';
@@ -32,7 +33,10 @@ export default async function MessageReportPage({ params, searchParams }: { para
   const order = messageTableOrder(ranged, table.sort, table.dir);
   const n = args.length;
 
-  const [messages, counts, users, templateNames] = await Promise.all([
+  // Failed: the most common reasons for this filter (without the reason filter itself)
+  const reasonFilter = type === 'failed' ? input(sp, 'reason') ?? '' : '';
+  const reasonScope = type === 'failed' ? messageWhere({ ...sp, reason: undefined }, type, ids) : null;
+  const [messages, counts, users, templateNames, reasons] = await Promise.all([
     query<MessageRow & { u_username: string | null }>(
       `SELECT m.*, u.u_username
          FROM (SELECT ${COLS} FROM js_message WHERE ${where} AND ${statusWhere} ORDER BY ${order} LIMIT $${n + 1} OFFSET $${n + 2}) m
@@ -53,7 +57,19 @@ export default async function MessageReportPage({ params, searchParams }: { para
     filled(sp, 'user_id') && (!ids || ids.includes(intParam(sp, 'user_id')))
       ? query<{ ut_name: string }>('SELECT ut_name FROM js_user_templates WHERE ut_user_id = $1 AND ut_dstatus = 0 ORDER BY ut_name', [intParam(sp, 'user_id')])
       : Promise.resolve([]),
+    reasonScope
+      ? query<{ reason: string; n: number }>(
+        `SELECT COALESCE(NULLIF(m_status_response, ''), '') AS reason, COUNT(*)::int AS n FROM js_message
+          WHERE ${reasonScope.where} GROUP BY 1 ORDER BY 2 DESC LIMIT 12`, reasonScope.args)
+      : Promise.resolve([]),
   ]);
+  const reasonTotal = reasons.reduce((a, r) => a + r.n, 0);
+  const reasonHref = (r: string | null) => {
+    const q = new URLSearchParams();
+    for (const [k, v] of Object.entries(sp)) for (const item of Array.isArray(v) ? v : v === undefined ? [] : [v]) if (k !== 'reason' && k !== 'page') q.append(k, item);
+    if (r !== null) q.set('reason', r === '' ? '-' : r);
+    return `/wamaster/reports/messages/failed?${q}`;
+  };
 
   const total = counts?.total ?? 0;
   const stats = type === 'send' && counts && 'pending' in counts
@@ -80,10 +96,41 @@ export default async function MessageReportPage({ params, searchParams }: { para
           ))}
         </div>
       )}
+      {type === 'failed' && reasons.length > 0 && (
+        <div className="card">
+          <div className="card-header d-flex align-items-center">
+            <h5 className="card-title mb-0 me-auto"><i className="ri-error-warning-line me-1 text-danger" />Why messages failed</h5>
+            {reasonFilter && <a href={reasonHref(null)} className="btn btn-sm btn-light">Show all reasons</a>}
+          </div>
+          <div className="card-body p-0 table-responsive">
+            <table className="table table-sm align-middle mb-0">
+              <thead className="table-light"><tr><th>Reason (from WhatsApp)</th><th>What it means / what to do</th><th className="text-end">Messages</th><th className="text-end">Share</th></tr></thead>
+              <tbody>
+                {reasons.map((r) => {
+                  const help = failureHelp(r.reason);
+                  const active = reasonFilter === (r.reason || '-');
+                  return (
+                    <tr key={r.reason} className={active ? 'table-danger' : ''}>
+                      <td style={{ minWidth: 220 }}>
+                        <a href={reasonHref(r.reason)} className="fw-semibold text-danger">{r.reason || NO_REASON}</a>
+                        {help && <div className="small text-muted">Error {help.code}</div>}
+                      </td>
+                      <td className="small">{help ? <>{help.meaning}<div className="text-success"><i className="ri-lightbulb-line" /> {help.action}</div></> : r.reason ? 'See the error in WhatsApp Manager.' : 'Failed before reasons were recorded.'}</td>
+                      <td className="text-end">{numberFormat(r.n)}</td>
+                      <td className="text-end text-muted small">{!reasonTotal ? '0%' : r.n / reasonTotal < 0.001 ? '<0.1%' : `${Math.round((r.n / reasonTotal) * 1000) / 10}%`}</td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      )}
       <div className="card">
         <div className="card-header">
           <form method="get" className="row g-2 align-items-center filter-bar">
             <DataTableHidden state={table} defaults={tableDefaults} />
+            {reasonFilter && <input type="hidden" name="reason" value={reasonFilter} />}
             <div className="col-md-2"><DateRangeInput name="wa_date" defaultValue={dtInput} placeholder="Date range" /></div>
             <div className="col-md-2">
               <AutoSubmitSelect className="form-select" name="user_id" defaultValue={userId} aria-label="User">
@@ -146,7 +193,7 @@ export default async function MessageReportPage({ params, searchParams }: { para
                     <SortTh {...th} column="type">Type</SortTh>
                     <th>Content</th><th>Sheet</th>
                     <SortTh {...th} column="updated" first="desc">Updated</SortTh>
-                    <SortTh {...th} column="status">Status</SortTh>
+                    <SortTh {...th} column="status">{type === 'failed' ? 'Reason' : 'Status'}</SortTh>
                   </tr>
                 </thead>
                 <tbody>
@@ -160,7 +207,13 @@ export default async function MessageReportPage({ params, searchParams }: { para
                       <td className="msg-content small">{limit(messageSummary(m), 120)}</td>
                       <td className="small">{m.m_sheet_id}</td>
                       <td className="text-nowrap small">{m.m_updated_on ? phpDate('d M H:i', m.m_updated_on) : ''}</td>
-                      <td><span className={`badge ${isErrorMessage(m) || m.m_delivery_status === 'failed' ? 'bg-danger' : 'bg-info'} text-wrap text-start`}>{messageStatusLabel(m)}</span></td>
+                      <td style={type === 'failed' ? { minWidth: 220 } : undefined}>
+                        {type === 'failed' ? (() => {
+                          const help = failureHelp(m.m_status_response);
+                          return <><span className="badge bg-danger text-wrap text-start">{m.m_status_response || 'Failed'}</span>
+                            {help && <div className="small text-muted mt-1" title={help.action}>{help.meaning}</div>}</>;
+                        })() : <span className={`badge ${isErrorMessage(m) || m.m_delivery_status === 'failed' ? 'bg-danger' : 'bg-info'} text-wrap text-start`}>{messageStatusLabel(m)}</span>}
+                      </td>
                     </tr>
                   )) : (
                     <tr><td colSpan={9} className="text-center text-muted py-4">No messages for this filter.</td></tr>

@@ -1,6 +1,6 @@
 import 'server-only';
 import { config } from '../config';
-import { value } from '../db';
+import { query, value } from '../db';
 import type { UserRow } from '../types';
 
 /**
@@ -194,4 +194,14 @@ export function registerNumber(user: WaUser): Promise<MetaResponse> {
 
 export function subscribeApp(user: WaUser): Promise<MetaResponse> {
   return metaPost(`${user.u_wa_b_id}/subscribed_apps`, {});
+}
+
+/** Embedded Signup ("Login with Facebook" on the user dashboard): the signup app and its configuration. */
+export const SIGNUP_DEFAULTS = { appId: '859501530523310', configId: '1912209822802104' } as const;
+
+/** Settings → WhatsApp Token (wa_settings fb_signup_app_id / fb_signup_config_id), else the defaults above. */
+export async function signupIds(): Promise<{ appId: string; configId: string }> {
+  const rows = await query<{ key: string; value: string }>("SELECT key, value FROM wa_settings WHERE key IN ('fb_signup_app_id', 'fb_signup_config_id')").catch(() => []);
+  const get = (k: string) => rows.find((r) => r.key === k)?.value.trim() || '';
+  return { appId: get('fb_signup_app_id') || SIGNUP_DEFAULTS.appId, configId: get('fb_signup_config_id') || SIGNUP_DEFAULTS.configId };
 }

@@ -3,9 +3,9 @@ import { PageTitle } from '@/components/PageTitle';
 import { requireAdminCan } from '@/lib/auth';
 import { config } from '@/lib/config';
 import { one } from '@/lib/db';
-import { waToken } from '@/lib/services/meta';
+import { SIGNUP_DEFAULTS, signupIds, waToken } from '@/lib/services/meta';
 import { SettingsTabs } from '../parts';
-import { WaTokenForm } from '../WaTokenForm';
+import { SignupIdsForm, WaTokenForm } from '../WaTokenForm';
 
 export const metadata: Metadata = { title: 'WhatsApp Token' };
 
@@ -19,9 +19,10 @@ const SOURCE = {
 /** Settings → WhatsApp Token (WA_TOKEN_KEY): the token every WhatsApp message is sent with (super admin). */
 export default async function WaTokenPage() {
   await requireAdminCan('super');
-  const [t, saved] = await Promise.all([
+  const [t, saved, signup] = await Promise.all([
     waToken(),
     one<{ at: Date; by: string | null }>(`SELECT s.updated_at AS at, e.emp_name AS by FROM wa_settings s LEFT JOIN js_employee e ON e.emp_id = s.updated_by WHERE s.key = 'wa_token_key'`),
+    signupIds(),
   ]);
   const [badge, label] = SOURCE[t.source];
   return (
@@ -42,6 +43,17 @@ export default async function WaTokenPage() {
                 )}
               </div>
               <WaTokenForm />
+            </div>
+          </div>
+          <div className="card">
+            <div className="card-header"><h5 className="card-title mb-0"><i className="ri-facebook-circle-line me-1" />Embedded Signup (“Login with Facebook”)</h5></div>
+            <div className="card-body">
+              <p className="small text-muted">
+                Users whose Phone ID or WABA ID is missing see “Login with Facebook” on their dashboard. Meta&apos;s signup popup connects their
+                WhatsApp Business number; the ids are saved on their account, the number is registered and the webhook subscribed.
+                Accounts with Coexistence switched on get the flow for an existing WhatsApp Business App number.
+              </p>
+              <SignupIdsForm appId={signup.appId} configId={signup.configId} defaults={SIGNUP_DEFAULTS} />
             </div>
           </div>
         </div>

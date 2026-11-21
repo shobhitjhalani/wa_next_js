@@ -13,6 +13,7 @@ import { buildMatrix, TEMPLATE_TYPES } from '@/lib/services/reports';
 import { numberFormat } from '@/lib/text';
 import { addDays, dayStart, parseDateRange, phpDate, todayString } from '@/lib/time';
 import { WhatsAppSignup } from './WhatsAppSignup';
+import { signupIds } from '@/lib/services/meta';
 
 export const metadata: Metadata = { title: 'Dashboard' };
 
@@ -85,7 +86,7 @@ export default async function DashboardPage({ searchParams }: { searchParams: Pa
   const templateReport = buildMatrix(data, ['Que', 'Error']);
   const messagesLeft = msgLimit > 0 ? Math.max(0, msgLimit - (sentTotal ?? 0)) : null;
   const activePlan = Number(user.u_wa_plan_status) === 1;
-  const { fbAppId, fbConfigId } = config.meta;
+  const signup = !user.u_wa_phone_id || !user.u_wa_b_id ? await signupIds() : null;
 
   return (
     <>
@@ -108,12 +109,18 @@ export default async function DashboardPage({ searchParams }: { searchParams: Pa
           <div className="card card-animate">
             <div className="card-body">
               <p className="text-uppercase fw-medium text-muted mb-2">WA Status</p>
-              {!user.u_wa_phone_id ? (
+              {signup ? (
                 <>
-                  <p className="text-muted small mb-2">Connect your WhatsApp Business number to start sending.</p>
-                  {fbAppId && fbConfigId
-                    ? <WhatsAppSignup appId={fbAppId} configId={fbConfigId} />
-                    : <span className="badge bg-warning-subtle text-warning">Ask your administrator to configure Facebook signup</span>}
+                  <p className="text-muted small mb-2">
+                    {user.u_wa_phone_id ? 'Your WhatsApp Business account (WABA) is not connected yet.' : 'Connect your WhatsApp Business number to start sending.'}
+                  </p>
+                  {(user.u_wa_phone_id || user.u_wa_b_id) && (
+                    <div className="small lh-lg mb-2">
+                      <div>Phone ID: <b>{user.u_wa_phone_id || <span className="text-danger">missing</span>}</b></div>
+                      <div>WABA ID: <b>{user.u_wa_b_id || <span className="text-danger">missing</span>}</b></div>
+                    </div>
+                  )}
+                  <WhatsAppSignup appId={signup.appId} configId={signup.configId} coexistence={Number(user.u_wa_coexistence) === 1} />
                 </>
               ) : (
                 <div className="small lh-lg">

@@ -27,12 +27,13 @@ export async function POST(request: Request) {
     input = {};
   }
   const str = (k: string) => (typeof input[k] === 'string' ? (input[k] as string).trim() : input[k] == null ? '' : String(input[k]));
-  const phoneId = str('phone_number_id');
-  const wabaId = str('waba_id');
-  const businessId = str('business_id');
+  // An id Meta did not send keeps the account's current one (e.g. only the WABA was missing)
+  const phoneId = str('phone_number_id') || (user.u_wa_phone_id ?? '').trim();
+  const wabaId = str('waba_id') || (user.u_wa_b_id ?? '').trim();
+  const businessId = str('business_id') || (user.u_business_id ?? '').trim();
 
   const errors: Record<string, string[]> = {};
-  if (!phoneId) errors.phone_number_id = ['The phone number id field is required.'];
+  if (!phoneId) errors.phone_number_id = ['Facebook did not send the phone number. Finish the signup with a phone number, or ask support to add it.'];
   else if (phoneId.length > 255) errors.phone_number_id = ['The phone number id field must not be greater than 255 characters.'];
   if (wabaId.length > 255) errors.waba_id = ['The waba id field must not be greater than 255 characters.'];
   if (businessId.length > 50) errors.business_id = ['The business id field must not be greater than 50 characters.'];

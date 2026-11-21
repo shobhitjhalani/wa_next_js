@@ -5,7 +5,7 @@ import { flash, fStr, invalid, ok, type ActionResult } from '@/lib/actions';
 import { config } from '@/lib/config';
 import { createGraph, MetaError } from '@/lib/meta-graph';
 import { META_KEYS, saveMetaSettings, type MetaKey } from '@/lib/services/meta-settings';
-import { forgetMetaToken, waToken } from '@/lib/services/meta';
+import { forgetMetaToken, signupIds, waToken } from '@/lib/services/meta';
 import { exec } from '@/lib/db';
 import { logActivity } from '@/lib/activity';
 import { requireAdminCan } from '@/lib/auth';
@@ -104,4 +104,30 @@ export async function saveWaToken(_prev: ActionResult | null, fd: FormData): Pro
   await logActivity({ module: 'settings', action: 'Changed the WhatsApp sending token', details: [`Was from: ${old.source}`, check.trim()] });
   revalidatePath('/wamaster/settings/whatsapp');
   return ok(`WhatsApp token saved; all sending uses it within 30 seconds.${check}`);
+}
+
+/** Embedded Signup ("Login with Facebook" on the user dashboard): the Facebook App ID and its Login configuration ID. */
+export async function saveSignupIds(_prev: ActionResult | null, fd: FormData): Promise<ActionResult> {
+  const me = await requireAdminCan('super');
+  const appIdIn = fStr(fd, 'signup_app_id').trim();
+  const configIdIn = fStr(fd, 'signup_config_id').trim();
+  const errors: Record<string, string> = {};
+  if (appIdIn && !/^\d{5,25}$/.test(appIdIn)) errors.signup_app_id = 'The App ID is a number (App settings → Basic).';
+  if (configIdIn && !/^\d{5,25}$/.test(configIdIn)) errors.signup_config_id = 'The Configuration ID is a number (Facebook Login for Business → Configurations).';
+  if (Object.keys(errors).length) return invalid(errors);
+  const before = await signupIds();
+  for (const [key, v] of [['fb_signup_app_id', appIdIn], ['fb_signup_config_id', configIdIn]] as const) {
+    if (v) {
+      await exec(
+        `INSERT INTO wa_settings (key, value, updated_by, updated_at) VALUES ($1, $2, $3, now())
+         ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value, updated_by = EXCLUDED.updated_by, updated_at = now()`, [key, v, me.emp_id]);
+    } else await exec('DELETE FROM wa_settings WHERE key = $1', [key]);
+  }
+  const after = await signupIds();
+  await logActivity({ module: 'settings', action: 'Changed Embedded Signup IDs', details: [
+    ...(before.appId !== after.appId ? [`App ID: ${before.appId} → ${after.appId}`] : []),
+    ...(before.configId !== after.configId ? [`Configuration ID: ${before.configId} → ${after.configId}`] : []),
+  ] });
+  revalidatePath('/wamaster/settings/whatsapp');
+  return ok('Embedded Signup IDs saved: the user dashboard uses them at once.');
 }

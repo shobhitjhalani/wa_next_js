@@ -45,6 +45,8 @@ export interface UserRow {
   u_msg_limit: number | null;
   u_msg_used: number;
   u_template_categories: string | null;
+  /** Hours before an unsent outgoing message expires (NULL = the default in Settings → Sending Limits). */
+  u_msg_expiry_hours: number | null;
   u_is_new_no: number;
   u_enable_ai: number;
   /** Chatbot Flows menu / feature: 1 Yes · 2 No (admin switch). */

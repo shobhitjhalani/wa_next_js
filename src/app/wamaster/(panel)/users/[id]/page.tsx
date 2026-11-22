@@ -5,17 +5,18 @@ import { config } from '@/lib/config';
 import { one, query, value } from '@/lib/db';
 import { masterCodeOptions, masterName, masterOptions } from '@/lib/models';
 import { listPlans } from '@/lib/services/plans';
+import { MSG_EXPIRY_MAX, MSG_EXPIRY_MIN, refreshSendSettings } from '@/lib/services/settings';
 import { numberFormat } from '@/lib/text';
 import { dayStart, monthStart, phpDate } from '@/lib/time';
 import { USER_TYPE, type UserRow } from '@/lib/types';
-import { ActionForm, SubmitButton } from '@/components/ActionForm';
+import { ActionForm, FieldError, SubmitButton } from '@/components/ActionForm';
 import { PageTitle } from '@/components/PageTitle';
 import { ConfirmButton } from '@/components/ui';
 import { allowedCategories, categoriesLabel } from '@/lib/template-categories';
 import { PERMISSIONS } from '../flags';
 import {
   addEmail, deleteEmail, deleteKey, deleteSheet, generateKey, logoutKey, rechargeUser, registerUserNumber,
-  syncUserTemplates, toggleEmail, toggleSheet,
+  saveMsgExpiry, syncUserTemplates, toggleEmail, toggleSheet,
 } from '../actions';
 
 const yes = (v: unknown) => (Number(v) === 1 ? 'Yes' : 'No');
@@ -83,6 +84,9 @@ export default async function UserShowPage({ params }: { params: Promise<{ id: s
   const isWa = Number(user.u_type) === USER_TYPE.WHATSAPP;
   const canEdit = access.can(userModule(user.u_type), 'edit');
   const canAddWa = access.can(userModule(USER_TYPE.WHATSAPP), 'add');
+  const isSuper = access.admin.isSuperAdmin;
+  const defaultExpiry = isWa ? (await refreshSendSettings()).msgExpiryHours : 0;
+  const ownExpiry = Number(user.u_msg_expiry_hours) > 0 ? Number(user.u_msg_expiry_hours) : null;
 
   const fwd = isWa
     ? await one<{ af_url: string; af_ok_on: number; af_failed_on: number; af_error: string; af_fails: number; af_signed: number }>(
@@ -191,6 +195,10 @@ export default async function UserShowPage({ params }: { params: Promise<{ id: s
                     <dd className="col-7">{allowedCategories(user.u_template_categories)
                       ? <span className="badge bg-warning-subtle text-warning">{categoriesLabel(user.u_template_categories)} only</span>
                       : 'All'}</dd>
+                    <dt className="col-5">Message Expiry</dt>
+                    <dd className="col-7">{ownExpiry
+                      ? <>{ownExpiry} hours <span className="badge bg-info-subtle text-info ms-1">Custom</span></>
+                      : <>{defaultExpiry} hours <span className="text-muted">(default)</span></>}</dd>
                     <dt className="col-5">MM Lite</dt><dd className="col-7">{yes(user.u_is_new_no)}</dd>
                     <dt className="col-5">Catalogue</dt><dd className="col-7">{yes(user.u_wa_enable_catalogue)}</dd>
                     <dt className="col-5">AI</dt><dd className="col-7">{yes(user.u_enable_ai)}</dd>
@@ -228,6 +236,24 @@ export default async function UserShowPage({ params }: { params: Promise<{ id: s
               </dl>
             </div>
           </div>
+
+          {isWa && isSuper && (
+            <div className="card">
+              <div className="card-header"><h5 className="card-title mb-0">Message Expiry</h5></div>
+              <div className="card-body">
+                <ActionForm action={saveMsgExpiry.bind(null, id)} key={ownExpiry ?? 0}>
+                  <label className="form-label" htmlFor="msg_expiry_hours">Expire unsent messages after (hours)</label>
+                  <div className="input-group mb-1">
+                    <input type="number" className="form-control" id="msg_expiry_hours" name="msg_expiry_hours" min={MSG_EXPIRY_MIN} max={MSG_EXPIRY_MAX} step={1}
+                      defaultValue={ownExpiry ?? ''} placeholder={`Default: ${defaultExpiry}`} />
+                    <SubmitButton className="btn btn-primary">Save</SubmitButton>
+                  </div>
+                  <FieldError name="msg_expiry_hours" />
+                  <div className="form-text">Leave empty to use the default ({defaultExpiry} hours, Settings → Sending Limits). Queued messages older than this are cancelled and can&apos;t be re-sent.</div>
+                </ActionForm>
+              </div>
+            </div>
+          )}
 
           {isWa && canEdit && (
             <div className="card">

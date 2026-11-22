@@ -77,7 +77,7 @@ export function EtaNote({ eta, now }: { eta: CampaignEta | undefined; now: numbe
     <div className="small text-muted mt-1" title={`${numberFormat(eta.ahead)} message(s) to send at up to ${numberFormat(sendRatePerMinute())} a minute, ${sendWindowText()}`}>
       <i className="ri-timer-line" /> ~{durationText(eta.finishAt - now)} · by {phpDate(sameDay ? 'h:i A' : 'd M, h:i A', eta.finishAt)}
       {eta.quotaLeft !== null && <div className="text-warning">Template limit: only {numberFormat(eta.quotaLeft)} more can be sent</div>}
-      {eta.expires && <div className="text-danger">Some messages may pass the 24-hour limit and will not be sent</div>}
+      {eta.expires && <div className="text-danger">Some messages may pass the {eta.expiryHours}-hour limit and will not be sent</div>}
     </div>
   );
 }

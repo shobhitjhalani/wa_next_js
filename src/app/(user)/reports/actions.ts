@@ -6,8 +6,7 @@ import { flash } from '@/lib/actions';
 import { requireUser } from '@/lib/auth';
 import { exec, one } from '@/lib/db';
 import { messageStatusLabel } from '@/lib/format';
-import { config } from '@/lib/config';
-import { expiryCutoff, inSendWindow, sendNow, sendWindowLabel } from '@/lib/services/sender';
+import { expiryCutoff, expirySeconds, inSendWindow, sendNow, sendWindowLabel } from '@/lib/services/sender';
 import type { MessageRow } from '@/lib/types';
 import { refreshSendSettings } from '@/lib/services/settings';
 
@@ -20,8 +19,8 @@ export async function resendMessage(id: number): Promise<void> {
   const msg = await one<{ m_campaign_id: number | null; m_created_on: number }>(
     'SELECT m_campaign_id, m_created_on FROM js_message WHERE m_id = $1 AND m_user_id = $2 AND m_is_incoming = 2', [id, user.u_id]);
   if (!msg) notFound();
-  if (Number(msg.m_created_on) < expiryCutoff()) {
-    await flash('error', `This message is older than ${Math.round(config.messageExpiry / 3600)} hours and has expired. Expired messages cannot be re-sent.`);
+  if (Number(msg.m_created_on) < expiryCutoff(user.u_msg_expiry_hours)) {
+    await flash('error', `This message is older than ${Math.round(expirySeconds(user.u_msg_expiry_hours) / 3600)} hours and has expired. Expired messages cannot be re-sent.`);
     refresh();
     return;
   }

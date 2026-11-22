@@ -18,12 +18,13 @@ export async function saveSendLimits(form: FormData): Promise<void> {
     sendBatch: Number(form.get('send_batch')),
     sendStartHour: Number(form.get('send_start_hour')),
     sendEndHour: Number(form.get('send_end_hour')),
+    msgExpiryHours: Number(form.get('msg_expiry_hours')),
   };
   const error = validSendSettings(s);
   if (error) await flash('error', error);
   else {
     await saveSendSettings(s, me.emp_id);
-    await logActivity({ module: 'settings', action: 'Saved sending limits', details: [`Batch: ${s.sendBatch}`, `Window: ${s.sendStartHour}:00 – ${s.sendEndHour}:00`] });
+    await logActivity({ module: 'settings', action: 'Saved sending limits', details: [`Batch: ${s.sendBatch}`, `Window: ${s.sendStartHour}:00 – ${s.sendEndHour}:00`, `Message expiry: ${s.msgExpiryHours} h`] });
     await flash('success', 'Sending limits saved. The sender uses them from its next run (within a minute).');
   }
   revalidatePath('/wamaster/settings');

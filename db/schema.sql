@@ -1287,3 +1287,10 @@ SELECT 'wa_token_key', btrim(mv_value), now() FROM js_master_value
  ORDER BY (mv_id = 56203) DESC LIMIT 1
 ON CONFLICT (key) DO NOTHING;
 UPDATE js_master_heading SET mh_status = 1 WHERE mh_id = 103 AND mh_status = 2;
+
+-- ------------------------------------------------------------ message expiry
+
+-- Outgoing messages not sent within this many hours are never sent (system-cancelled, can't be re-sent).
+-- Default: Settings → Sending Limits (wa_settings 'msg_expiry_hours', .env WA_MSG_EXPIRY seconds before that).
+-- js_user.u_msg_expiry_hours: per-account override set by a super admin on the user page (NULL = the default).
+ALTER TABLE js_user ADD COLUMN IF NOT EXISTS u_msg_expiry_hours integer;

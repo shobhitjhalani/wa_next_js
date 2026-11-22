@@ -7,6 +7,8 @@ import { categoriesValue } from '@/lib/template-categories';
 import { changes, logActivity } from '@/lib/activity';
 import { requireRight, requireUserRight, userModule, type Right } from '@/lib/admin-access';
 import { exec, insert, one, tx, update, value } from '@/lib/db';
+import { requireAdminCan } from '@/lib/auth';
+import { validExpiryHours } from '@/lib/services/settings';
 import { hashPassword } from '@/lib/password';
 import { metaGet, registerNumber, subscribeApp } from '@/lib/services/meta';
 import { findPlan, recharge } from '@/lib/services/plans';
@@ -453,4 +455,22 @@ export async function deleteKey(id: number, keyId: number): Promise<void> {
   await logUser(id, 'Deleted data extractor key', [`Key #${keyId}`]);
   await flash('success', 'Key deleted');
   revalidatePath(showPath(id));
+}
+
+/** Message expiry hours of one account (super admin only); empty = the default in Settings → Sending Limits. */
+export async function saveMsgExpiry(id: number, _prev: ActionResult | null, fd: FormData): Promise<ActionResult> {
+  await requireAdminCan('super');
+  const raw = fStr(fd, 'msg_expiry_hours').trim();
+  const hours = raw === '' ? null : Number(raw);
+  if (hours !== null) {
+    const error = validExpiryHours(hours);
+    if (error) return invalid({ msg_expiry_hours: error });
+  }
+  const before = await one<{ h: number | null }>('SELECT u_msg_expiry_hours AS h FROM js_user WHERE u_id = $1 AND u_dstatus = 0', [id]);
+  if (!before) return fail('User not found.');
+  await exec('UPDATE js_user SET u_msg_expiry_hours = $2 WHERE u_id = $1', [id, hours]);
+  const label = (h: number | null) => (h ? `${h} h` : 'Default');
+  if ((before.h ?? null) !== hours) await logUser(id, 'Changed message expiry', [`Message expiry: ${label(before.h)} → ${label(hours)}`]);
+  revalidatePath(showPath(id));
+  return ok(hours ? `Messages of this user now expire after ${hours} hours.` : 'This user now uses the default message expiry.');
 }

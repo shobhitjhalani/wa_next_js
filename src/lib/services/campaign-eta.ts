@@ -3,6 +3,7 @@ import { config } from '../config';
 import { query } from '../db';
 import { now } from '../time';
 import { quotaOf } from './template-limit';
+import { expirySeconds } from './sender';
 
 /**
  * Tentative finish time of campaigns still sending, from the sending limit:
@@ -18,6 +19,8 @@ export interface CampaignEta {
   finishAt: number;
   /** Some messages would be older than the 24-hour limit by then and will not be sent */
   expires: boolean;
+  /** Hours after which unsent messages of this account expire. */
+  expiryHours: number;
   /** Template messages left on the account's limit, when it is smaller than what is queued */
   quotaLeft: number | null;
 }
@@ -68,7 +71,7 @@ export function durationText(seconds: number): string {
 
 /** ETA per campaign id for the given campaigns of one account that still have queued messages. */
 export async function campaignEtas(
-  user: { u_id: number; u_msg_limit: number | null; u_msg_used: number | null },
+  user: { u_id: number; u_msg_limit: number | null; u_msg_used: number | null; u_msg_expiry_hours?: number | null },
   campaigns: { uc_id: number; uc_started_at: number }[],
 ): Promise<Map<number, CampaignEta>> {
   const out = new Map<number, CampaignEta>();
@@ -91,7 +94,8 @@ export async function campaignEtas(
     out.set(r.id, {
       ahead: r.ahead,
       finishAt,
-      expires: finishAt > Number(r.oldest) + config.messageExpiry,
+      expires: finishAt > Number(r.oldest) + expirySeconds(user.u_msg_expiry_hours),
+      expiryHours: Math.round(expirySeconds(user.u_msg_expiry_hours) / 3600),
       quotaLeft: quota.remaining !== null && quota.remaining < r.ahead ? quota.remaining : null,
     });
   }

@@ -10,6 +10,7 @@ import { templateButtons, templateCards } from '../format';
 import type { MessageRow, UserRow } from '../types';
 import { sendMarketingMessage, sendMessage, type MetaResponse } from './meta';
 import { safeFileName, storeBytes } from './media';
+import { refreshSendSettings } from './settings';
 import { isLimitedType, LIMIT_REACHED, releaseTemplateSend, reserveTemplateSend } from './template-limit';
 import { allowedCategories, CATEGORY_NOT_ALLOWED } from '../template-categories';
 
@@ -75,23 +76,37 @@ export async function mapLimit<T, R>(items: T[], max: number, fn: (item: T) => P
   return out;
 }
 
-/** Unix time before which an outgoing message has expired and must never be sent (WA_MSG_EXPIRY). */
-export function expiryCutoff(): number {
-  return Math.floor(Date.now() / 1000) - config.messageExpiry;
+/** Seconds an unsent outgoing message stays valid: the user's override, else the default (Settings → Sending Limits). */
+export function expirySeconds(userHours?: number | null): number {
+  const h = Number(userHours);
+  return h > 0 ? h * 3600 : config.messageExpiry;
 }
+
+/** Unix time before which an outgoing message has expired and must never be sent (per user when their hours are given). */
+export function expiryCutoff(userHours?: number | null): number {
+  return Math.floor(Date.now() / 1000) - expirySeconds(userHours);
+}
+
+/**
+ * SQL for a message's expiry cutoff: `$now - COALESCE(<hours col> * 3600, $default)`.
+ * Pass the placeholders of now() and config.messageExpiry, and the hours column / sub-select.
+ */
+export const expirySql = (hours: string, nowP: string, defP: string) => `(${nowP}::int - COALESCE(${hours} * 3600, ${defP}::int))`;
 
 const PENDING_SQL = `
   SELECT m.* FROM js_message m JOIN js_user u ON u.u_id = m.m_user_id
-   WHERE m.m_is_incoming = 2 AND m.m_status = 6 AND m.m_dstatus = 0 AND m.m_created_on >= $1
+   WHERE m.m_is_incoming = 2 AND m.m_status = 6 AND m.m_dstatus = 0
+     AND m.m_created_on >= ${expirySql('u.u_msg_expiry_hours', '$1', '$2')}
      AND u.u_wa_plan_status = 1 AND u.u_status = 1 AND u.u_dstatus = 0`;
 
 /**
  * Send messages already marked "processing" (status 6). Pass a message id to
  * send just that one (API / chat / webhook replies). Returns how many were processed.
- * Messages older than WA_MSG_EXPIRY are never sent (expire-messages cancels them).
+ * Expired messages (expirySeconds of the user) are never sent (expire-messages cancels them).
  */
 export async function sendPending(messageId?: number, userId?: number): Promise<number> {
-  const params: unknown[] = [expiryCutoff()];
+  await refreshSendSettings(); // default expiry hours (Settings → Sending Limits)
+  const params: unknown[] = [Math.floor(Date.now() / 1000), config.messageExpiry];
   let sql = PENDING_SQL;
   if (messageId) { params.push(messageId); sql += ` AND m.m_id = $${params.length}`; }
   if (userId) { params.push(userId); sql += ` AND m.m_user_id = $${params.length}`; }
@@ -117,9 +132,11 @@ export function sendWindowLabel(): string {
 
 /** Move a message to "processing" and send it straight away (report re-send). */
 export async function sendNow(messageId: number): Promise<boolean> {
+  await refreshSendSettings();
   const claimed = await exec(
-    'UPDATE js_message SET m_status = 6, m_in_process_on = $2 WHERE m_id = $1 AND m_created_on >= $3',
-    [messageId, Math.floor(Date.now() / 1000), expiryCutoff()],
+    `UPDATE js_message SET m_status = 6, m_in_process_on = $2
+      WHERE m_id = $1 AND m_created_on >= ${expirySql('(SELECT u_msg_expiry_hours FROM js_user WHERE u_id = m_user_id)', '$2', '$3')}`,
+    [messageId, Math.floor(Date.now() / 1000), config.messageExpiry],
   );
   if (!claimed) return false; // expired — never re-sent
   return (await sendPending(messageId)) > 0;
@@ -134,10 +151,11 @@ export async function claimAndSend(userId: number, since: number, batch: number)
     `UPDATE js_message SET m_status = 6, m_in_process_on = $3
       WHERE m_id IN (
         SELECT m_id FROM js_message
-         WHERE m_user_id = $1 AND m_is_incoming = 2 AND m_status = 1 AND m_dstatus = 0 AND m_created_on >= $2
+         WHERE m_user_id = $1 AND m_is_incoming = 2 AND m_status = 1 AND m_dstatus = 0
+           AND m_created_on >= GREATEST($2::int, ${expirySql('(SELECT u_msg_expiry_hours FROM js_user WHERE u_id = $1)', '$3', '$5')})
          ORDER BY m_id LIMIT $4 FOR UPDATE SKIP LOCKED)
       RETURNING *`,
-    [userId, Math.max(since, expiryCutoff()), Math.floor(Date.now() / 1000), batch],
+    [userId, since, Math.floor(Date.now() / 1000), batch, config.messageExpiry],
   );
   rows.sort((a, b) => a.m_id - b.m_id);
   return sendRows(rows);

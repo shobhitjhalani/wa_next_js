@@ -5,7 +5,7 @@
 import { readdir, rm, stat, unlink } from 'node:fs/promises';
 import path from 'node:path';
 import { config } from '@/lib/config';
-import { exec, query } from '@/lib/db';
+import { exec, query, value } from '@/lib/db';
 import { messagePreview } from '@/lib/format';
 import { limit } from '@/lib/text';
 import { addDays, dayStart, now, phpDate } from '@/lib/time';
@@ -15,7 +15,7 @@ import { sendMail } from '@/lib/services/mailer';
 import { expirePlans as expireUserPlans } from '@/lib/services/plans';
 import { adminReportHtml, userReportHtml } from '@/lib/services/report-mail';
 import { adminSummary, userTemplateReport } from '@/lib/services/reports';
-import { claimAndSend, expiryCutoff, inSendWindow, mapLimit } from '@/lib/services/sender';
+import { claimAndSend, expirySql, inSendWindow, mapLimit } from '@/lib/services/sender';
 import { refreshSendSettings } from '@/lib/services/settings';
 import { processStatusQueue } from '@/lib/services/webhook';
 
@@ -28,17 +28,17 @@ export async function sendQueue(opts: { user?: number; force?: boolean } = {}, l
     log('Outside sending window.');
     return 0;
   }
-  // Never older than WA_MSG_EXPIRY (24h): expired messages are not sent
-  const queFrom = Math.max(dayStart() - config.queTime, expiryCutoff());
+  // Expired messages (default hours in Settings → Sending Limits, or the user's own) are never sent
+  const queFrom = dayStart() - config.queTime;
   // Only users that actually have queued messages (partial index on the queue)
   const users = await query<{ u_id: number }>(
     `SELECT u.u_id FROM js_user u
       WHERE u.u_dstatus = 0 AND u.u_type = $1 AND u.u_status = 1 AND u.u_wa_plan_status = 1
         AND ($3::int IS NULL OR u.u_id = $3)
         AND EXISTS (SELECT 1 FROM js_message m WHERE m.m_user_id = u.u_id AND m.m_status = 1 AND m.m_is_incoming = 2
-                      AND m.m_dstatus = 0 AND m.m_created_on >= $2)
+                      AND m.m_dstatus = 0 AND m.m_created_on >= GREATEST($2::int, ${expirySql('u.u_msg_expiry_hours', '$4', '$5')}))
       ORDER BY u.u_id`,
-    [USER_TYPE.WHATSAPP, queFrom, opts.user ?? null],
+    [USER_TYPE.WHATSAPP, queFrom, opts.user ?? null, now(), config.messageExpiry],
   );
   let sent = 0;
   // Accounts in parallel (each has its own phone number / rate limit), batch per account per run like the legacy cron
@@ -70,14 +70,23 @@ export async function expirePlans(log: Log = console.log): Promise<void> {
   log(`${await expireUserPlans()} user(s) expired.`);
 }
 
-/** wa:expire-messages — queued / processing messages older than WA_MSG_EXPIRY (24h) are system-cancelled (status 5), never sent. */
+/**
+ * wa:expire-messages — queued / processing messages older than the expiry (Settings → Sending Limits, or the
+ * user's own hours) are system-cancelled (status 5), never sent.
+ */
 export async function expireMessages(log: Log = console.log): Promise<number> {
+  await refreshSendSettings();
+  const t = now();
+  // Cheap pre-filter on the shortest possible expiry, then the exact per-user cutoff
+  const shortest = Math.min(config.messageExpiry, 3600 * Math.max(1, Number(await value<number>(
+    'SELECT MIN(u_msg_expiry_hours) FROM js_user WHERE u_msg_expiry_hours > 0 AND u_dstatus = 0')) || Infinity));
   const expired = await exec(
-    `UPDATE js_message SET m_status = 5, m_updated_on = $2
-      WHERE m_is_incoming = 2 AND m_dstatus = 0 AND m_status IN (1, 2, 6) AND m_created_on < $1`,
-    [expiryCutoff(), now()],
+    `UPDATE js_message m SET m_status = 5, m_updated_on = $2
+      WHERE m.m_is_incoming = 2 AND m.m_dstatus = 0 AND m.m_status IN (1, 2, 6) AND m.m_created_on < $1
+        AND m.m_created_on < ${expirySql('(SELECT u_msg_expiry_hours FROM js_user WHERE u_id = m.m_user_id)', '$2', '$3')}`,
+    [t - shortest, t, config.messageExpiry],
   );
-  log(`${expired} message(s) expired (older than ${Math.round(config.messageExpiry / 3600)}h).`);
+  log(`${expired} message(s) expired (default ${Math.round(config.messageExpiry / 3600)}h).`);
   return expired;
 }
 

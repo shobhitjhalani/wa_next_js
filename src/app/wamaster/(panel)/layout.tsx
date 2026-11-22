@@ -59,7 +59,13 @@ export default async function AdminLayout({ children }: { children: React.ReactN
         ...(me.isSuperAdmin ? [{ label: 'Pages', href: '/wamaster/fb_posts/pages' }] : []),
       ],
     } satisfies MenuItem] : []),
-    ...(me.isSuperAdmin ? [{ label: 'Meta Lead Ads', icon: 'ri-megaphone-line', href: '/wamaster/meta_leads' } satisfies MenuItem] : []),
+    ...(me.isSuperAdmin ? [{
+      label: 'Meta Lead Ads', icon: 'ri-megaphone-line', match: ['/wamaster/meta_leads'], children: [
+        { label: 'Facebook Leads', href: '/wamaster/meta_leads/leads' },
+        { label: 'Lead Pages', href: '/wamaster/meta_leads/pages' },
+        { label: 'Lead Ads', href: '/wamaster/meta_leads', exact: true },
+      ],
+    } satisfies MenuItem] : []),
     ...(access.can('media_library') ? [{ label: 'Media Library', icon: 'ri-folder-image-line', href: '/wamaster/media' } satisfies MenuItem] : []),
     // Super admins only
     ...(me.isSuperAdmin ? [{

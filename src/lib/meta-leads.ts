@@ -330,7 +330,7 @@ export interface LeadClient { userId: number; country: string; assignee: number 
 
 export interface SaveInput {
   userId: number; lead: MappedLead; meta: {
-    leadgenId: string; formId: string; formName: string; adId: string; adName: string; campaignId: string; campaignName: string;
+    leadgenId: string; pageId: string; formId: string; formName: string; adId: string; adName: string; campaignId: string; campaignName: string;
     platform: string; createdTime: string; isOrganic: boolean;
   };
   assignee: number; activity: string;
@@ -348,7 +348,7 @@ export type EventResult = { status: 'synced'; leadId: number; duplicate: boolean
 /** Resolve the client, read the lead from Meta, map it and save it (the caller records the result / failure). */
 export async function processLeadgen(ev: { leadgen_id: string; page_id: string; form_id: string }, deps: EventDeps): Promise<EventResult> {
   const client = await deps.clientForPage(ev.page_id);
-  if (!client) return { status: 'ignored', reason: `No active Meta Lead Ads client uses Page ${ev.page_id}.` };
+  if (!client) return { status: 'ignored', reason: `No client is assigned to Page ${ev.page_id} (Meta Lead Ads → Lead Pages).` };
   const data = await deps.fetchLead(ev.leadgen_id, ev.page_id);
   const lead = mapLead(flattenFieldData(data.field_data), client.country);
   const formId = String(data.form_id || ev.form_id || '');
@@ -358,7 +358,7 @@ export async function processLeadgen(ev: { leadgen_id: string; page_id: string; 
     userId: client.userId, lead, assignee: client.assignee,
     activity: `Lead from Meta form ${formName || formId || '(unknown form)'}${adName ? ` via ad ${adName}` : data.is_organic ? ' (organic, not from an ad)' : ''}`,
     meta: {
-      leadgenId: ev.leadgen_id, formId, formName, adId: String(data.ad_id ?? ''), adName,
+      leadgenId: ev.leadgen_id, pageId: ev.page_id, formId, formName, adId: String(data.ad_id ?? ''), adName,
       campaignId: String(data.campaign_id ?? ''), campaignName: String(data.campaign_name ?? ''),
       platform: data.platform === 'ig' ? 'ig' : 'fb', createdTime: String(data.created_time ?? ''), isOrganic: !!data.is_organic,
     },

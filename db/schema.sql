@@ -1294,3 +1294,25 @@ UPDATE js_master_heading SET mh_status = 1 WHERE mh_id = 103 AND mh_status = 2;
 -- Default: Settings → Sending Limits (wa_settings 'msg_expiry_hours', .env WA_MSG_EXPIRY seconds before that).
 -- js_user.u_msg_expiry_hours: per-account override set by a super admin on the user page (NULL = the default).
 ALTER TABLE js_user ADD COLUMN IF NOT EXISTS u_msg_expiry_hours integer;
+
+-- ------------------------------------------------------------ Facebook Pages whose leads go to a client (admin)
+
+-- Admin → Meta Lead Ads → Lead Pages: any Page the Meta token can reach, assigned to a client (several Pages per client).
+-- Its leadgen webhook leads land in that client's Leads CRM; the admin sees all of them on Facebook Leads.
+-- lp_user_id 0 = not assigned yet: its leads wait as 'ignored' events and are filed when a client is chosen.
+CREATE TABLE IF NOT EXISTS js_meta_lead_page (
+  lp_page_id text PRIMARY KEY,
+  lp_name text NOT NULL DEFAULT '',
+  lp_user_id integer NOT NULL DEFAULT 0,
+  lp_is_active smallint NOT NULL DEFAULT 1,
+  lp_subscribed smallint NOT NULL DEFAULT 0,      -- leadgen webhook subscribed for our app
+  lp_error text NOT NULL DEFAULT '',
+  lp_emp_id integer NOT NULL DEFAULT 0,
+  lp_created_on integer NOT NULL DEFAULT 0,
+  lp_updated_on integer NOT NULL DEFAULT 0
+);
+CREATE INDEX IF NOT EXISTS js_meta_lead_page_user_idx ON js_meta_lead_page (lp_user_id);
+-- The Page a Meta lead came from (admin Facebook Leads filter)
+ALTER TABLE js_crm_lead ADD COLUMN IF NOT EXISTS ld_meta_page_id text NOT NULL DEFAULT '';
+CREATE INDEX IF NOT EXISTS js_crm_lead_fb_idx ON js_crm_lead (ld_created_on DESC) WHERE ld_source IN ('meta_lead_ad', 'facebook', 'instagram') OR ld_meta_form_id <> '';
+CREATE INDEX IF NOT EXISTS js_meta_events_page_idx ON js_meta_lead_events (me_page_id, me_status);

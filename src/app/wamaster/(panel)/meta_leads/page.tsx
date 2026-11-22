@@ -14,6 +14,7 @@ import { AccordionCard } from '../fb_posts/Forms';
 import { activateAd, createAd, createAds, deleteClient, retryAllEvents, retryEvent } from './actions';
 import { BulkCreate, CopyText, TemplateForm } from './Forms';
 import { STATUS_BADGE } from './options';
+import { MetaLeadsTabs } from './Tabs';
 
 export const metadata: Metadata = { title: 'Meta Lead Ads' };
 
@@ -68,6 +69,7 @@ export default async function MetaLeadsPage() {
   return (
     <>
       <PageTitle title="Meta Lead Ads" home="/wamaster/dashboard" />
+      <MetaLeadsTabs tab="ads" />
       <div className="row">
         <div className="col-xl-4">
           <div className="card">

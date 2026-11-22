@@ -55,7 +55,7 @@ export interface LeadInput {
   /** Team member (js_user_member id) a new lead is assigned to; an existing lead keeps its member. */
   assignedMember?: number;
   /** Meta Lead Ads details (js_crm_lead.ld_meta_*), filled on a new lead and where empty on an existing one. */
-  meta?: { formId: string; formName: string; adId: string; adName: string; campaignId: string; campaignName: string; platform: string; phoneE164: string };
+  meta?: { pageId?: string; formId: string; formName: string; adId: string; adName: string; campaignId: string; campaignName: string; platform: string; phoneE164: string };
   /** History note instead of "Lead received from ...". */
   activity?: string;
 }
@@ -133,7 +133,7 @@ export async function saveLead(userId: number, input: LeadInput, via: string): P
 async function fillMeta(id: number, input: LeadInput, onlyEmpty: boolean, db: Queryable): Promise<void> {
   const m = input.meta;
   const cols: [string, unknown][] = [
-    ['ld_meta_form_id', m?.formId], ['ld_meta_form_name', m?.formName], ['ld_meta_ad_id', m?.adId], ['ld_meta_ad_name', m?.adName],
+    ['ld_meta_page_id', m?.pageId], ['ld_meta_form_id', m?.formId], ['ld_meta_form_name', m?.formName], ['ld_meta_ad_id', m?.adId], ['ld_meta_ad_name', m?.adName],
     ['ld_meta_campaign_id', m?.campaignId], ['ld_meta_campaign_name', m?.campaignName], ['ld_platform', m?.platform], ['ld_phone_e164', m?.phoneE164],
   ];
   const sets: string[] = [];

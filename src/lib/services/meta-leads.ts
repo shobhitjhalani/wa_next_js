@@ -232,10 +232,17 @@ async function readLead(g: Graph, leadgenId: string, pageId: string): Promise<Me
 function deps(g: Graph) {
   return {
     clientForPage: async (pageId: string) => {
-      const c = await one<{ mc_user_id: number; mc_country_code: string; mc_assignee: number }>(
-        `SELECT c.mc_user_id, c.mc_country_code, c.mc_assignee FROM js_meta_client_config c JOIN js_user u ON u.u_id = c.mc_user_id AND u.u_dstatus = 0
-          WHERE c.mc_page_id = $1 AND c.mc_is_active = 1 ORDER BY c.mc_user_id LIMIT 1`, [pageId]);
-      return c ? { userId: c.mc_user_id, country: c.mc_country_code || 'IN', assignee: c.mc_assignee } : null;
+      // A Page assigned on Lead Pages first, else the Page of a client's common lead ad
+      const c = await one<{ user_id: number; country: string | null; assignee: number | null }>(
+        `SELECT p.lp_user_id AS user_id, c.mc_country_code AS country, c.mc_assignee AS assignee
+           FROM js_meta_lead_page p JOIN js_user u ON u.u_id = p.lp_user_id AND u.u_dstatus = 0
+           LEFT JOIN js_meta_client_config c ON c.mc_user_id = p.lp_user_id
+          WHERE p.lp_page_id = $1 AND p.lp_is_active = 1 AND p.lp_user_id > 0
+         UNION ALL
+         (SELECT c.mc_user_id, c.mc_country_code, c.mc_assignee FROM js_meta_client_config c JOIN js_user u ON u.u_id = c.mc_user_id AND u.u_dstatus = 0
+           WHERE c.mc_page_id = $1 AND c.mc_is_active = 1 ORDER BY c.mc_user_id LIMIT 1)
+         LIMIT 1`, [pageId]);
+      return c ? { userId: c.user_id, country: c.country || 'IN', assignee: Number(c.assignee) || 0 } : null;
     },
     fetchLead: (id: string, pageId: string) => readLead(g, id, pageId),
     formName: async (formId: string, pageId: string) => {
@@ -329,8 +336,32 @@ export async function backfillLeads(jobLog: (m: string) => void = () => {}): Pro
        JOIN js_meta_client_config c ON c.mc_user_id = a.ma_user_id AND c.mc_is_active = 1
        LEFT JOIN js_meta_form_sync s ON s.fs_form_id = a.ma_form_id
       WHERE a.ma_form_id <> '' ORDER BY a.ma_form_id, a.ma_id DESC`);
-  if (!forms.length) return 0;
   const g = await graph();
+  // Every lead form of the Pages assigned on Lead Pages (leads since the Page was added)
+  const pages = await query<{ lp_page_id: string; lp_created_on: number }>(
+    'SELECT lp_page_id, lp_created_on FROM js_meta_lead_page WHERE lp_is_active = 1 AND lp_user_id > 0');
+  const seen = new Set(forms.map((f) => f.form_id));
+  for (const p of pages) {
+    try {
+      const list = await graphList<{ id: string }>(g, `${p.lp_page_id}/leadgen_forms`, { fields: 'id', limit: 100 }, 500, await pageToken(g, p.lp_page_id));
+      const ids = list.map((f) => String(f.id)).filter((id) => !seen.has(id));
+      if (!ids.length) continue;
+      const synced = new Map((await query<{ fs_form_id: string; fs_last_sync: number }>(
+        'SELECT fs_form_id, fs_last_sync FROM js_meta_form_sync WHERE fs_form_id = ANY($1::text[])', [ids])).map((r) => [r.fs_form_id, r.fs_last_sync]));
+      for (const id of ids) {
+        seen.add(id);
+        forms.push({ form_id: id, page_id: p.lp_page_id, created: p.lp_created_on + 3600, last_sync: synced.get(id) ?? null });
+      }
+      if (await value('SELECT 1 FROM js_meta_lead_page WHERE lp_page_id = $1 AND lp_error <> \'\'', [p.lp_page_id])) {
+        await exec("UPDATE js_meta_lead_page SET lp_error = '' WHERE lp_page_id = $1", [p.lp_page_id]);
+      }
+    } catch (e) {
+      const msg = (e instanceof MetaError ? e.describe() : (e as Error).message).slice(0, 500);
+      await exec('UPDATE js_meta_lead_page SET lp_error = $2 WHERE lp_page_id = $1', [p.lp_page_id, `Lead forms: ${msg}`]);
+      jobLog(`meta-leads-backfill: Page ${p.lp_page_id} forms failed: ${msg.slice(0, 200)}`);
+    }
+  }
+  if (!forms.length) return 0;
   let found = 0;
   for (const f of forms) {
     const since = f.last_sync ?? Math.max(0, f.created - 3600);

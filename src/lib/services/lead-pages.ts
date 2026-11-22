@@ -69,7 +69,13 @@ export async function subscribePage(pageId: string): Promise<string> {
     const ok = (subs.data ?? []).some((a) => (!config.metaAds.appId || String(a.id) === String(config.metaAds.appId)) && (a.subscribed_fields ?? []).includes('leadgen'));
     return ok ? '' : 'Meta did not confirm the leadgen subscription for our app.';
   } catch (e) {
-    return describe(e);
+    const msg = describe(e);
+    // The Page token only has the scopes the System User token was generated with
+    const perm = /permissions? (is|are)? ?needed:?\s*([a-z_, ]+)/i.exec(msg)?.[2]?.trim()
+      ?? (/\(#(10|200)\)/.test(msg) ? 'leads_retrieval, pages_manage_metadata' : '');
+    return perm
+      ? `${msg} — Fix in Meta Business Settings → System Users: generate a new token for our app with ${perm} (plus pages_show_list, pages_read_engagement, ads_read), make sure the System User is assigned to this Page, then paste the token in Settings → Meta Lead Ads Keys and click Connect again.`
+      : msg;
   }
 }
 

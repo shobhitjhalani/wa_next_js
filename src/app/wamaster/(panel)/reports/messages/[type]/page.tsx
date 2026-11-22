@@ -1,5 +1,6 @@
 import { notFound } from 'next/navigation';
 import { failureHelp, NO_REASON } from '@/lib/wa-errors';
+import { FilterSelect } from '@/components/FilterSelect';
 import { MESSAGE_REPORTS as MESSAGE_RIGHT, requireRight, visibleUserIds } from '@/lib/admin-access';
 import { config } from '@/lib/config';
 import { one, query, value } from '@/lib/db';
@@ -14,7 +15,6 @@ import { tableState } from '@/lib/datatable';
 import { ConfirmButton, DateRangeInput, SelectAll } from '@/components/ui';
 import { bulkMessages } from '../actions';
 import { dateInput, filled, input, intParam, MESSAGE_REPORTS, MESSAGE_SORTS, messageTableOrder, messageWhere, waUsers, type MessageSort, type Params } from '../../_lib';
-import { AutoSubmitSelect } from '../../_ui';
 
 const COLS = `m_id, m_user_id, m_created_on, m_in_process_on, m_mobile_no, m_msg_type, m_content, m_msg_template_name,
   m_msg_template_para, m_sheet_id, m_updated_on, m_status, m_message_id, m_delivery_status, m_status_response`;
@@ -133,17 +133,13 @@ export default async function MessageReportPage({ params, searchParams }: { para
             {reasonFilter && <input type="hidden" name="reason" value={reasonFilter} />}
             <div className="col-md-2"><DateRangeInput name="wa_date" defaultValue={dtInput} placeholder="Date range" /></div>
             <div className="col-md-2">
-              <AutoSubmitSelect className="form-select" name="user_id" defaultValue={userId} aria-label="User">
-                <option value="">All users</option>
-                {users.map((u) => <option key={u.u_id} value={String(u.u_id)}>{u.u_username}</option>)}
-              </AutoSubmitSelect>
+              <FilterSelect name="user_id" defaultValue={userId} autoSubmit placeholder="All users" searchPlaceholder="Search user…"
+                options={[{ value: '', label: 'All users' }, ...users.map((u) => ({ value: String(u.u_id), label: u.u_username || `#${u.u_id}` }))]} />
             </div>
             <div className="col-md-2">
-              <select className="form-select" name="template" defaultValue={template} aria-label="Template">
-                <option value="">All templates</option>
-                <option value="-1">Non Template</option>
-                {templateNames.map((t, i) => <option key={i} value={t.ut_name}>{t.ut_name}</option>)}
-              </select>
+              <FilterSelect name="template" defaultValue={template} placeholder="All templates" searchPlaceholder="Search template…"
+                options={[{ value: '', label: 'All templates' }, { value: '-1', label: 'Non Template' },
+                  ...[...new Set(templateNames.map((t) => t.ut_name).filter(Boolean))].map((n) => ({ value: n, label: n }))]} />
             </div>
             <div className="col-md-2"><input type="text" className="form-control" name="mobile_no" defaultValue={input(sp, 'mobile_no') ?? ''} placeholder="Mobile No" aria-label="Mobile number" /></div>
             <div className="col-md-2"><input type="text" className="form-control" name="sheet_id" defaultValue={input(sp, 'sheet_id') ?? ''} placeholder="Sheet ID" aria-label="Sheet ID" /></div>

@@ -153,6 +153,9 @@
 .search-select-list li { display: flex; align-items: center; gap: .5rem; padding: .45rem .9rem; cursor: pointer; }
 .search-select-list li.active { background: var(--bs-tertiary-bg, #f3f6f9); }
 .search-select-list li.selected { font-weight: 600; color: var(--bs-success, #0ab39c); }
+/* Filter bars: the list can be wider than a narrow column (long template names) */
+.filter-select .search-select-panel { min-width: max(100%, 280px); right: auto; max-width: max(100%, min(420px, 90vw)); }
+.filter-select .search-select-list li .text-truncate { white-space: normal; word-break: break-word; }
 .search-select-list .search-select-empty { color: var(--bs-secondary-color, #878a99); cursor: default; }
 /* Reply quote: the message a customer replied to / the template whose button they tapped */
 .bubble-quote { display: block; width: 100%; text-align: left; border: 0; margin: -.1rem 0 .35rem; padding: .3rem .5rem; border-radius: .4rem; background: rgba(0, 0, 0, .05); border-left: 4px solid #06cf9c; font-size: .8rem; line-height: 1.3; cursor: pointer; }

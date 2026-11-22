@@ -1,5 +1,6 @@
 import Link from 'next/link';
 import { RECHARGE_REPORTS, requireRight, visibleUserIds } from '@/lib/admin-access';
+import { FilterSelect } from '@/components/FilterSelect';
 import { config } from '@/lib/config';
 import { one, query } from '@/lib/db';
 import { masterOptions } from '@/lib/models';
@@ -76,10 +77,8 @@ export default async function RechargesPage({ searchParams }: { searchParams: Pr
           <form method="get" className="row g-2 align-items-center filter-bar">
             <div className="col-md-3"><DateRangeInput name="wa_date" defaultValue={input(sp, 'wa_date') ?? ''} placeholder="Date range" /></div>
             <div className="col-md-3">
-              <select className="form-select" name="user_id" defaultValue={input(sp, 'user_id') ?? ''} aria-label="User">
-                <option value="">All users</option>
-                {allUsers.map((u) => <option key={u.u_id} value={String(u.u_id)}>{u.u_username}</option>)}
-              </select>
+              <FilterSelect name="user_id" defaultValue={input(sp, 'user_id') ?? ''} placeholder="All users" searchPlaceholder="Search user…"
+                options={[{ value: '', label: 'All users' }, ...allUsers.map((u) => ({ value: String(u.u_id), label: u.u_username || `#${u.u_id}` }))]} />
             </div>
             <div className="col-auto"><button className="btn btn-secondary">Search</button></div>
           </form>

@@ -8,6 +8,9 @@ import { useEffect, useId, useMemo, useRef, useState, type KeyboardEvent } from 
  * through a hidden input when `name` is set.
  */
 
+/** Long lists render the first matches only (typing narrows them) */
+const MAX_SHOWN = 300;
+
 export interface SearchOption { value: string; label: string }
 
 export function SearchSelect({ id, name, options, value, onChange, placeholder = 'Select', searchPlaceholder = 'Search…', emptyText = 'No matches', disabled, required }: {
@@ -63,7 +66,7 @@ export function SearchSelect({ id, name, options, value, onChange, placeholder =
     if (o.value !== value) onChange(o.value);
   }
   function onKey(e: KeyboardEvent) {
-    if (e.key === 'ArrowDown') { e.preventDefault(); setActive((a) => Math.min(a + 1, shown.length - 1)); }
+    if (e.key === 'ArrowDown') { e.preventDefault(); setActive((a) => Math.min(a + 1, Math.min(shown.length, MAX_SHOWN) - 1)); }
     else if (e.key === 'ArrowUp') { e.preventDefault(); setActive((a) => Math.max(a - 1, 0)); }
     else if (e.key === 'Enter') { e.preventDefault(); choose(shown[active]); }
     else if (e.key === 'Escape') { e.preventDefault(); e.stopPropagation(); setOpen(false); button.current?.focus(); }
@@ -93,7 +96,7 @@ export function SearchSelect({ id, name, options, value, onChange, placeholder =
             />
           </div>
           <ul className="search-select-list" role="listbox" id={listId} ref={list}>
-            {shown.map((o, i) => (
+            {shown.slice(0, MAX_SHOWN).map((o, i) => (
               <li
                 key={o.value} id={`${listId}_${i}`} data-index={i} role="option" aria-selected={o.value === value}
                 className={`${i === active ? 'active' : ''}${o.value === value ? ' selected' : ''}`}
@@ -103,6 +106,7 @@ export function SearchSelect({ id, name, options, value, onChange, placeholder =
                 {o.value === value && <i className="ri-check-line ms-auto" aria-hidden="true" />}
               </li>
             ))}
+            {shown.length > MAX_SHOWN && <li className="search-select-empty" aria-disabled="true">{shown.length - MAX_SHOWN} more: type to narrow</li>}
             {!shown.length && <li className="search-select-empty" aria-disabled="true">{emptyText}</li>}
           </ul>
         </div>

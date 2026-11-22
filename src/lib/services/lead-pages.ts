@@ -4,6 +4,7 @@ import { exec, query } from '../db';
 import { createGraph, getPageToken, graphList, MetaError, type Graph } from '../meta-graph';
 import { now } from '../time';
 import { systemToken } from './meta-leads';
+import { refreshGraphVersions } from './graph-version';
 
 /**
  * Admin → Meta Lead Ads → Lead Pages: Facebook Pages whose leads go to a client's Leads CRM (several per client).
@@ -14,6 +15,7 @@ import { systemToken } from './meta-leads';
 export interface TokenPage { id: string; name: string; category: string; token: string }
 
 async function graph(): Promise<Graph> {
+  await refreshGraphVersions();
   return createGraph({ baseUrl: config.metaAds.graphUrl, token: await systemToken() });
 }
 

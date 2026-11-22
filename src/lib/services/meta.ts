@@ -2,6 +2,7 @@ import 'server-only';
 import { config } from '../config';
 import { query, value } from '../db';
 import type { UserRow } from '../types';
+import { refreshGraphVersions } from './graph-version';
 
 /**
  * Thin wrapper over the WhatsApp Cloud (Graph) API (port of
@@ -43,6 +44,7 @@ export function forgetMetaToken(): void {
 }
 
 async function call(method: 'GET' | 'POST', path: string, data: Record<string, unknown> = {}, timeoutMs = 60_000): Promise<MetaResponse> {
+  await refreshGraphVersions(); // Settings → Graph API
   let target = path.startsWith('http') ? path : config.meta.apiUrl + path.replace(/^\/+/, '');
   const token = await metaToken();
   if (!token) {

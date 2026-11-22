@@ -72,6 +72,7 @@ export default async function AdminLayout({ children }: { children: React.ReactN
       label: 'Settings', icon: 'ri-settings-3-line', match: ['/wamaster/settings', '/wamaster/backups', '/wamaster/activity'], children: [
         { label: 'Sending Limits', href: '/wamaster/settings', exact: true },
         { label: 'WhatsApp Token', href: '/wamaster/settings/whatsapp' },
+        { label: 'Graph API', href: '/wamaster/settings/graph' },
         { label: 'Meta Lead Ads Keys', href: '/wamaster/settings/meta' },
         { label: 'Database Backups', href: '/wamaster/backups' },
         { label: 'Activity Log', href: '/wamaster/activity' },

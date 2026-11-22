@@ -6,10 +6,12 @@ import { config } from '@/lib/config';
 import { createGraph, MetaError } from '@/lib/meta-graph';
 import { META_KEYS, saveMetaSettings, type MetaKey } from '@/lib/services/meta-settings';
 import { forgetMetaToken, signupIds, waToken } from '@/lib/services/meta';
+import { systemToken } from '@/lib/services/meta-leads';
 import { exec } from '@/lib/db';
 import { logActivity } from '@/lib/activity';
 import { requireAdminCan } from '@/lib/auth';
 import { resetSendSettings, saveSendSettings, validSendSettings } from '@/lib/services/settings';
+import { GRAPH_SERVICES, refreshGraphVersions, saveGraphVersions, urlWithVersion, VERSION_RE, type GraphService } from '@/lib/services/graph-version';
 
 /** Save the sending limits (super admin). */
 export async function saveSendLimits(form: FormData): Promise<void> {
@@ -62,6 +64,7 @@ export async function saveMetaKeys(_prev: ActionResult | null, fd: FormData): Pr
   // Check a new token with Meta (who it belongs to); it is saved either way
   let check = '';
   if (token) {
+    await refreshGraphVersions();
     try {
       const who = await createGraph({ baseUrl: config.metaAds.graphUrl, token, retries: 0 }).get<{ id?: string; name?: string }>('me', { fields: 'id,name' });
       check = ` Meta accepted the token: it belongs to “${who.name ?? who.id}”.`;
@@ -86,6 +89,7 @@ export async function saveWaToken(_prev: ActionResult | null, fd: FormData): Pro
   if (old.value === token) return ok('This is already the token in use; nothing changed.');
 
   let check = '';
+  await refreshGraphVersions();
   try {
     const res = await fetch(`${config.meta.apiUrl}me?fields=id,name`, { headers: { Authorization: `Bearer ${token}` }, signal: AbortSignal.timeout(15_000) });
     const body = await res.json().catch(() => ({})) as { id?: string; name?: string; error?: { message?: string; code?: number } };
@@ -131,4 +135,46 @@ export async function saveSignupIds(_prev: ActionResult | null, fd: FormData): P
   ] });
   revalidatePath('/wamaster/settings/whatsapp');
   return ok('Embedded Signup IDs saved: the user dashboard uses them at once.');
+}
+
+/**
+ * Graph API versions (super admin). Each typed version is first tried with Meta (GET /me with the matching token):
+ * a version Meta does not know is refused; an empty field goes back to the server default.
+ */
+export async function saveGraphVersionsAction(_prev: ActionResult | null, fd: FormData): Promise<ActionResult> {
+  const me = await requireAdminCan('super');
+  const values = {} as Record<GraphService, string>;
+  const errors: Record<string, string> = {};
+  for (const k of Object.keys(GRAPH_SERVICES) as GraphService[]) {
+    const v = fStr(fd, `graph_${k}`).trim().toLowerCase().replace(/^(\d)/, 'v$1');
+    if (v && !VERSION_RE.test(v)) errors[`graph_${k}`] = 'Write it like v25.0';
+    values[k] = v;
+  }
+  if (Object.keys(errors).length) return invalid(errors);
+
+  // Ask Meta whether it knows the version (an unknown / expired version answers with an error about the version)
+  const tokens = { app: (await waToken()).value, leads: await systemToken() };
+  const notes: string[] = [];
+  for (const k of ['app', 'leads'] as const) {
+    if (!values[k] || !tokens[k]) continue;
+    try {
+      const res = await fetch(`${urlWithVersion(k, values[k])}me?fields=id`, { headers: { Authorization: `Bearer ${tokens[k]}` }, signal: AbortSignal.timeout(15_000) });
+      const body = await res.json().catch(() => ({})) as { error?: { message?: string; code?: number } };
+      const msg = String(body.error?.message ?? '');
+      if (body.error && /version|unknown path components/i.test(msg)) errors[`graph_${k}`] = `Meta refused ${values[k]}: ${msg}`;
+      else if (body.error) notes.push(`${GRAPH_SERVICES[k].label}: Meta answered “${msg}” (not about the version)`);
+    } catch {
+      notes.push(`${GRAPH_SERVICES[k].label}: could not reach Meta to check ${values[k]}`);
+    }
+  }
+  if (Object.keys(errors).length) return invalid(errors);
+
+  await saveGraphVersions(values, me.emp_id);
+  forgetMetaToken();
+  await logActivity({
+    module: 'settings', action: 'Changed Graph API versions',
+    details: (Object.keys(GRAPH_SERVICES) as GraphService[]).map((k) => `${GRAPH_SERVICES[k].label}: ${values[k] || 'default'}`),
+  });
+  revalidatePath('/wamaster/settings/graph');
+  return ok(`Saved. The app and the worker use them within 30 seconds.${notes.length ? ` ${notes.join('; ')}.` : ''}`);
 }

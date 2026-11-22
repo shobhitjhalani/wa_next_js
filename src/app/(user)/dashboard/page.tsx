@@ -16,6 +16,7 @@ import { addDays, dayStart, parseDateRange, phpDate, todayString } from '@/lib/t
 import { WhatsAppSignup } from './WhatsAppSignup';
 import { MetaLimitCard, MetaLimitLoading } from './MetaLimitCard';
 import { signupIds } from '@/lib/services/meta';
+import { sdkVersion } from '@/lib/services/graph-version';
 
 export const metadata: Metadata = { title: 'Dashboard' };
 
@@ -88,7 +89,7 @@ export default async function DashboardPage({ searchParams }: { searchParams: Pa
   const templateReport = buildMatrix(data, ['Que', 'Error']);
   const messagesLeft = msgLimit > 0 ? Math.max(0, msgLimit - (sentTotal ?? 0)) : null;
   const activePlan = Number(user.u_wa_plan_status) === 1;
-  const signup = !user.u_wa_phone_id || !user.u_wa_b_id ? await signupIds() : null;
+  const signup = !user.u_wa_phone_id || !user.u_wa_b_id ? { ...(await signupIds()), sdk: await sdkVersion() } : null;
 
   return (
     <>
@@ -122,7 +123,7 @@ export default async function DashboardPage({ searchParams }: { searchParams: Pa
                       <div>WABA ID: <b>{user.u_wa_b_id || <span className="text-danger">missing</span>}</b></div>
                     </div>
                   )}
-                  <WhatsAppSignup appId={signup.appId} configId={signup.configId} coexistence={Number(user.u_wa_coexistence) === 1} />
+                  <WhatsAppSignup appId={signup.appId} configId={signup.configId} version={signup.sdk} coexistence={Number(user.u_wa_coexistence) === 1} />
                 </>
               ) : (
                 <div className="small lh-lg">

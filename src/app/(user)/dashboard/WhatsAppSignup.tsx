@@ -17,7 +17,7 @@ type State = { kind: 'idle' | 'open' | 'saving' | 'error' | 'cancel'; text?: str
  * finishes, stores the phone number / WABA / business ids via POST /user_update (which registers the number and
  * subscribes the app), then reloads the dashboard. `coexistence` onboards an existing WhatsApp Business App number.
  */
-export function WhatsAppSignup({ appId, configId, coexistence: preferCoexistence }: { appId: string; configId: string; coexistence: boolean }) {
+export function WhatsAppSignup({ appId, configId, version = 'v27.0', coexistence: preferCoexistence }: { appId: string; configId: string; version?: string; coexistence: boolean }) {
   const [ready, setReady] = useState(false);
   const [state, setState] = useState<State>({ kind: 'idle' });
   // Which flow was opened last (the FINISH message does not always say)
@@ -25,7 +25,7 @@ export function WhatsAppSignup({ appId, configId, coexistence: preferCoexistence
 
   useEffect(() => {
     window.fbAsyncInit = () => {
-      window.FB.init({ appId, autoLogAppEvents: true, xfbml: true, version: 'v27.0' });
+      window.FB.init({ appId, autoLogAppEvents: true, xfbml: true, version });
       setReady(true);
     };
     // The SDK may already be loaded (client-side navigation back to the dashboard)
@@ -61,7 +61,7 @@ export function WhatsAppSignup({ appId, configId, coexistence: preferCoexistence
     };
     window.addEventListener('message', onMessage);
     return () => window.removeEventListener('message', onMessage);
-  }, [appId]);
+  }, [appId, version]);
 
   const launch = (coexistence: boolean) => {
     if (!window.FB) return;

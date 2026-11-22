@@ -4,8 +4,8 @@ import { config, url } from '@/lib/config';
 import { META_KEYS, metaSettingsStatus, type MetaKey } from '@/lib/services/meta-settings';
 import { MetaKeysForm, type KeyStatus } from './MetaKeysForm';
 
-/** Sending Limits | Meta Lead Ads Keys | WhatsApp Token. */
-export function SettingsTabs({ tab }: { tab: 'limits' | 'meta' | 'whatsapp' }) {
+/** Sending Limits | Meta Lead Ads Keys | WhatsApp Token | Graph API. */
+export function SettingsTabs({ tab }: { tab: 'limits' | 'meta' | 'whatsapp' | 'graph' }) {
   return (
     <ul className="nav nav-tabs nav-tabs-custom mb-3">
       {TABS.map(([key, icon, label]) => (
@@ -17,7 +17,7 @@ export function SettingsTabs({ tab }: { tab: 'limits' | 'meta' | 'whatsapp' }) {
   );
 }
 
-const TABS = [['limits', 'ri-speed-up-line', 'Sending Limits'], ['meta', 'ri-megaphone-line', 'Meta Lead Ads Keys'], ['whatsapp', 'ri-whatsapp-line', 'WhatsApp Token']] as const;
+const TABS = [['limits', 'ri-speed-up-line', 'Sending Limits'], ['meta', 'ri-megaphone-line', 'Meta Lead Ads Keys'], ['whatsapp', 'ri-whatsapp-line', 'WhatsApp Token'], ['graph', 'ri-git-branch-line', 'Graph API']] as const;
 
 const KEY_HELP: Record<MetaKey, React.ReactNode> = {
   systemUserToken: <>Business Settings → Users → System users → your Admin system user → <b>Generate new token</b> (expiry: Never) with ads_management, ads_read, leads_retrieval, pages_manage_ads, pages_manage_metadata, pages_read_engagement, pages_show_list, business_management. When saved, Meta is asked whom it belongs to.</>,

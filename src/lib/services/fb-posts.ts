@@ -2,6 +2,7 @@ import 'server-only';
 import { config } from '../config';
 import { exec, one, query, tx } from '../db';
 import { now, parseDate } from '../time';
+import { refreshGraphVersions } from './graph-version';
 
 /**
  * Bulk Facebook Page posts (/wamaster/fb_posts): a CSV becomes queued posts; the worker job
@@ -37,6 +38,7 @@ const PER_RUN = 20;
 type Graph = Record<string, any> & { error?: { message?: string; code?: number } };
 
 async function graph(method: 'GET' | 'POST', path: string, token: string, params: Record<string, string> = {}): Promise<Graph> {
+  await refreshGraphVersions();
   const body = new URLSearchParams({ ...params, access_token: token });
   try {
     const res = method === 'GET'

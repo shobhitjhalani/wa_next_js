@@ -12,6 +12,7 @@ import { foundLocations, type FoundLocation } from '../meta-ad-form';
 import { now } from '../time';
 import { saveLead } from './crm';
 import { refreshMetaSettings } from './meta-settings';
+import { refreshGraphVersions } from './graph-version';
 
 /**
  * Meta Lead Ads (agency): provisioning the common lead ad per client (worker job "meta-provision"), the leadgen inbox
@@ -37,6 +38,7 @@ export async function tokenSource(): Promise<'env' | 'saved' | 'none'> {
 }
 
 async function graph(): Promise<Graph> {
+  await refreshGraphVersions();
   return createGraph({ baseUrl: config.metaAds.graphUrl, token: await systemToken() });
 }
 

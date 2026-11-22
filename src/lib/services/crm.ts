@@ -8,6 +8,7 @@ import { normalizePhone } from '../phone';
 import { randomString } from '../text';
 import { now, phpDate } from '../time';
 import { sendMail } from './mailer';
+import { refreshGraphVersions } from './graph-version';
 
 /**
  * Leads CRM: saving leads (from the panel, the webhook or Facebook Lead Ads), the per-account
@@ -243,6 +244,7 @@ export async function handleCrmWebhook(s: CrmSettings, body: unknown): Promise<{
 }
 
 async function graphGet(path: string, token: string, params: Record<string, string> = {}): Promise<Record<string, any>> {
+  await refreshGraphVersions();
   const qs = new URLSearchParams({ ...params, access_token: token });
   try {
     const res = await fetch(`${config.meta.apiUrl}${path}?${qs}`, { signal: AbortSignal.timeout(20_000) });

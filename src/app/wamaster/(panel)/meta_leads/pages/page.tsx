@@ -4,7 +4,7 @@ import { PageTitle } from '@/components/PageTitle';
 import { requireSuperAdmin } from '@/lib/admin-access';
 import { url } from '@/lib/config';
 import { query } from '@/lib/db';
-import { pageLeadCounts, pageNames, savedPages, tokenPages } from '@/lib/services/lead-pages';
+import { pageLeadCounts, pageNames, savedPages, tokenAdAccounts, tokenPages } from '@/lib/services/lead-pages';
 import { tokenSource } from '@/lib/services/meta-leads';
 import { USER_TYPE } from '@/lib/types';
 import { MetaLeadsTabs } from '../Tabs';
@@ -15,7 +15,7 @@ export const metadata: Metadata = { title: 'Lead Pages' };
 /** Facebook Pages whose leads go to a client's Leads CRM (super admin). */
 export default async function LeadPagesPage() {
   await requireSuperAdmin();
-  const [fromToken, saved, counts, clients, tokenFrom] = await Promise.all([
+  const [fromToken, saved, counts, clients, tokenFrom, adAccounts] = await Promise.all([
     tokenPages(),
     savedPages(),
     pageLeadCounts(),
@@ -23,15 +23,16 @@ export default async function LeadPagesPage() {
       `SELECT u_id, COALESCE(NULLIF(u_company_name, ''), NULLIF(u_name, ''), u_username::text, '#' || u_id) AS name, u_username, u_crm
          FROM js_user WHERE u_dstatus = 0 AND u_type = $1 ORDER BY lower(COALESCE(NULLIF(u_company_name, ''), u_name, ''))`, [USER_TYPE.WHATSAPP]),
     tokenSource(),
+    tokenAdAccounts(),
   ]);
 
   // Token Pages + saved Pages + Pages that sent leads nobody received
   const byId = new Map<string, PageRow>();
-  const blank = (id: string): PageRow => ({ id, name: '', category: '', inToken: false, saved: false, userId: 0, client: null, subscribed: false, error: '', recent: 0, waiting: 0 });
+  const blank = (id: string): PageRow => ({ id, name: '', category: '', inToken: false, saved: false, userId: 0, client: null, subscribed: false, error: '', adAccounts: [], recent: 0, waiting: 0, filtered: 0 });
   for (const p of fromToken.pages) byId.set(p.id, { ...blank(p.id), name: p.name, category: p.category, inToken: true });
   for (const s of saved) {
     const row = byId.get(s.lp_page_id) ?? blank(s.lp_page_id);
-    byId.set(s.lp_page_id, { ...row, name: row.name || s.lp_name, saved: true, userId: s.lp_user_id, client: s.client, subscribed: s.lp_subscribed === 1, error: s.lp_error });
+    byId.set(s.lp_page_id, { ...row, name: row.name || s.lp_name, saved: true, userId: s.lp_user_id, client: s.client, subscribed: s.lp_subscribed === 1, error: s.lp_error, adAccounts: s.lp_ad_accounts ?? [] });
   }
   for (const [id, c] of counts) {
     if (!byId.has(id) && c.waiting > 0) byId.set(id, blank(id));
@@ -62,7 +63,7 @@ export default async function LeadPagesPage() {
         <div className="alert alert-warning"><i className="ri-time-line me-1" /><b>{waiting}</b> lead(s) are waiting for a client. Choose the client on their Page and they are filed in that client&apos;s Leads CRM.</div>
       )}
       <div className="card">
-        <PagesTable pages={pages} clients={options} />
+        <PagesTable pages={pages} clients={options} accounts={adAccounts.accounts} />
       </div>
       <div className="card">
         <div className="card-body small">
@@ -70,6 +71,7 @@ export default async function LeadPagesPage() {
           <ul className="mb-0 ps-3">
             <li>The list shows every Page the System User token can reach (assign Pages to the System User in Business Settings to see more).</li>
             <li><b>Connect</b> subscribes our Meta app to the Page&apos;s leads. Each new lead from any form or ad of the Page goes to the chosen client&apos;s Leads CRM, and shows here under <Link href="/wamaster/meta_leads/leads">Facebook Leads</Link>.</li>
+            <li><b>Client runs their own ads on the same Page?</b> Open “All leads of the Page” under the client and tick your agency ad account(s). Only leads of ads in those accounts are filed; the client&apos;s own ads and organic leads are skipped (counted under Skipped). Changing the ad accounts re-checks the skipped leads.</li>
             <li>A client can have several Pages. Leads of a Page without a client are kept and filed as soon as you choose one.</li>
             <li>Missed webhooks are picked up every 30 minutes from the Pages&apos; lead forms (leads after the Page was connected).</li>
             <li>The Meta app&apos;s Page webhook must point to <code>{url('/integrations/meta/webhook')}</code> with the field <code>leadgen</code>.</li>

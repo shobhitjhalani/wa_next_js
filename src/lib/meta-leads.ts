@@ -326,7 +326,14 @@ export async function activate(graph: Graph, ids: Pick<AssetIds, 'campaignId' | 
 
 // ------------------------------------------------------------------ one leadgen event → CRM lead
 
-export interface LeadClient { userId: number; country: string; assignee: number }
+export interface LeadClient {
+  userId: number; country: string; assignee: number;
+  /** Only leads of ads in these ad accounts (ids without "act_"); empty / missing = every lead of the Page. */
+  adAccounts?: string[];
+}
+
+/** "act_123" / "123" → "123". */
+export const adAccountId = (v: unknown) => String(v ?? '').trim().replace(/^act_/, '');
 
 export interface SaveInput {
   userId: number; lead: MappedLead; meta: {
@@ -341,15 +348,26 @@ export interface EventDeps {
   fetchLead: (leadgenId: string, pageId: string) => Promise<MetaLead>;
   formName: (formId: string, pageId: string) => Promise<string>;
   saveLead: (input: SaveInput) => Promise<{ id: number; duplicate: boolean }>;
+  /** Ad account id of an ad ('' when the token can't read the ad: not one of ours). Needed with LeadClient.adAccounts. */
+  adAccountOf?: (adId: string) => Promise<string>;
 }
 
-export type EventResult = { status: 'synced'; leadId: number; duplicate: boolean; userId: number } | { status: 'ignored'; reason: string };
+export type EventResult = { status: 'synced'; leadId: number; duplicate: boolean; userId: number } | { status: 'ignored'; reason: string }
+  | { status: 'filtered'; reason: string };
 
 /** Resolve the client, read the lead from Meta, map it and save it (the caller records the result / failure). */
 export async function processLeadgen(ev: { leadgen_id: string; page_id: string; form_id: string }, deps: EventDeps): Promise<EventResult> {
   const client = await deps.clientForPage(ev.page_id);
   if (!client) return { status: 'ignored', reason: `No client is assigned to Page ${ev.page_id} (Meta Lead Ads → Lead Pages).` };
   const data = await deps.fetchLead(ev.leadgen_id, ev.page_id);
+  // Page shared with the client's own ads: only leads of our ad account(s)
+  const accounts = (client.adAccounts ?? []).map(adAccountId).filter(Boolean);
+  if (accounts.length) {
+    const adId = String(data.ad_id ?? '');
+    if (!adId) return { status: 'filtered', reason: 'Organic lead (not from an ad).' };
+    const account = adAccountId(deps.adAccountOf ? await deps.adAccountOf(adId) : '');
+    if (!accounts.includes(account)) return { status: 'filtered', reason: `Ad ${adId} is ${account ? `in ad account ${account}` : 'in an ad account we cannot read'}, not a chosen one.` };
+  }
   const lead = mapLead(flattenFieldData(data.field_data), client.country);
   const formId = String(data.form_id || ev.form_id || '');
   const formName = formId ? await deps.formName(formId, ev.page_id).catch(() => '') : '';

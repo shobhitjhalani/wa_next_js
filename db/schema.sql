@@ -1316,3 +1316,12 @@ CREATE INDEX IF NOT EXISTS js_meta_lead_page_user_idx ON js_meta_lead_page (lp_u
 ALTER TABLE js_crm_lead ADD COLUMN IF NOT EXISTS ld_meta_page_id text NOT NULL DEFAULT '';
 CREATE INDEX IF NOT EXISTS js_crm_lead_fb_idx ON js_crm_lead (ld_created_on DESC) WHERE ld_source IN ('meta_lead_ad', 'facebook', 'instagram') OR ld_meta_form_id <> '';
 CREATE INDEX IF NOT EXISTS js_meta_events_page_idx ON js_meta_lead_events (me_page_id, me_status);
+-- Lead Pages shared with the client's own ads: only leads of ads in these ad accounts (ids without act_; {} = all leads of the Page).
+-- Other leads are marked 'filtered' (never filed, not re-queued).
+ALTER TABLE js_meta_lead_page ADD COLUMN IF NOT EXISTS lp_ad_accounts text[] NOT NULL DEFAULT '{}';
+-- Ad → ad account (Graph GET {ad}?fields=account_id), '' = the token can't read the ad (not one of our ad accounts).
+CREATE TABLE IF NOT EXISTS js_meta_ad_owner (
+  ao_ad_id text PRIMARY KEY,
+  ao_account_id text NOT NULL DEFAULT '',
+  ao_checked_on integer NOT NULL DEFAULT 0
+);

@@ -17,6 +17,7 @@ export async function saveLeadPage(form: FormData): Promise<void> {
   const pageId = String(form.get('page_id') ?? '').trim();
   const name = String(form.get('page_name') ?? '').trim();
   const userId = Number(form.get('user_id') ?? 0) || 0;
+  const adAccounts = [...new Set(form.getAll('ad_accounts').map((v) => String(v).trim().replace(/^act_/, '')).filter((v) => /^\d{3,25}$/.test(v)))].slice(0, 50);
   if (!PAGE_ID.test(pageId)) {
     await flash('error', 'Invalid Page.');
     revalidatePath(PATH);
@@ -35,13 +36,13 @@ export async function saveLeadPage(form: FormData): Promise<void> {
     client = u.name;
   }
   const before = await value<number>('SELECT lp_user_id FROM js_meta_lead_page WHERE lp_page_id = $1', [pageId]);
-  const { error, requeued } = await connectPage(pageId, name, userId, admin.emp_id);
+  const { error, requeued } = await connectPage(pageId, name, userId, admin.emp_id, adAccounts);
   await logActivity({
     module: 'meta_leads', action: before === null ? 'Connected lead Page' : 'Changed lead Page client', target: `${name || pageId} (${pageId})`, targetId: pageId,
-    details: [`Client: ${client || 'Not assigned'}`, ...(requeued ? [`${requeued} waiting lead(s) filed`] : []), ...(error ? [`Subscribe failed: ${error.slice(0, 200)}`] : [])],
+    details: [`Client: ${client || 'Not assigned'}`, `Ad accounts: ${adAccounts.length ? adAccounts.join(', ') : 'All leads of the Page'}`, ...(requeued ? [`${requeued} waiting lead(s) filed`] : []), ...(error ? [`Subscribe failed: ${error.slice(0, 200)}`] : [])],
   });
   if (error) await flash('error', `Saved, but Meta refused the lead subscription: ${error}`);
-  else await flash('success', `${name || pageId}: leads now go to ${client || 'nobody yet (they wait until you choose a client)'}.${requeued ? ` ${requeued} waiting lead(s) are being filed.` : ''}`);
+  else await flash('success', `${name || pageId}: ${adAccounts.length ? `leads of ads in ${adAccounts.length} ad account(s)` : 'all leads'} now go to ${client || 'nobody yet (they wait until you choose a client)'}.${requeued ? ` ${requeued} waiting lead(s) are being filed.` : ''}`);
   revalidatePath(PATH);
 }
 

@@ -5,7 +5,7 @@ import { config } from '../config';
 import { exec, one, query, value } from '../db';
 import { createGraph, fetchLead as graphFetchLead, getPageToken, graphList, LEAD_FIELDS, MetaError, uploadImage, type Graph, type MetaLead } from '../meta-graph';
 import {
-  activate, leadgenChanges, mergeSettings, processLeadgen, provision, retryDelay, settingsProblems,
+  activate, adAccountId, leadgenChanges, mergeSettings, processLeadgen, provision, retryDelay, settingsProblems,
   type AdSettings, type AssetIds, type ClientConfig, type LeadgenChange, type LeadTemplate, type SaveInput,
 } from '../meta-leads';
 import { foundLocations, type FoundLocation } from '../meta-ad-form';
@@ -229,21 +229,41 @@ async function readLead(g: Graph, leadgenId: string, pageId: string): Promise<Me
   }
 }
 
+/**
+ * The ad account of an ad, cached in js_meta_ad_owner. An ad the token may not read (the client's own ad account)
+ * is '' (not ours); a temporary Meta error throws so the event is retried.
+ */
+async function adAccountOf(g: Graph, adId: string): Promise<string> {
+  const known = await value<string>('SELECT ao_account_id FROM js_meta_ad_owner WHERE ao_ad_id = $1', [adId]);
+  if (known !== null) return known;
+  let account = '';
+  try {
+    account = adAccountId((await g.get<{ account_id?: string }>(adId, { fields: 'account_id' })).account_id);
+  } catch (e) {
+    if (!(e instanceof MetaError) || e.retryable) throw e;
+  }
+  await exec(
+    `INSERT INTO js_meta_ad_owner (ao_ad_id, ao_account_id, ao_checked_on) VALUES ($1, $2, $3)
+     ON CONFLICT (ao_ad_id) DO UPDATE SET ao_account_id = EXCLUDED.ao_account_id, ao_checked_on = EXCLUDED.ao_checked_on`, [adId, account, now()]);
+  return account;
+}
+
 function deps(g: Graph) {
   return {
     clientForPage: async (pageId: string) => {
       // A Page assigned on Lead Pages first, else the Page of a client's common lead ad
-      const c = await one<{ user_id: number; country: string | null; assignee: number | null }>(
-        `SELECT p.lp_user_id AS user_id, c.mc_country_code AS country, c.mc_assignee AS assignee
+      const c = await one<{ user_id: number; country: string | null; assignee: number | null; accounts: string[] | null }>(
+        `SELECT p.lp_user_id AS user_id, c.mc_country_code AS country, c.mc_assignee AS assignee, p.lp_ad_accounts AS accounts
            FROM js_meta_lead_page p JOIN js_user u ON u.u_id = p.lp_user_id AND u.u_dstatus = 0
            LEFT JOIN js_meta_client_config c ON c.mc_user_id = p.lp_user_id
           WHERE p.lp_page_id = $1 AND p.lp_is_active = 1 AND p.lp_user_id > 0
          UNION ALL
-         (SELECT c.mc_user_id, c.mc_country_code, c.mc_assignee FROM js_meta_client_config c JOIN js_user u ON u.u_id = c.mc_user_id AND u.u_dstatus = 0
+         (SELECT c.mc_user_id, c.mc_country_code, c.mc_assignee, NULL::text[] FROM js_meta_client_config c JOIN js_user u ON u.u_id = c.mc_user_id AND u.u_dstatus = 0
            WHERE c.mc_page_id = $1 AND c.mc_is_active = 1 ORDER BY c.mc_user_id LIMIT 1)
          LIMIT 1`, [pageId]);
-      return c ? { userId: c.user_id, country: c.country || 'IN', assignee: Number(c.assignee) || 0 } : null;
+      return c ? { userId: c.user_id, country: c.country || 'IN', assignee: Number(c.assignee) || 0, adAccounts: c.accounts ?? [] } : null;
     },
+    adAccountOf: (adId: string) => adAccountOf(g, adId),
     fetchLead: (id: string, pageId: string) => readLead(g, id, pageId),
     formName: async (formId: string, pageId: string) => {
       const known = await value<string>("SELECT ma_form_name FROM js_meta_campaign_assets WHERE ma_form_id = $1 AND ma_form_name <> '' LIMIT 1", [formId]);
@@ -279,6 +299,10 @@ export async function processEvent(id: number, g?: Graph): Promise<string> {
   // A lead already saved (e.g. by the client's own /api/crm webhook) is found by its leadgen id and only linked
   try {
     const res = await processLeadgen({ leadgen_id: ev.me_leadgen_id, page_id: ev.me_page_id, form_id: ev.me_form_id }, deps(g ?? await graph()));
+    if (res.status === 'filtered') {
+      await exec("UPDATE js_meta_lead_events SET me_status = 'filtered', me_error = $2, me_updated_at = $3 WHERE me_id = $1", [ev.me_id, res.reason, now()]);
+      return 'filtered';
+    }
     if (res.status === 'ignored') {
       console.warn(`[meta-leads] event ${ev.me_id} ignored: ${res.reason}`);
       await exec("UPDATE js_meta_lead_events SET me_status = 'ignored', me_error = $2, me_updated_at = $3 WHERE me_id = $1", [ev.me_id, res.reason, now()]);

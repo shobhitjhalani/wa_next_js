@@ -35,6 +35,23 @@ export async function tokenPages(): Promise<{ pages: TokenPage[]; error: string 
   }
 }
 
+export interface AdAccount { id: string; name: string; active: boolean }
+
+/** Ad accounts the token can reach (me/adaccounts), ids without "act_". */
+export async function tokenAdAccounts(): Promise<{ accounts: AdAccount[]; error: string }> {
+  try {
+    const list = await graphList<{ account_id?: string; id?: string; name?: string; account_status?: number }>(
+      await graph(), 'me/adaccounts', { fields: 'account_id,name,account_status', limit: 100 }, 1000);
+    return {
+      accounts: list.map((a) => ({ id: String(a.account_id ?? String(a.id ?? '').replace(/^act_/, '')), name: String(a.name ?? ''), active: Number(a.account_status) === 1 }))
+        .filter((a) => a.id).sort((a, b) => a.name.localeCompare(b.name)),
+      error: '',
+    };
+  } catch (e) {
+    return { accounts: [], error: describe(e) };
+  }
+}
+
 async function pageTokenOf(g: Graph, pageId: string): Promise<string> {
   const hit = (await tokenPages()).pages.find((p) => p.id === pageId)?.token;
   return hit || getPageToken(g, pageId);
@@ -56,23 +73,24 @@ export async function subscribePage(pageId: string): Promise<string> {
 
 /**
  * Save the Page for a client (0 = not assigned) and subscribe it. Leads that arrived while no client was assigned
- * ('ignored' events of this Page) are filed now. Returns the subscription error ('' = fine) and how many waiting
+ * ('ignored' events of this Page) are filed now; 'filtered' ones are checked again against the new ad accounts. Returns the subscription error ('' = fine) and how many waiting
  * leads were queued.
  */
-export async function connectPage(pageId: string, name: string, userId: number, empId: number): Promise<{ error: string; requeued: number }> {
+export async function connectPage(pageId: string, name: string, userId: number, empId: number, adAccounts: string[] = []): Promise<{ error: string; requeued: number }> {
   const t = now();
   await exec(
-    `INSERT INTO js_meta_lead_page (lp_page_id, lp_name, lp_user_id, lp_is_active, lp_emp_id, lp_created_on, lp_updated_on)
-     VALUES ($1, $2, $3, 1, $4, $5, $5)
+    `INSERT INTO js_meta_lead_page (lp_page_id, lp_name, lp_user_id, lp_is_active, lp_emp_id, lp_created_on, lp_updated_on, lp_ad_accounts)
+     VALUES ($1, $2, $3, 1, $4, $5, $5, $6::text[])
      ON CONFLICT (lp_page_id) DO UPDATE SET lp_name = CASE WHEN EXCLUDED.lp_name <> '' THEN EXCLUDED.lp_name ELSE js_meta_lead_page.lp_name END,
-       lp_user_id = EXCLUDED.lp_user_id, lp_is_active = 1, lp_emp_id = EXCLUDED.lp_emp_id, lp_updated_on = EXCLUDED.lp_updated_on`,
-    [pageId, name.slice(0, 200), userId, empId, t]);
+       lp_user_id = EXCLUDED.lp_user_id, lp_is_active = 1, lp_emp_id = EXCLUDED.lp_emp_id, lp_updated_on = EXCLUDED.lp_updated_on,
+       lp_ad_accounts = EXCLUDED.lp_ad_accounts`,
+    [pageId, name.slice(0, 200), userId, empId, t, adAccounts]);
   const error = await subscribePage(pageId);
   await exec('UPDATE js_meta_lead_page SET lp_subscribed = $2, lp_error = $3 WHERE lp_page_id = $1', [pageId, error ? 0 : 1, error]);
   const requeued = userId > 0
     ? await exec(
       `UPDATE js_meta_lead_events SET me_status = 'received', me_attempts = 0, me_next_attempt_at = 0, me_error = '', me_updated_at = $2
-        WHERE me_page_id = $1 AND me_status = 'ignored'`, [pageId, t])
+        WHERE me_page_id = $1 AND me_status IN ('ignored', 'filtered')`, [pageId, t])
     : 0;
   return { error, requeued };
 }
@@ -83,25 +101,26 @@ export async function disconnectPage(pageId: string): Promise<boolean> {
 }
 
 export interface SavedPage {
-  lp_page_id: string; lp_name: string; lp_user_id: number; lp_subscribed: number; lp_error: string; lp_updated_on: number; client: string | null;
+  lp_page_id: string; lp_name: string; lp_user_id: number; lp_ad_accounts: string[]; lp_subscribed: number; lp_error: string; lp_updated_on: number; client: string | null;
 }
 
 export async function savedPages(): Promise<SavedPage[]> {
   return query<SavedPage>(
-    `SELECT p.lp_page_id, p.lp_name, p.lp_user_id, p.lp_subscribed, p.lp_error, p.lp_updated_on,
+    `SELECT p.lp_page_id, p.lp_name, p.lp_user_id, p.lp_ad_accounts, p.lp_subscribed, p.lp_error, p.lp_updated_on,
             COALESCE(NULLIF(u.u_company_name, ''), NULLIF(u.u_name, ''), u.u_username::text) AS client
        FROM js_meta_lead_page p LEFT JOIN js_user u ON u.u_id = p.lp_user_id AND u.u_dstatus = 0
       WHERE p.lp_is_active = 1 ORDER BY lower(p.lp_name)`);
 }
 
-/** Per Page: leads filed in the last 30 days, and leads waiting for a client. */
-export async function pageLeadCounts(): Promise<Map<string, { recent: number; waiting: number }>> {
-  const rows = await query<{ page: string; recent: number; waiting: number }>(
+/** Per Page: leads filed in the last 30 days, leads waiting for a client, leads skipped (other ad accounts) in 30 days. */
+export async function pageLeadCounts(): Promise<Map<string, { recent: number; waiting: number; filtered: number }>> {
+  const rows = await query<{ page: string; recent: number; waiting: number; filtered: number }>(
     `SELECT me_page_id AS page,
             COUNT(*) FILTER (WHERE me_status = 'synced' AND me_created_at > $1)::int AS recent,
-            COUNT(*) FILTER (WHERE me_status = 'ignored')::int AS waiting
+            COUNT(*) FILTER (WHERE me_status = 'ignored')::int AS waiting,
+            COUNT(*) FILTER (WHERE me_status = 'filtered' AND me_created_at > $1)::int AS filtered
        FROM js_meta_lead_events WHERE me_page_id <> '' GROUP BY me_page_id`, [now() - 30 * 86400]);
-  return new Map(rows.map((r) => [r.page, { recent: r.recent, waiting: r.waiting }]));
+  return new Map(rows.map((r) => [r.page, { recent: r.recent, waiting: r.waiting, filtered: r.filtered }]));
 }
 
 /** Name of a Page for lists: Lead Pages, then Bulk Posting pages. */

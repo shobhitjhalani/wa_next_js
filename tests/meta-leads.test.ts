@@ -27,11 +27,12 @@ const metaLead = (id: string, fields: Record<string, string>, extra: Partial<Met
  * saved once per client, and an open lead of the same client with the same mobile or e-mail gets the enquiry instead
  * of a new lead (matchLead, the function the SQL path uses).
  */
-function fakeCrm(pages: Record<string, number>) {
+function fakeCrm(pages: Record<string, number>, accounts: Record<string, string[]> = {}, adAccounts: Record<string, string> = {}) {
   const inbox = new Map<string, { status: string }>();
   const leads: { id: number; userId: number; mobile: string; email: string; externalIds: string[]; notes: string[]; name: string }[] = [];
   const deps = (leadsById: Record<string, MetaLead>): EventDeps => ({
-    clientForPage: async (pageId) => (pages[pageId] ? { userId: pages[pageId], country: 'IN', assignee: 0 } : null),
+    clientForPage: async (pageId) => (pages[pageId] ? { userId: pages[pageId], country: 'IN', assignee: 0, adAccounts: accounts[pageId] } : null),
+    adAccountOf: async (adId) => adAccounts[adId] ?? '',
     fetchLead: async (id) => leadsById[id],
     formName: async () => 'Enquiry form',
     saveLead: async (i: SaveInput) => {
@@ -134,6 +135,26 @@ describe('leadgen pipeline', () => {
     expect(byEmail).toMatchObject({ status: 'synced', duplicate: true, leadId: 1 });
     expect(otherClient).toMatchObject({ status: 'synced', duplicate: false, userId: 8 });
     expect(crm.leads.map((l) => l.userId)).toEqual([7, 8]);
+  });
+});
+
+describe('ad account filter', () => {
+  const run = (crm: ReturnType<typeof fakeCrm>, id: string, extra: Partial<MetaLead>) =>
+    processLeadgen({ leadgen_id: id, page_id: '111', form_id: 'F1' }, crm.deps({ [id]: metaLead(id, { full_name: 'N', phone_number: `98765${id.padStart(5, '0')}` }, extra) }));
+
+  it('files only leads of ads in the chosen ad accounts', async () => {
+    const crm = fakeCrm({ 111: 7 }, { 111: ['act_100'] }, { OURS: '100', THEIRS: '200' });
+    expect(await run(crm, '1', { ad_id: 'OURS' })).toMatchObject({ status: 'synced' });
+    expect(await run(crm, '2', { ad_id: 'THEIRS' })).toMatchObject({ status: 'filtered' });
+    expect(await run(crm, '3', { ad_id: 'UNKNOWN' })).toMatchObject({ status: 'filtered' }); // the token can't read the client's ad
+    expect(await run(crm, '4', { ad_id: undefined, is_organic: true })).toMatchObject({ status: 'filtered', reason: 'Organic lead (not from an ad).' });
+    expect(crm.leads).toHaveLength(1);
+  });
+
+  it('no ad accounts chosen: every lead of the Page', async () => {
+    const crm = fakeCrm({ 111: 7 });
+    expect(await run(crm, '5', { ad_id: 'THEIRS' })).toMatchObject({ status: 'synced' });
+    expect(await run(crm, '6', { ad_id: undefined, is_organic: true })).toMatchObject({ status: 'synced' });
   });
 });
 

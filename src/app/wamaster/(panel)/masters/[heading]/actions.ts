@@ -28,7 +28,7 @@ export async function saveMaster(heading: number, id: number | null, _prev: Acti
   if (!head) notFound();
   const existing = id
     ? await one<{ mv_id: number; mv_code: string | null; mv_name: string | null; mv_url_slug: string | null }>(
-      'SELECT mv_id, mv_code, mv_name, mv_url_slug FROM js_master_value WHERE mv_id = $1 AND mv_type = $2 AND mv_dstatus = 0', [id, heading])
+      'SELECT mv_id, mv_code, mv_name, mv_url_slug FROM js_master_value WHERE mv_id = $1 AND mv_type = $2 AND mv_dstatus = 0 AND mv_user_id = 0', [id, heading])
     : null;
   if (id && !existing) notFound();
 
@@ -90,7 +90,7 @@ export async function saveMaster(heading: number, id: number | null, _prev: Acti
 export async function deleteMaster(heading: number, id: number): Promise<void> {
   await requireRight('masters', 'delete');
   if (!Number.isInteger(heading) || !Number.isInteger(id)) notFound();
-  const gone = await value<string>('UPDATE js_master_value SET mv_dstatus = 1 WHERE mv_id = $1 AND mv_type = $2 AND mv_dstatus = 0 RETURNING COALESCE(mv_name, mv_code, \'\')', [id, heading]);
+  const gone = await value<string>('UPDATE js_master_value SET mv_dstatus = 1 WHERE mv_id = $1 AND mv_type = $2 AND mv_dstatus = 0 AND mv_user_id = 0 RETURNING COALESCE(mv_name, mv_code, \'\')', [id, heading]);
   if (gone !== null) {
     const headName = (await value<string>('SELECT mh_name FROM js_master_heading WHERE mh_id = $1', [heading])) ?? `Master #${heading}`;
     await logActivity({ module: 'masters', action: `Deleted ${headName}`, target: gone, targetId: id });

@@ -1325,3 +1325,10 @@ CREATE TABLE IF NOT EXISTS js_meta_ad_owner (
   ao_account_id text NOT NULL DEFAULT '',
   ao_checked_on integer NOT NULL DEFAULT 0
 );
+
+-- ------------------------------------------------------------ custom WA plans per user (admin → user page → Custom Plans)
+
+-- A WA plan (js_master_value type 82) owned by one WhatsApp user: 0 = global plan (Data Masters → WA Plans).
+-- A user with active custom plans sees only those on Plans → Recharge; everyone else sees the global plans.
+ALTER TABLE js_master_value ADD COLUMN IF NOT EXISTS mv_user_id integer NOT NULL DEFAULT 0;
+CREATE INDEX IF NOT EXISTS js_master_value_user_idx ON js_master_value (mv_user_id) WHERE mv_user_id > 0;

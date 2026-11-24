@@ -8,16 +8,33 @@ import { USER_TYPE, type MasterValueRow, type PaymentLogRow, type RechargeRow, t
  * Plans are js_master_value rows of type 82:
  *   mv_value = validity days, mv_value1 = plan type (1 add-on, 2 validity, 3 trial),
  *   mv_value_decimal = price before GST.
+ *   mv_user_id = 0 for global plans, or the one user a custom plan belongs to.
  * Port of Frontend::fun_updated_user_plan / User::fun_recharge / fun_payment_log_add.
  */
 
+/** Global plans (Data Masters → WA Plans). */
 export async function listPlans(includeTrial = false): Promise<MasterValueRow[]> {
   return query<MasterValueRow>(
-    `SELECT * FROM js_master_value WHERE mv_type = $1 AND mv_dstatus = 0 AND mv_status = 1
+    `SELECT * FROM js_master_value WHERE mv_type = $1 AND mv_dstatus = 0 AND mv_status = 1 AND mv_user_id = 0
        ${includeTrial ? '' : "AND mv_value1 = '2' AND mv_value_decimal > 0"}
      ORDER BY mv_display_order`,
     [config.masters.waPlan],
   );
+}
+
+/** Every custom plan of one user (admin), active ones first. */
+export async function customPlans(userId: number, activeOnly = false): Promise<MasterValueRow[]> {
+  return query<MasterValueRow>(
+    `SELECT * FROM js_master_value WHERE mv_type = $1 AND mv_dstatus = 0 AND mv_user_id = $2 ${activeOnly ? 'AND mv_status = 1' : ''}
+     ORDER BY mv_status, mv_display_order, mv_id`,
+    [config.masters.waPlan, userId],
+  );
+}
+
+/** Plans a user may buy: their active custom plans when the admin gave them any, otherwise the global plans. */
+export async function plansForUser(userId: number): Promise<{ plans: MasterValueRow[]; custom: boolean }> {
+  const own = (await customPlans(userId, true)).filter((p) => Number(p.mv_value_decimal) > 0);
+  return own.length ? { plans: own, custom: true } : { plans: await listPlans(), custom: false };
 }
 
 export async function findPlan(id: number): Promise<MasterValueRow | null> {

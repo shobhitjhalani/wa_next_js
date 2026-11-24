@@ -4,7 +4,8 @@ import { canSeeUser, requireUserRight, userModule } from '@/lib/admin-access';
 import { config } from '@/lib/config';
 import { one, query, value } from '@/lib/db';
 import { masterCodeOptions, masterName, masterOptions } from '@/lib/models';
-import { listPlans } from '@/lib/services/plans';
+import { customPlans, listPlans } from '@/lib/services/plans';
+import type { MasterValueRow } from '@/lib/types';
 import { MSG_EXPIRY_MAX, MSG_EXPIRY_MIN, refreshSendSettings } from '@/lib/services/settings';
 import { numberFormat } from '@/lib/text';
 import { dayStart, monthStart, phpDate } from '@/lib/time';
@@ -18,6 +19,7 @@ import {
   addEmail, deleteEmail, deleteKey, deleteSheet, generateKey, logoutKey, rechargeUser, registerUserNumber,
   saveMsgExpiry, syncUserTemplates, toggleEmail, toggleSheet,
 } from '../actions';
+import { deleteCustomPlan, saveCustomPlan, toggleCustomPlan } from '../plan-actions';
 
 const yes = (v: unknown) => (Number(v) === 1 ? 'Yes' : 'No');
 const date = (ts: unknown, fmt = 'd-m-Y') => (Number(ts) ? phpDate(fmt, Number(ts)) : '');
@@ -127,6 +129,10 @@ export default async function UserShowPage({ params }: { params: Promise<{ id: s
         'SELECT dek_id, dek_key, dek_valid_till, dek_is_login, dek_last_login FROM js_user_data_extractor_keys WHERE dek_user_id = $1 AND dek_dstatus = 0 ORDER BY dek_id', [id])
       : Promise.resolve([]),
   ]);
+
+  // Custom plans of this user (admin → Custom Plans); active ones are also offered for a manual recharge
+  const ownPlans = isWa ? await customPlans(id) : [];
+  const rechargePlans = [...ownPlans.filter((p) => Number(p.mv_status) === 1), ...plans];
 
   const typeName = new Map(sheetTypes.map((o) => [String(o.value), o.label]));
   const sheetName = (t: number) => typeName.get(String(t)) ?? String(t);
@@ -263,8 +269,8 @@ export default async function UserShowPage({ params }: { params: Promise<{ id: s
                   <div className="mb-2">
                     <label className="form-label" htmlFor="plan_id">WA Plan</label>
                     <select className="form-select" id="plan_id" name="plan_id" required>
-                      {plans.map((p) => (
-                        <option key={p.mv_id} value={p.mv_id}>{p.mv_name} — {parseInt(String(p.mv_value || '0'), 10) || 0} days — Rs. {numberFormat(p.mv_value_decimal, 2)}</option>
+                      {rechargePlans.map((p) => (
+                        <option key={p.mv_id} value={p.mv_id}>{Number(p.mv_user_id) > 0 ? '★ Custom: ' : ''}{p.mv_name} — {parseInt(String(p.mv_value || '0'), 10) || 0} days — Rs. {numberFormat(p.mv_value_decimal, 2)}</option>
                       ))}
                     </select>
                   </div>
@@ -284,6 +290,48 @@ export default async function UserShowPage({ params }: { params: Promise<{ id: s
                   <div className="form-check form-switch mb-3"><input className="form-check-input" type="checkbox" id="payment_received" name="payment_received" value="1" defaultChecked /><label className="form-check-label" htmlFor="payment_received">Payment Received</label></div>
                   <SubmitButton className="btn btn-success w-100">Recharge</SubmitButton>
                 </ActionForm>
+              </div>
+            </div>
+          )}
+
+          {isWa && canEdit && (
+            <div className="card">
+              <div className="card-header"><h5 className="card-title mb-0">Custom Plans</h5></div>
+              <div className="card-body">
+                <p className="text-muted small">
+                  While this user has an active custom plan, <b>Plans → Recharge</b> shows only their custom plans and they pay that amount (+ GST).
+                  With none active they see the normal plans.
+                </p>
+                {ownPlans.length > 0 && (
+                  <ul className="list-group mb-3">
+                    {ownPlans.map((p) => (
+                      <li className="list-group-item" key={p.mv_id}>
+                        <div className="d-flex align-items-start gap-2">
+                          <div className="flex-grow-1">
+                            <div className="fw-semibold">{p.mv_name}{' '}
+                              {Number(p.mv_status) === 1 ? <span className="badge bg-success-subtle text-success">Active</span> : <span className="badge bg-secondary-subtle text-secondary">Inactive</span>}
+                            </div>
+                            <div className="small text-muted">{parseInt(String(p.mv_value || '0'), 10) || 0} days — Rs. {numberFormat(p.mv_value_decimal, 2)} + GST</div>
+                          </div>
+                          <form action={toggleCustomPlan.bind(null, id, Number(p.mv_id))}>
+                            <button type="submit" className="btn btn-sm btn-soft-secondary" title={Number(p.mv_status) === 1 ? 'Deactivate' : 'Activate'}>
+                              <i className={Number(p.mv_status) === 1 ? 'ri-pause-line' : 'ri-play-line'} />
+                            </button>
+                          </form>
+                          <form action={deleteCustomPlan.bind(null, id, Number(p.mv_id))}>
+                            <ConfirmButton message={`Delete the custom plan “${p.mv_name ?? ''}”?`} className="btn btn-sm btn-soft-danger" title="Delete"><i className="ri-delete-bin-line" /></ConfirmButton>
+                          </form>
+                        </div>
+                        <details className="mt-2">
+                          <summary className="small text-primary" style={{ cursor: 'pointer' }}>Edit</summary>
+                          <CustomPlanForm userId={id} plan={p} />
+                        </details>
+                      </li>
+                    ))}
+                  </ul>
+                )}
+                <h6 className="fs-13 mb-2">Add Custom Plan</h6>
+                <CustomPlanForm userId={id} />
               </div>
             </div>
           )}
@@ -478,3 +526,35 @@ export default async function UserShowPage({ params }: { params: Promise<{ id: s
   );
 }
 
+
+/** Add / edit form of a custom plan (fields: title, validity days, amount before GST, description). */
+function CustomPlanForm({ userId, plan }: { userId: number; plan?: MasterValueRow }) {
+  const k = plan ? `_${plan.mv_id}` : '';
+  return (
+    <ActionForm action={saveCustomPlan.bind(null, userId, plan ? Number(plan.mv_id) : null)} resetOnSuccess={!plan} className="mt-2">
+      <div className="mb-2">
+        <label className="form-label" htmlFor={`plan_name${k}`}>Title</label>
+        <input className="form-control" id={`plan_name${k}`} name="plan_name" maxLength={255} defaultValue={plan?.mv_name ?? ''} placeholder="e.g. 1 Month Special" required />
+        <FieldError name="plan_name" />
+      </div>
+      <div className="row g-2 mb-2">
+        <div className="col-6">
+          <label className="form-label" htmlFor={`plan_days${k}`}>Validity (in Days)</label>
+          <input type="number" className="form-control" id={`plan_days${k}`} name="plan_days" min={1} max={3650} step={1} defaultValue={plan ? parseInt(String(plan.mv_value || '0'), 10) || '' : ''} required />
+          <FieldError name="plan_days" />
+        </div>
+        <div className="col-6">
+          <label className="form-label" htmlFor={`plan_amount${k}`}>Amount (before GST)</label>
+          <input type="number" className="form-control" id={`plan_amount${k}`} name="plan_amount" min={0.01} step={0.01} defaultValue={plan ? Number(plan.mv_value_decimal) : ''} required />
+          <FieldError name="plan_amount" />
+        </div>
+      </div>
+      <div className="mb-2">
+        <label className="form-label" htmlFor={`plan_desc${k}`}>Description <span className="text-muted">(optional, one point per line)</span></label>
+        <textarea className="form-control" id={`plan_desc${k}`} name="plan_desc" rows={2} maxLength={2000} defaultValue={plan?.mv_desc ?? ''} />
+        <FieldError name="plan_desc" />
+      </div>
+      <SubmitButton className={`btn ${plan ? 'btn-primary' : 'btn-success'} w-100`}>{plan ? 'Save Plan' : 'Add Plan'}</SubmitButton>
+    </ActionForm>
+  );
+}

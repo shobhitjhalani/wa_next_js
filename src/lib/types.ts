@@ -263,6 +263,8 @@ export interface MasterValueRow {
   mv_value_decimal: number;
   mv_updated_on: number;
   mv_dstatus: number;
+  /** WA plans: the one user a custom plan belongs to (0 = global plan). */
+  mv_user_id?: number;
   [key: string]: unknown;
 }
 

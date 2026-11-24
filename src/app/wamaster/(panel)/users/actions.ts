@@ -287,7 +287,8 @@ export async function rechargeUser(id: number, _prev: ActionResult | null, fd: F
   const user = await aliveUser(id);
   if (!user) return fail('User not found.');
   const plan = await findPlan(parseInt(fStr(fd, 'plan_id'), 10));
-  if (!plan) return fail('Plan not found.');
+  // A custom plan can only be used for the user it was made for
+  if (!plan || (Number(plan.mv_user_id ?? 0) > 0 && Number(plan.mv_user_id) !== id)) return fail('Plan not found.');
 
   const row = await recharge(id, plan, {
     received: Number(fStr(fd, 'payment_amount') || 0),

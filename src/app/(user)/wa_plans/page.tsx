@@ -3,7 +3,7 @@ import { PageTitle } from '@/components/PageTitle';
 import { ConfirmButton } from '@/components/ui';
 import { requireUser } from '@/lib/auth';
 import { config } from '@/lib/config';
-import { listPlans, outstanding } from '@/lib/services/plans';
+import { outstanding, plansForUser } from '@/lib/services/plans';
 import { numberFormat } from '@/lib/text';
 import { payPlan } from './actions';
 
@@ -15,11 +15,14 @@ const stripTags = (s: string) => s.replace(/<!--[\s\S]*?-->/g, '').replace(/<\/?
 /** Plans to recharge with (User\PlanController::index, legacy wa_plans.php). */
 export default async function PlansPage() {
   const user = await requireUser();
-  const [plans, due] = await Promise.all([listPlans(), outstanding(user)]);
+  const [{ plans, custom }, due] = await Promise.all([plansForUser(user.u_id), outstanding(user)]);
 
   return (
     <>
       <PageTitle title="WA Plans" home="/dashboard" />
+      {custom && (
+        <div className="alert alert-info"><i className="ri-vip-crown-line me-1" />{plans.length > 1 ? 'These plans are' : 'This plan is'} made for your account.</div>
+      )}
       {due > 0 && (
         <div className="alert alert-warning">A previous outstanding amount of Rs. {numberFormat(due, 2)} will be added to your payment.</div>
       )}

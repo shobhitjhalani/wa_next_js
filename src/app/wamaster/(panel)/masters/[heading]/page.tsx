@@ -23,7 +23,8 @@ export default async function MastersPage({ params, searchParams }: { params: Pr
   const page = pageParam(sparams.page);
   const perPage = config.site.pageSize;
 
-  const where = `mv_type = $1 AND mv_dstatus = 0 AND ($2 = '' OR mv_name ILIKE '%' || $2 || '%')`;
+  // Custom plans of one user (mv_user_id > 0) are managed on that user's page, not here
+  const where = `mv_type = $1 AND mv_dstatus = 0 AND mv_user_id = 0 AND ($2 = '' OR mv_name ILIKE '%' || $2 || '%')`;
   const [rows, total] = await Promise.all([
     query<MasterValueRow>(
       `SELECT * FROM js_master_value WHERE ${where} ORDER BY mv_display_order, mv_name LIMIT $3 OFFSET $4`,

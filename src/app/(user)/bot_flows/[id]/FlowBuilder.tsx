@@ -3,15 +3,15 @@
 import '@xyflow/react/dist/style.css';
 import './builder.css';
 import Link from 'next/link';
-import { memo, useCallback, useEffect, useMemo, useRef, useState, useTransition } from 'react';
+import { createContext, memo, useCallback, useContext, useEffect, useMemo, useRef, useState, useTransition } from 'react';
 import {
-  addEdge, Background, BackgroundVariant, BaseEdge, Controls, EdgeLabelRenderer, getBezierPath, Handle, MarkerType, MiniMap,
+  addEdge, Background, BackgroundVariant, BaseEdge, Controls, EdgeLabelRenderer, getBezierPath, Handle, MarkerType, MiniMap, NodeToolbar,
   Position, ReactFlow, ReactFlowProvider, useEdgesState, useNodesState, useReactFlow,
   type Connection, type Edge, type EdgeProps, type Node, type NodeProps,
 } from '@xyflow/react';
 import {
-  BUILTIN_VARS, defaultData, FLOW_STATUS, flowVariables, LIMITS, NODE_INFO, outputs, PALETTE_ORDER, parseKeywords, UPLOAD_MAX_MB, uploadProblem, validateGraph,
-  type AskData, type ButtonsData, type FlowGraph, type FlowNode, type ListData, type MediaData, type MessageData, type NodeKind,
+  BUILTIN_VARS, defaultData, FLOW_STATUS, flowVariables, INPUT_FIELDS, LIMITS, NODE_INFO, outputs, PALETTE_ORDER, parseKeywords, UPLOAD_MAX_MB, uploadProblem, validateGraph,
+  type AskData, type AssignData, type ButtonsData, type InputData, type InputField, type FlowGraph, type FlowNode, type ListData, type MediaData, type MessageData, type NodeKind,
   type TemplateData, type TriggerData, type WaitData, type WebhookData,
 } from '@/lib/bot-flow';
 import { saveFlow, stopSessions } from '../actions';
@@ -19,6 +19,13 @@ import { TestChat } from './TestChat';
 import { CopyFlowButton } from '../FlowCode';
 
 export interface BuilderTemplate { name: string; language: string; header: string; params: number }
+/** A team member for the Assign to team step; eligible = active with inbox access (reason says why not). */
+export interface BuilderMember { id: number; name: string; eligible: boolean; reason: string }
+
+/** What the canvas cards need from the builder: step actions and the team. */
+const BuilderContext = createContext<{ duplicate: (id: string) => void; remove: (id: string) => void; members: BuilderMember[] }>({
+  duplicate: () => {}, remove: () => {}, members: [],
+});
 
 const STATUS_LABEL: Record<number, string> = { [FLOW_STATUS.ACTIVE]: 'Active', [FLOW_STATUS.PAUSED]: 'Paused', [FLOW_STATUS.DRAFT]: 'Draft' };
 const STATUS_BADGE: Record<number, string> = {
@@ -38,7 +45,10 @@ const toGraph = (nodes: FNode[], edges: Edge[]): FlowGraph => ({
 });
 const asNode = (n: FNode) => ({ id: n.id, type: n.type, position: n.position, data: n.data }) as unknown as FlowNode;
 
-export function FlowBuilder(props: { id: number; initialName: string; initialStatus: number; initialGraph: FlowGraph; templates: BuilderTemplate[]; running: number }) {
+export function FlowBuilder(props: {
+  id: number; initialName: string; initialStatus: number; initialGraph: FlowGraph; templates: BuilderTemplate[]; running: number;
+  members: BuilderMember[]; crm: boolean;
+}) {
   return (
     <ReactFlowProvider>
       <Builder {...props} />
@@ -46,7 +56,7 @@ export function FlowBuilder(props: { id: number; initialName: string; initialSta
   );
 }
 
-function Builder({ id, initialName, initialStatus, initialGraph, templates, running }: Parameters<typeof FlowBuilder>[0]) {
+function Builder({ id, initialName, initialStatus, initialGraph, templates, running, members, crm }: Parameters<typeof FlowBuilder>[0]) {
   const initial = useMemo(() => toFlow(initialGraph), [initialGraph]);
   const [nodes, setNodes, onNodesChange] = useNodesState<FNode>(initial.nodes);
   const [edges, setEdges, onEdgesChange] = useEdgesState<Edge>(initial.edges);
@@ -129,11 +139,47 @@ function Builder({ id, initialName, initialStatus, initialGraph, templates, runn
     setDirty(true);
   }, [nodes, setNodes, setEdges]);
 
-  const removeNode = (nodeId: string) => {
+  const removeNode = useCallback((nodeId: string) => {
     flow.deleteElements({ nodes: [{ id: nodeId }] });
     setSelected(null);
     setDirty(true);
-  };
+  }, [flow]);
+
+  /** Copy a step (same content and title, no connections) next to the original and select the copy. */
+  const duplicateNode = useCallback((nodeId: string) => {
+    const src = flow.getNode(nodeId);
+    if (!src || src.type === 'trigger') return;
+    const all = flow.getNodes();
+    let position = { x: src.position.x + 40, y: src.position.y + (src.measured?.height ?? 180) + 40 };
+    for (let guard = 0; guard < 50; guard++) {
+      const p = position;
+      const hit = all.find((n) => Math.abs(n.position.x - p.x) < 290 && p.y < n.position.y + (n.measured?.height ?? 180) + 30 && n.position.y < p.y + 200);
+      if (!hit) break;
+      position = { x: p.x, y: hit.position.y + (hit.measured?.height ?? 180) + 40 };
+    }
+    let nid = '';
+    do { nid = `n${Date.now().toString(36)}${(counter.current++).toString(36)}`; } while (all.some((n) => n.id === nid));
+    const data = structuredClone(src.data);
+    setNodes((ns) => [...ns.map((n) => ({ ...n, selected: false })), { id: nid, type: src.type, position, data, selected: true }]);
+    setSelected(nid);
+    setDirty(true);
+    requestAnimationFrame(() => flow.fitView({ nodes: [{ id: nid }], padding: 2, maxZoom: 1, duration: 300 }));
+  }, [flow, setNodes]);
+
+  // Ctrl / Cmd + D duplicates the selected step (not while typing in a field)
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if (!(e.ctrlKey || e.metaKey) || e.key.toLowerCase() !== 'd' || !selected) return;
+      const el = e.target as HTMLElement | null;
+      if (el && (el.isContentEditable || ['INPUT', 'TEXTAREA', 'SELECT'].includes(el.tagName))) return;
+      e.preventDefault();
+      duplicateNode(selected);
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [selected, duplicateNode]);
+
+  const cardContext = useMemo(() => ({ duplicate: duplicateNode, remove: removeNode, members }), [duplicateNode, removeNode, members]);
 
   const save = (activate: boolean) => {
     setNotice(null);
@@ -249,6 +295,7 @@ function Builder({ id, initialName, initialStatus, initialGraph, templates, runn
               {notice.problems?.length ? <ul className="mb-0 mt-1 small ps-3">{notice.problems.map((p) => <li key={p}>{p}</li>)}</ul> : null}
             </div>
           )}
+          <BuilderContext.Provider value={cardContext}>
           <ReactFlow<FNode, Edge>
             nodes={nodes}
             edges={edges}
@@ -270,7 +317,8 @@ function Builder({ id, initialName, initialStatus, initialGraph, templates, runn
             <Controls position="bottom-right" />
             <MiniMap position="top-right" pannable zoomable className="fb-minimap" nodeColor="var(--vz-success)" style={{ width: 160, height: 100 }} />
           </ReactFlow>
-          <div className="fb-hint">Scroll to pan · pinch or Ctrl + scroll to zoom · select a connection and press Delete to remove it</div>
+          </BuilderContext.Provider>
+          <div className="fb-hint">Scroll to pan · pinch or Ctrl + scroll to zoom · Ctrl + D duplicates the selected step · select a connection and press Delete to remove it</div>
           {!selectedNode && problems.length > 0 && !notice && (
             <div className="fb-checklist small">
               <i className="ri-error-warning-line text-warning me-1" />{problems.length} thing{problems.length === 1 ? '' : 's'} to finish before activating: {problems[0]}
@@ -286,8 +334,11 @@ function Builder({ id, initialName, initialStatus, initialGraph, templates, runn
             key={selectedNode.id}
             node={selectedNode}
             templates={templates}
+            members={members}
+            crm={crm}
             variables={variables}
             onChange={(patch) => updateData(selectedNode.id, patch)}
+            onDuplicate={() => duplicateNode(selectedNode.id)}
             onDelete={() => removeNode(selectedNode.id)}
             onClose={() => { setSelected(null); setNodes((ns) => ns.map((n) => ({ ...n, selected: false }))); }}
           />
@@ -305,6 +356,7 @@ function preview(text: string, max = 90) {
 }
 
 const NodeCard = memo(function NodeCard({ id, type, data, selected }: NodeProps<FNode>) {
+  const ctx = useContext(BuilderContext);
   const kind = type as NodeKind;
   const info = NODE_INFO[kind];
   const node = { id, type: kind, position: { x: 0, y: 0 }, data } as unknown as FlowNode;
@@ -363,6 +415,28 @@ const NodeCard = memo(function NodeCard({ id, type, data, selected }: NodeProps<
         </div>
       );
       break;
+    case 'input': {
+      const field = INPUT_FIELDS[(d.field as InputField) ?? 'any'] ?? INPUT_FIELDS.any;
+      body = (
+        <div className="fb-box fb-box-primary">
+          {preview(d.text, 70) || <span className="text-muted">Your question…</span>}
+          <div className="small text-muted mt-1"><span className="badge bg-primary-subtle text-primary me-1">{field.label}</span>saves in {d.saveAs ? <code>{`{{${d.saveAs}}}`}</code> : '…'}</div>
+        </div>
+      );
+      break;
+    }
+    case 'assign': {
+      const chosen = (d.members as number[] | undefined) ?? [];
+      const names = chosen.length ? ctx.members.filter((m) => chosen.includes(m.id)).map((m) => m.name) : [];
+      body = (
+        <div className="fb-box fb-box-info">
+          <div className="fw-medium"><i className="ri-loop-right-line me-1" />Round robin</div>
+          <div className="small text-muted">{chosen.length ? preview(names.join(', ') || `${chosen.length} members`, 60) : 'All active team members'}</div>
+          {d.crm && <div className="small text-muted"><i className="ri-contacts-book-line me-1" />Also adds the lead to Leads CRM</div>}
+        </div>
+      );
+      break;
+    }
     case 'wait':
       body = <div className="fb-box"><i className="ri-time-line me-1" />Wait {d.amount} {d.amount === 1 ? String(d.unit).replace(/s$/, '') : d.unit}</div>;
       break;
@@ -376,6 +450,14 @@ const NodeCard = memo(function NodeCard({ id, type, data, selected }: NodeProps<
 
   return (
     <div className={`fb-node${selected ? ' selected' : ''}`}>
+      {kind !== 'trigger' && (
+        <NodeToolbar position={Position.Top} align="end" offset={6}>
+          <div className="btn-group btn-group-sm shadow-sm fb-node-tools">
+            <button type="button" className="btn btn-light border" onClick={() => ctx.duplicate(id)} title="Duplicate step (Ctrl + D)"><i className="ri-file-copy-line" /> Duplicate</button>
+            <button type="button" className="btn btn-light border text-danger" onClick={() => ctx.remove(id)} title="Delete step"><i className="ri-delete-bin-line" /></button>
+          </div>
+        </NodeToolbar>
+      )}
       {kind === 'trigger' && <span className="fb-start">START</span>}
       {kind !== 'trigger' && <Handle type="target" position={Position.Left} className="fb-handle" />}
       <div className="fb-node-head">
@@ -430,15 +512,15 @@ const EDGE_TYPES = { flow: FlowEdge };
 
 // ------------------------------------------------------------------ inspector
 
-function Inspector({ node, templates, variables, onChange, onDelete, onClose }: {
-  node: FNode; templates: BuilderTemplate[]; variables: string[];
-  onChange: (patch: Record<string, unknown>) => void; onDelete: () => void; onClose: () => void;
+function Inspector({ node, templates, members, crm, variables, onChange, onDuplicate, onDelete, onClose }: {
+  node: FNode; templates: BuilderTemplate[]; members: BuilderMember[]; crm: boolean; variables: string[];
+  onChange: (patch: Record<string, unknown>) => void; onDuplicate: () => void; onDelete: () => void; onClose: () => void;
 }) {
   const kind = node.type as NodeKind;
   const info = NODE_INFO[kind];
   const d = node.data as Record<string, any>;
   const inserter = useRef<Inserter | null>(null);
-  const usesVars = !['trigger', 'wait', 'end'].includes(kind);
+  const usesVars = !['trigger', 'wait', 'assign', 'end'].includes(kind);
   // A new attachment names the step after its file, unless the title was typed by hand
   const change = (patch: Record<string, unknown>) => {
     const field = kind === 'media' ? 'url' : kind === 'buttons' || kind === 'mediabuttons' ? 'mediaUrl' : '';
@@ -463,7 +545,7 @@ function Inspector({ node, templates, variables, onChange, onDelete, onClose }: 
             placeholder={`e.g. ${kind === 'trigger' ? 'Start: brochure request' : 'Send Nexon brochure'}`} onChange={(e) => onChange({ title: e.target.value })} />
           <div className="form-text">Only you see this, on the canvas. It is never sent to the customer.</div>
         </div>
-        <Fields kind={kind} d={d} onChange={change} inserter={inserter} templates={templates} />
+        <Fields kind={kind} d={d} onChange={change} inserter={inserter} templates={templates} members={members} crm={crm} />
         {usesVars && (
           <div className="mt-3">
             <div className="small text-muted mb-1">Variables — click to insert into the field you were editing</div>
@@ -477,8 +559,9 @@ function Inspector({ node, templates, variables, onChange, onDelete, onClose }: 
         )}
       </div>
       {kind !== 'trigger' && (
-        <div className="fb-inspector-foot">
-          <button type="button" className="btn btn-soft-danger btn-sm" onClick={onDelete}><i className="ri-delete-bin-line" /> Delete step</button>
+        <div className="fb-inspector-foot d-flex gap-2">
+          <button type="button" className="btn btn-soft-primary btn-sm" onClick={onDuplicate} title="Ctrl + D"><i className="ri-file-copy-line" /> Duplicate step</button>
+          <button type="button" className="btn btn-soft-danger btn-sm ms-auto" onClick={onDelete}><i className="ri-delete-bin-line" /> Delete step</button>
         </div>
       )}
     </aside>
@@ -596,9 +679,9 @@ function attachmentTitle(url: string): string {
   return fileLabel(url).replace(/\.[a-z0-9]{1,5}$/i, '').trim().slice(0, LIMITS.nodeTitle);
 }
 
-function Fields({ kind, d, onChange, inserter, templates }: {
+function Fields({ kind, d, onChange, inserter, templates, members, crm }: {
   kind: NodeKind; d: Record<string, any>; onChange: (patch: Record<string, unknown>) => void;
-  inserter: React.RefObject<Inserter | null>; templates: BuilderTemplate[];
+  inserter: React.RefObject<Inserter | null>; templates: BuilderTemplate[]; members: BuilderMember[]; crm: boolean;
 }) {
   switch (kind) {
     case 'trigger': {
@@ -740,6 +823,89 @@ function Fields({ kind, d, onChange, inserter, templates }: {
             {a.validate === 'date' && <div className="form-text">Customers can type 25-12-2026, 25/12/2026, 2026-12-25 or 25 Dec 2026; it is saved as DD-MM-YYYY.</div>}
           </div>
           {a.validate !== 'any' && <TextField label="Message for an invalid answer" value={a.error} onChange={(v) => onChange({ error: v })} inserter={inserter} max={LIMITS.text} help="The question waits for a valid answer (3 tries)." />}
+        </>
+      );
+    }
+    case 'input': {
+      const t = d as InputData;
+      const pickField = (field: InputField) => {
+        const old = INPUT_FIELDS[t.field] ?? INPUT_FIELDS.any;
+        const fresh = INPUT_FIELDS[field];
+        // Defaults follow the chosen kind; text you typed yourself is kept
+        onChange({
+          field,
+          ...(!t.saveAs || t.saveAs === old.saveAs ? { saveAs: fresh.saveAs } : {}),
+          ...(!t.error || t.error === old.error ? { error: fresh.error } : {}),
+          ...(!t.text || t.text === old.question ? { text: fresh.question } : {}),
+        });
+      };
+      return (
+        <>
+          <label className="form-label small fw-medium mb-1">Take from the customer</label>
+          <div className="d-flex flex-wrap gap-1 mb-3">
+            {(Object.keys(INPUT_FIELDS) as InputField[]).map((f) => (
+              <button key={f} type="button" className={`btn btn-sm ${t.field === f ? 'btn-primary' : 'btn-light border'}`} onClick={() => pickField(f)}>{INPUT_FIELDS[f].label}</button>
+            ))}
+          </div>
+          <TextField label="Message asking for it" value={t.text} onChange={(v) => onChange({ text: v })} inserter={inserter} multiline max={LIMITS.text}
+            placeholder={(INPUT_FIELDS[t.field] ?? INPUT_FIELDS.any).question} />
+          <SaveAs value={t.saveAs} onChange={(v) => onChange({ saveAs: v })} help="Use it later as {{variable}} in messages, templates, webhooks and Leads CRM." />
+          <div className="alert alert-light border small mb-3">
+            {t.field === 'name' && <>Accepts letters, spaces, dots and hyphens (2–60 characters, no numbers).</>}
+            {t.field === 'mobile' && <>Accepts exactly 10 digits. Spaces, dashes and a leading +91, 91 or 0 are removed, so <code>+91 98765-43210</code> is saved as <code>9876543210</code>.</>}
+            {t.field === 'date' && <>Customers can type 25-12-2026, 25/12/2026, 2026-12-25 or 25 Dec 2026; it is saved as DD-MM-YYYY.</>}
+            {t.field === 'any' && <>Any text the customer sends is saved.</>}
+            {' '}After a valid answer the flow moves to the next step.
+          </div>
+          <TextField label="Message for an invalid answer" value={t.error} onChange={(v) => onChange({ error: v })} inserter={inserter} max={LIMITS.text} help="The step waits for a valid answer (3 tries)." />
+        </>
+      );
+    }
+    case 'assign': {
+      const a = d as AssignData;
+      const eligible = members.filter((m) => m.eligible);
+      const toggle = (mid: number, on: boolean) => onChange({ members: on ? [...a.members, mid] : a.members.filter((x) => x !== mid) });
+      return (
+        <>
+          <p className="small text-muted">The chat is assigned in the Inbox to the next team member in turn (round robin), then the flow moves on.
+            Use <code>{'{{assigned_to}}'}</code> in a later message to tell the customer who will help them.</p>
+          {!eligible.length && (
+            <div className="alert alert-warning small">No active team member with inbox access yet. Add one under <Link href="/team">Team</Link> (Inbox: own or all chats); until then nobody is assigned and the flow just continues.</div>
+          )}
+          <label className="form-label small fw-medium mb-1">Team members in the rotation</label>
+          <div className="form-check mb-1">
+            <input className="form-check-input" type="radio" id="as_all" checked={!a.members.length} onChange={() => onChange({ members: [] })} />
+            <label className="form-check-label small" htmlFor="as_all">All active team members with inbox access{eligible.length ? ` (${eligible.length})` : ''}</label>
+          </div>
+          <div className="form-check mb-2">
+            <input className="form-check-input" type="radio" id="as_some" checked={a.members.length > 0} disabled={!eligible.length}
+              onChange={() => onChange({ members: eligible.map((m) => m.id) })} />
+            <label className="form-check-label small" htmlFor="as_some">Only the members I choose</label>
+          </div>
+          {a.members.length > 0 && (
+            <div className="border rounded p-2 mb-3">
+              {members.map((m) => (
+                <div className="form-check" key={m.id}>
+                  <input className="form-check-input" type="checkbox" id={`as_m${m.id}`} checked={a.members.includes(m.id)} disabled={!m.eligible && !a.members.includes(m.id)}
+                    onChange={(e) => toggle(m.id, e.target.checked)} />
+                  <label className={`form-check-label small${m.eligible ? '' : ' text-muted'}`} htmlFor={`as_m${m.id}`}>{m.name}{m.reason ? ` (${m.reason}, skipped)` : ''}</label>
+                </div>
+              ))}
+              {a.members.length === 1 && <div className="form-text">With one member every chat goes to them.</div>}
+            </div>
+          )}
+          <div className="form-check form-switch mb-2">
+            <input className="form-check-input" type="checkbox" role="switch" id="as_keep" checked={a.keep} onChange={(e) => onChange({ keep: e.target.checked })} />
+            <label className="form-check-label small" htmlFor="as_keep">Keep a chat that is already assigned with its team member</label>
+          </div>
+          <div className="form-check form-switch mb-3">
+            <input className="form-check-input" type="checkbox" role="switch" id="as_crm" checked={a.crm} disabled={!crm && !a.crm} onChange={(e) => onChange({ crm: e.target.checked })} />
+            <label className="form-check-label small" htmlFor="as_crm">Also add the lead to Leads CRM, assigned to the same member</label>
+            <div className="form-text">{crm
+              ? 'Name from a User input "Name" step (else the WhatsApp name), the WhatsApp number and every answer of the flow. An open lead with the same number gets the enquiry in its history.'
+              : 'Leads CRM is not switched on for this account.'}</div>
+          </div>
+          <div className="alert alert-light border small mb-0">Disabled members and members without inbox access are skipped. Members only see their own chats when their Inbox right is “Own chats”.</div>
         </>
       );
     }

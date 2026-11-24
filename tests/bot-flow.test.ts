@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { checkAnswer, flowVariables, parseAnswerDate, outputs, parseKeywords, parseMap, sanitizeGraph, starterGraph, validateGraph } from '@/lib/bot-flow';
+import { checkAnswer, checkInput, flowVariables, roundRobinNext, parseAnswerDate, outputs, parseKeywords, parseMap, sanitizeGraph, starterGraph, validateGraph } from '@/lib/bot-flow';
 
 describe('chatbot flow graph', () => {
   it('keeps a valid starter flow except for the missing keyword', () => {
@@ -74,5 +74,45 @@ describe('chatbot flow graph', () => {
     expect(checkAnswer('email', 'a@b.co')).toBe('a@b.co');
     expect(checkAnswer('phone', '+91 98290 12345')).toBe('+91 98290 12345');
     expect(checkAnswer('any', '  ')).toBeNull();
+  });
+
+  it('checks User input answers: name, 10-digit mobile, date, any', () => {
+    expect(checkInput('name', '  Ravi   Kumar ')).toBe('Ravi Kumar');
+    expect(checkInput('name', "D'Souza-Pai")).toBe("D'Souza-Pai");
+    expect(checkInput('name', 'रवि कुमार')).toBe('रवि कुमार');
+    for (const v of ['R', 'Ravi 2', '12345', '@ravi', '']) expect(checkInput('name', v), v).toBeNull();
+    for (const v of ['9876543210', '98765 43210', '98765-43210', '+91 98765 43210', '919876543210', '09876543210'])
+      expect(checkInput('mobile', v), v).toBe('9876543210');
+    for (const v of ['987654321', '98765432101', '+1 9876543210', 'ninety', '98765abc10']) expect(checkInput('mobile', v), v).toBeNull();
+    expect(checkInput('date', '25 Dec 2026')).toBe('25-12-2026');
+    expect(checkInput('date', '31-02-2026')).toBeNull();
+    expect(checkInput('any', ' hello  there ')).toBe('hello  there');
+    expect(checkInput('any', '   ')).toBeNull();
+  });
+
+  it('keeps User input and Assign to team steps and lists their variables', () => {
+    const g = sanitizeGraph({
+      nodes: [
+        { id: 'trigger', type: 'trigger', position: { x: 0, y: 0 }, data: { keywords: 'hi' } },
+        { id: 'i', type: 'input', position: { x: 1, y: 0 }, data: { text: 'Your name?', field: 'bogus', saveAs: 'Customer Name' } },
+        { id: 'a', type: 'assign', position: { x: 2, y: 0 }, data: { members: [3, '3', -1, 'x', 7], crm: 'yes' } },
+      ],
+      edges: [{ id: '1', source: 'trigger', target: 'i' }, { id: '2', source: 'i', target: 'a' }],
+    });
+    expect(g.nodes[1].data).toEqual({ text: 'Your name?', field: 'any', saveAs: 'customer_name', error: '' });
+    expect(g.nodes[2].data).toEqual({ members: [3, 7], keep: true, crm: false });
+    expect(flowVariables(g)).toEqual(['customer_name', 'assigned_to']);
+    expect(validateGraph(g)).toEqual([]);
+    expect(validateGraph({ ...g, nodes: g.nodes.map((n) => (n.id === 'i' ? { ...n, data: { ...n.data, text: '' } } : n)) as typeof g.nodes }))
+      .toEqual(['User input: enter the message that asks the customer.']);
+  });
+
+  it('takes team members in turn (round robin)', () => {
+    expect(roundRobinNext([5, 2, 9], 0)).toBe(2);
+    expect(roundRobinNext([5, 2, 9], 2)).toBe(5);
+    expect(roundRobinNext([5, 2, 9], 5)).toBe(9);
+    expect(roundRobinNext([5, 2, 9], 9)).toBe(2);
+    expect(roundRobinNext([5, 2, 9], 6)).toBe(9); // the last member left the rotation
+    expect(roundRobinNext([4], 4)).toBe(4);
   });
 });

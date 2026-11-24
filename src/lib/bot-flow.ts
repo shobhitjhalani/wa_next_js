@@ -9,7 +9,7 @@
  * variables ({{name}}) that later messages, templates and webhooks can use.
  */
 
-export type NodeKind = 'trigger' | 'message' | 'media' | 'buttons' | 'mediabuttons' | 'list' | 'template' | 'ask' | 'wait' | 'webhook' | 'end';
+export type NodeKind = 'trigger' | 'message' | 'media' | 'buttons' | 'mediabuttons' | 'list' | 'template' | 'ask' | 'input' | 'wait' | 'webhook' | 'assign' | 'end';
 
 export interface TriggerData { keywords: string; match: 'exact' | 'contains' }
 export interface MessageData { text: string }
@@ -19,13 +19,22 @@ export interface ListRow { title: string; description: string }
 export interface ListData { text: string; buttonLabel: string; footer: string; rows: ListRow[]; saveAs: string }
 export interface TemplateData { template: string; params: string[]; headerUrl: string }
 export interface AskData { text: string; saveAs: string; validate: 'any' | 'number' | 'email' | 'phone' | 'date'; error: string }
+/** User input: one typed answer of a fixed kind (name, 10-digit mobile, date or any text), checked before the flow moves on. */
+export type InputField = 'name' | 'mobile' | 'date' | 'any';
+export interface InputData { text: string; field: InputField; saveAs: string; error: string }
+/**
+ * Assign to team: the chat (and optionally a Leads CRM lead) goes to the next active team member with
+ * inbox access, round robin. members: the team members taking part (empty = all of them);
+ * keep: a chat already assigned to an active member stays with them.
+ */
+export interface AssignData { members: number[]; keep: boolean; crm: boolean }
 export interface WaitData { amount: number; unit: 'minutes' | 'hours' | 'days' }
 export interface WebhookData { url: string; method: 'POST' | 'GET'; headers: string; body: string; saveAs: string; map: string }
 export type EndData = Record<string, never>;
 
 export interface NodeDataMap {
   trigger: TriggerData; message: MessageData; media: MediaData; buttons: ButtonsData; mediabuttons: ButtonsData; list: ListData;
-  template: TemplateData; ask: AskData; wait: WaitData; webhook: WebhookData; end: EndData;
+  template: TemplateData; ask: AskData; input: InputData; wait: WaitData; webhook: WebhookData; assign: AssignData; end: EndData;
 }
 
 export interface FlowNode<K extends NodeKind = NodeKind> {
@@ -61,12 +70,22 @@ export const NODE_INFO: Record<NodeKind, { label: string; hint: string; icon: st
   list: { label: 'List', hint: 'Menu with up to 10 items', icon: 'ri-list-check-2', group: 'Send', tone: 'success' },
   template: { label: 'Send template', hint: 'Approved WhatsApp template', icon: 'ri-file-text-line', group: 'Send', tone: 'primary' },
   ask: { label: 'Ask question', hint: 'Wait for a typed answer', icon: 'ri-question-answer-line', group: 'Listen', tone: 'danger' },
+  input: { label: 'User input', hint: 'Name, mobile no (10 digits), date or any', icon: 'ri-edit-box-line', group: 'Listen', tone: 'primary' },
   wait: { label: 'Wait', hint: 'Pause before the next step', icon: 'ri-time-line', group: 'Logic', tone: 'secondary' },
   webhook: { label: 'Webhook', hint: 'Call your URL, save the reply', icon: 'ri-links-line', group: 'Logic', tone: 'dark' },
+  assign: { label: 'Assign to team', hint: 'Round robin to an active team member', icon: 'ri-user-shared-line', group: 'Logic', tone: 'info' },
   end: { label: 'End flow', hint: 'Finish the conversation', icon: 'ri-stop-circle-line', group: 'Logic', tone: 'secondary' },
 };
 
-export const PALETTE_ORDER: NodeKind[] = ['message', 'media', 'mediabuttons', 'buttons', 'list', 'template', 'trigger', 'ask', 'wait', 'webhook', 'end'];
+export const PALETTE_ORDER: NodeKind[] = ['message', 'media', 'mediabuttons', 'buttons', 'list', 'template', 'trigger', 'ask', 'input', 'wait', 'webhook', 'assign', 'end'];
+
+/** User input kinds: label, default variable, default message for an invalid answer. */
+export const INPUT_FIELDS: Record<InputField, { label: string; saveAs: string; error: string; question: string }> = {
+  name: { label: 'Name', saveAs: 'customer_name', error: 'Please send your name (letters only).', question: 'May I know your name?' },
+  mobile: { label: 'Mobile No (10 digits)', saveAs: 'customer_mobile', error: 'Please send a valid 10-digit mobile number.', question: 'Please share your 10-digit mobile number.' },
+  date: { label: 'Date', saveAs: 'date', error: 'Please send a valid date, e.g. 25-12-2026.', question: 'Which date suits you? (DD-MM-YYYY)' },
+  any: { label: 'Any text', saveAs: 'answer', error: 'Please send an answer.', question: 'Please type your answer.' },
+};
 
 export function defaultData<K extends NodeKind>(kind: K): NodeDataMap[K] {
   const d: { [P in NodeKind]: NodeDataMap[P] } = {
@@ -78,8 +97,10 @@ export function defaultData<K extends NodeKind>(kind: K): NodeDataMap[K] {
     list: { text: '', buttonLabel: 'Choose', footer: '', rows: [{ title: 'Option 1', description: '' }, { title: 'Option 2', description: '' }], saveAs: '' },
     template: { template: '', params: [], headerUrl: '' },
     ask: { text: '', saveAs: '', validate: 'any', error: 'Please send a valid answer.' },
+    input: { text: '', field: 'name', saveAs: INPUT_FIELDS.name.saveAs, error: INPUT_FIELDS.name.error },
     wait: { amount: 5, unit: 'minutes' },
     webhook: { url: '', method: 'POST', headers: '', body: '', saveAs: '', map: '' },
+    assign: { members: [], keep: true, crm: false },
     end: {} as EndData,
   };
   return structuredClone(d[kind]);
@@ -119,6 +140,8 @@ export function parseKeywords(raw: string): string[] {
 export const VAR_RE = /^[a-z][a-z0-9_]*$/;
 /** Variables every flow has. */
 export const BUILTIN_VARS = ['name', 'mobile', 'last_reply', 'flow_name'];
+/** Set by an Assign to team step: the team member's name. */
+export const ASSIGNED_VAR = 'assigned_to';
 
 /** Variables a flow defines (answers and webhook results), in node order. */
 export function flowVariables(graph: FlowGraph): string[] {
@@ -127,6 +150,7 @@ export function flowVariables(graph: FlowGraph): string[] {
     const d = n.data as Partial<ButtonsData & ListData & AskData & WebhookData>;
     if (d.saveAs) out.add(d.saveAs);
     if (n.type === 'webhook') for (const [name] of parseMap(d.map ?? '')) out.add(name);
+    if (n.type === 'assign') out.add(ASSIGNED_VAR);
   }
   return [...out];
 }
@@ -178,6 +202,35 @@ export function checkAnswer(kind: AskData['validate'], input: string): string | 
   }
 }
 
+/**
+ * The value to save for a User input step, or null when it is not valid.
+ * name: letters (any script), spaces, . ' - (2–60, no digits) · mobile: 10 digits, a leading +91 / 91 / 0
+ * and spaces or dashes are dropped · date: as parseAnswerDate (DD-MM-YYYY) · any: any non-empty text.
+ */
+export function checkInput(field: InputField, input: string): string | null {
+  const v = String(input ?? '').replace(/\s+/g, ' ').trim();
+  if (v === '') return null;
+  switch (field) {
+    case 'name':
+      return v.length >= 2 && v.length <= 60 && /^[\p{L}\p{M}][\p{L}\p{M} .'-]*$/u.test(v) ? v : null;
+    case 'mobile': {
+      if (!/^\+?[\d\s().-]+$/.test(v)) return null;
+      let d = v.replace(/\D/g, '');
+      if (d.length === 12 && d.startsWith('91')) d = d.slice(2);
+      else if (d.length === 11 && d.startsWith('0')) d = d.slice(1);
+      return /^\d{10}$/.test(d) ? d : null;
+    }
+    case 'date': return parseAnswerDate(v);
+    default: return String(input).trim();
+  }
+}
+
+/** Round robin: the first id after `last` (by id order), starting again at the first one. */
+export function roundRobinNext(ids: number[], last: number): number {
+  const sorted = [...ids].sort((a, b) => a - b);
+  return sorted.find((id) => id > last) ?? sorted[0];
+}
+
 // ------------------------------------------------------------------ validation
 
 const str = (v: unknown, max: number) => String(v ?? '').slice(0, max);
@@ -222,6 +275,15 @@ export function sanitizeGraph(input: unknown): FlowGraph {
       case 'ask': data = {
         text: str(d.text, LIMITS.text), saveAs: varName(d.saveAs), error: str(d.error, LIMITS.text),
         validate: (['number', 'email', 'phone', 'date'] as const).find((v) => v === d.validate) ?? 'any',
+      }; break;
+      case 'input': {
+        const field = (['name', 'mobile', 'date', 'any'] as const).find((v) => v === d.field) ?? 'any';
+        data = { text: str(d.text, LIMITS.text), field, saveAs: varName(d.saveAs), error: str(d.error, LIMITS.text) };
+        break;
+      }
+      case 'assign': data = {
+        members: [...new Set((Array.isArray(d.members) ? d.members : []).map(Number).filter((m: number) => Number.isInteger(m) && m > 0))].slice(0, 100),
+        keep: d.keep !== false, crm: d.crm === true,
       }; break;
       case 'wait': data = { amount: num(d.amount, 1, 10000, 5), unit: d.unit === 'hours' || d.unit === 'days' ? d.unit : 'minutes' }; break;
       case 'webhook': data = {
@@ -283,6 +345,10 @@ export function validateGraph(graph: FlowGraph): string[] {
       case 'template': if (!d.template) errors.push(`${label(n)}: choose a template.`); break;
       case 'ask':
         if (!d.text.trim()) errors.push(`${label(n)}: enter the question.`);
+        if (!d.saveAs) errors.push(`${label(n)}: enter a variable name to save the answer in.`);
+        break;
+      case 'input':
+        if (!d.text.trim()) errors.push(`${label(n)}: enter the message that asks the customer.`);
         if (!d.saveAs) errors.push(`${label(n)}: enter a variable name to save the answer in.`);
         break;
       case 'webhook': if (!/^https?:\/\//i.test(d.url)) errors.push(`Webhook: enter a URL starting with https://.`); break;

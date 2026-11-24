@@ -867,6 +867,13 @@ CREATE UNIQUE INDEX IF NOT EXISTS js_bot_session_running_idx ON js_bot_session (
 CREATE INDEX IF NOT EXISTS js_bot_session_wait_idx ON js_bot_session (bs_wait_until) WHERE bs_status = 1 AND bs_wait_until > 0;
 CREATE INDEX IF NOT EXISTS js_bot_session_flow_idx ON js_bot_session (bs_flow_id, bs_id DESC);
 
+-- Chatbot "Assign to team" step: the team member who got the last chat, per account (round robin).
+CREATE TABLE IF NOT EXISTS js_bot_round_robin (
+  rr_user_id integer PRIMARY KEY,
+  rr_last_member integer NOT NULL DEFAULT 0,  -- js_user_member id
+  rr_updated_on integer NOT NULL DEFAULT 0
+);
+
 -- ------------------------------------------------------------ inbox chat labels
 
 -- Labels an account puts on its chats (/chat) to sort and filter conversations.

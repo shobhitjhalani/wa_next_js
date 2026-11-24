@@ -3,15 +3,16 @@ import { lookup } from 'node:dns/promises';
 import { isIP } from 'node:net';
 import type pg from 'pg';
 import {
-  checkAnswer, outputs, parseKeywords, parseMap,
-  type AskData, type ButtonsData, type FlowGraph, type FlowNode, type ListData, type MediaData, type MessageData,
+  ASSIGNED_VAR, checkAnswer, checkInput, outputs, parseKeywords, parseMap, roundRobinNext,
+  type AskData, type AssignData, type ButtonsData, type InputData, type FlowGraph, type FlowNode, type ListData, type MediaData, type MessageData,
   type TemplateData, type TriggerData, type WaitData, type WebhookData,
 } from '../bot-flow';
-import { exec, one, query, tx } from '../db';
+import { exec, one, query, tx, value, type Queryable } from '../db';
 import { contactId, recordMessage } from '../models';
 import { decodeEntities, jsonParse, limit } from '../text';
 import { dayStart, now } from '../time';
 import type { MessageRow } from '../types';
+import { saveLead } from './crm';
 import { insertMessage } from './messages';
 import { sendPending } from './sender';
 
@@ -52,6 +53,8 @@ type Out = Partial<Pick<MessageRow, 'm_msg_type' | 'm_content' | 'm_image' | 'm_
 
 interface Host {
   send(row: Out): Promise<void>;
+  /** Assign to team step: the chosen team member's name, or null when nobody could be assigned. */
+  assign(d: AssignData, run: Run): Promise<string | null>;
   /** Test chat only: what happened behind the scenes (saved answers, webhook calls). */
   note(text: string): void;
 }
@@ -80,10 +83,15 @@ function saveSession(db: pg.PoolClient, id: number, s: SessionState) {
     [id, s.node, s.waitUntil, JSON.stringify(s.vars), s.retries, s.status, s.name, now()], db);
 }
 
+/** What a run does after its transaction: messages to send (in order), then other work (Leads CRM). */
+interface Outbox { ids: number[]; later: (() => Promise<void>)[] }
+const newOutbox = (): Outbox => ({ ids: [], later: [] });
+
 /** Host for real conversations: messages go into js_message (status 6) and are sent after the transaction. */
-function liveHost(db: pg.PoolClient, userId: number, mobile: string, flowName: string, outbox: number[]): Host {
+function liveHost(db: pg.PoolClient, userId: number, mobile: string, flowName: string, outbox: Outbox): Host {
   return {
     note: () => {},
+    assign: (d, run) => assignLive(db, userId, mobile, flowName, d, run, outbox),
     async send(row) {
       const t = now();
       const message = await insertMessage({
@@ -101,7 +109,7 @@ function liveHost(db: pg.PoolClient, userId: number, mobile: string, flowName: s
         m_created_on: t,
       }, db);
       await recordMessage(message, db);
-      outbox.push(message.m_id);
+      outbox.ids.push(message.m_id);
     },
   };
 }
@@ -115,7 +123,7 @@ export async function botIncoming(userId: number, mobile: string, name: string |
   if (!mobile) return false;
   // Only accounts the admin switched Chatbot Flows on for
   if (!(await one('SELECT 1 FROM js_user WHERE u_id = $1 AND u_bot_flow = 1', [userId]))) return false;
-  const outbox: number[] = [];
+  const outbox = newOutbox();
   const handled = await tx(async (db) => {
     await db.query('SELECT pg_advisory_xact_lock($1::int, hashtext($2))', [userId, 'bot:' + mobile]);
     const row = await one<SessionRow>(
@@ -169,7 +177,7 @@ export async function resumeBotSessions(log: (m: string) => void = () => {}): Pr
     'SELECT bs_id, bs_user_id, bs_mobile FROM js_bot_session WHERE bs_status = 1 AND bs_wait_until > 0 AND bs_wait_until <= $1 ORDER BY bs_wait_until LIMIT 200', [t]);
   let resumed = 0;
   for (const d of due) {
-    const outbox: number[] = [];
+    const outbox = newOutbox();
     try {
       await tx(async (db) => {
         await db.query('SELECT pg_advisory_xact_lock($1::int, hashtext($2))', [d.bs_user_id, 'bot:' + d.bs_mobile]);
@@ -209,15 +217,82 @@ function findFlow(db: pg.PoolClient, userId: number, text: string, exactOnly: bo
       ORDER BY ($2 = ANY(bf_keywords)) DESC, bf_id DESC LIMIT 1`, [userId, words, exactOnly], db);
 }
 
-/** Send a run's messages one after another, in the order the flow created them. */
-async function sendOutbox(ids: number[]): Promise<void> {
-  for (const id of ids) {
+/** Send a run's messages one after another, in the order the flow created them, then run its other work. */
+async function sendOutbox(outbox: Outbox): Promise<void> {
+  for (const id of outbox.ids) {
     try {
       await sendPending(id);
     } catch (e) {
       console.error('[bot] send failed', id, e);
     }
   }
+  for (const task of outbox.later) await task().catch((e) => console.error('[bot] after-run task failed', e));
+}
+
+// ------------------------------------------------------------------ assign to team (round robin)
+
+interface Member { um_id: number; um_name: string }
+
+/** Active team members with inbox access (they can open the chat), in id order; only the step's members when it lists some. */
+function assignable(userId: number, d: AssignData, db?: Queryable): Promise<Member[]> {
+  return query<Member>(
+    `SELECT um_id, um_name FROM js_user_member
+      WHERE um_user_id = $1 AND um_status = 1 AND COALESCE(um_perms->>'inbox', 'none') <> 'none'
+        AND (cardinality($2::int[]) = 0 OR um_id = ANY($2::int[]))
+      ORDER BY um_id`, [userId, d.members], db);
+}
+
+/** The member the chat is already assigned to, when "keep" is on and they are still active with inbox access. */
+async function currentMember(userId: number, contact: number, db: Queryable): Promise<Member | null> {
+  if (!contact) return null;
+  return one<Member>(
+    `SELECT m.um_id, m.um_name FROM js_user_contact_list c
+       JOIN js_user_member m ON m.um_id = c.cl_assigned_member AND m.um_user_id = c.cl_user_id
+      WHERE c.cl_id = $1 AND c.cl_user_id = $2 AND m.um_status = 1 AND COALESCE(m.um_perms->>'inbox', 'none') <> 'none'`, [contact, userId], db);
+}
+
+/**
+ * Live Assign to team step: keep the chat's member (if "keep") or take the next member in turn (one
+ * pointer per account, locked so parallel conversations never get the same turn), assign the chat
+ * in the inbox and, with "crm", add the lead to Leads CRM for the same member after the transaction.
+ */
+async function assignLive(db: pg.PoolClient, userId: number, mobile: string, flowName: string, d: AssignData, run: Run, outbox: Outbox): Promise<string | null> {
+  const contact = await contactId(userId, mobile, null, db);
+  let member = d.keep ? await currentMember(userId, contact, db) : null;
+  if (!member) {
+    const members = await assignable(userId, d, db);
+    if (!members.length) return null;
+    await exec('INSERT INTO js_bot_round_robin (rr_user_id) VALUES ($1) ON CONFLICT DO NOTHING', [userId], db);
+    const last = Number(await value<number>('SELECT rr_last_member FROM js_bot_round_robin WHERE rr_user_id = $1 FOR UPDATE', [userId], db)) || 0;
+    const id = roundRobinNext(members.map((m) => m.um_id), last);
+    member = members.find((m) => m.um_id === id)!;
+    await exec('UPDATE js_bot_round_robin SET rr_last_member = $2, rr_updated_on = $3 WHERE rr_user_id = $1', [userId, member.um_id, now()], db);
+  }
+  // Touch so open inbox tabs pick the change up on their next poll
+  if (contact) await exec('UPDATE js_user_contact_list SET cl_assigned_member = $2, cl_updated_on = now() WHERE cl_id = $1', [contact, member.um_id], db);
+  if (d.crm) {
+    const chosen = member;
+    const lead = leadOf(run);
+    outbox.later.push(async () => {
+      if (!(await value('SELECT 1 FROM js_user WHERE u_id = $1 AND u_crm = 1 AND u_dstatus = 0', [userId]))) return;
+      await saveLead(userId, {
+        ...lead, mobile, source: 'whatsapp', campaign: flowName, assignedMember: chosen.um_id,
+        activity: `Lead from chatbot flow "${flowName}", assigned to ${chosen.um_name}`,
+      }, 'chatbot');
+    });
+  }
+  return member.um_name;
+}
+
+/** Variables that are not answers of the customer. */
+const INTERNAL_VARS = new Set(['last_reply', 'trigger', 'webhook_status', ASSIGNED_VAR]);
+
+/** Lead details from a conversation: the name typed in a User input "Name" step (else the WhatsApp name) and every answer. */
+function leadOf(run: Run): { name: string; fields: Record<string, string> } {
+  const nameVar = run.flow.bf_graph.nodes.find((n) => n.type === 'input' && (n.data as InputData).field === 'name' && run.s.vars[(n.data as InputData).saveAs]);
+  const name = nameVar ? run.s.vars[(nameVar.data as InputData).saveAs] : run.s.name ?? '';
+  const fields = Object.fromEntries(Object.entries(run.s.vars).filter(([k, v]) => !INTERNAL_VARS.has(k) && String(v).trim() !== '').slice(0, 40));
+  return { name, fields };
 }
 
 // ------------------------------------------------------------------ test chat (Flow Builder)
@@ -244,6 +319,19 @@ export async function testFlow(
   const host: Host = {
     note: (text) => messages.push({ kind: 'note', text }),
     send: async (row) => { messages.push(await testMessage(userId, row)); },
+    // Shows who is next in turn; nothing is assigned and the turn does not move
+    assign: async (d) => {
+      const members = await assignable(userId, d);
+      if (!members.length) {
+        host.note(`Assign to team: no active team member with inbox access${d.members.length ? ' among the chosen members' : ''} — nobody is assigned.`);
+        return null;
+      }
+      const last = Number(await value<number>('SELECT rr_last_member FROM js_bot_round_robin WHERE rr_user_id = $1', [userId])) || 0;
+      const id = roundRobinNext(members.map((m) => m.um_id), last);
+      const member = members.find((m) => m.um_id === id)!;
+      host.note(`Assigned to ${member.um_name} (round robin among ${members.length}).${d.crm ? ' The lead is added to Leads CRM.' : ''} In the test nothing is changed.`);
+      return member.um_name;
+    },
   };
   const flow = { bf_name: flowName, bf_graph: graph };
   const text = String(input.text ?? '');
@@ -376,6 +464,7 @@ async function walk(run: Run, node: FlowNode | null): Promise<void> {
       case 'mediabuttons':
       case 'list':
       case 'ask':
+      case 'input':
         await prompt(run, node);
         return pause(run, node.id, 0);
       case 'wait': {
@@ -387,6 +476,12 @@ async function walk(run: Run, node: FlowNode | null): Promise<void> {
       case 'webhook': {
         const ok = await callWebhook(run, node.data as WebhookData);
         node = next(graph, node.id, ok ? 'ok' : 'fail'); // no "Failed" connection: the flow ends
+        continue;
+      }
+      case 'assign': {
+        const who = await run.host.assign(node.data as AssignData, run);
+        if (who) save(run, ASSIGNED_VAR, who);
+        node = next(graph, node.id, null);
         continue;
       }
       case 'end':
@@ -412,8 +507,8 @@ function save(run: Run, name: string, value: string): void {
 
 /** The message of a step that waits for the customer (buttons, list, question). */
 async function prompt(run: Run, node: FlowNode, prefix = ''): Promise<void> {
-  if (node.type === 'ask') {
-    await run.host.send({ m_msg_type: 'text', m_content: prefix + fill(run, (node.data as AskData).text) });
+  if (node.type === 'ask' || node.type === 'input') {
+    await run.host.send({ m_msg_type: 'text', m_content: prefix + fill(run, (node.data as AskData | InputData).text) });
     return;
   }
   if (node.type === 'buttons' || node.type === 'mediabuttons') {
@@ -467,10 +562,10 @@ async function answer(run: Run, node: FlowNode, incoming: Incoming): Promise<'co
     await walk(run, next(graph, node.id, outputs(node)[index]?.id ?? null));
     return 'continued';
   }
-  if (node.type === 'ask') {
-    const d = node.data as AskData;
-    const value = checkAnswer(d.validate, incoming.text);
-    if (value === null) {
+  if (node.type === 'ask' || node.type === 'input') {
+    const d = node.data as AskData | InputData;
+    const answerValue = node.type === 'input' ? checkInput((d as InputData).field, incoming.text) : checkAnswer((d as AskData).validate, incoming.text);
+    if (answerValue === null) {
       if (run.s.retries + 1 >= MAX_RETRIES) {
         run.host.note(`${MAX_RETRIES} invalid answers — the question is given up.`);
         finish(run);
@@ -480,7 +575,7 @@ async function answer(run: Run, node: FlowNode, incoming: Incoming): Promise<'co
       run.s.retries++;
       return 'retry';
     }
-    if (d.saveAs) save(run, d.saveAs, value);
+    if (d.saveAs) save(run, d.saveAs, answerValue);
     await walk(run, next(graph, node.id, null));
     return 'continued';
   }

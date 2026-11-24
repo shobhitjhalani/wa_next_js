@@ -185,3 +185,4 @@
 .fb-chip { font-size: .75rem; padding: .15rem .55rem; border-radius: 1rem; }
 .fb-send { width: 42px; padding: 0; flex: none; }
 @media (max-width: 991.98px) { .fb-test { width: 100%; height: 70vh; } }
+.fb-node-tools .btn { font-size: .75rem; padding: .15rem .5rem; background: var(--vz-secondary-bg, #fff); }

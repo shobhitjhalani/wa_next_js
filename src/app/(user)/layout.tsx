@@ -5,6 +5,9 @@ import type { MenuItem } from '@/components/panel/Sidebar';
 import { API_DOCS_VISIBLE } from './api_docs/visibility';
 import { CrmReminders } from './crm/CrmReminders';
 
+/** Guide Book: step-by-step guides (Create Template, Start Campaign, Inbox). */
+const GUIDE_MENU: MenuItem = { label: 'Guide Book', icon: 'ri-book-open-line', href: '/guide', match: ['/guide'] };
+
 /** Menu of a team member: only the sections their permissions open. */
 function memberMenu(p: TeamPerms): MenuItem[] {
   const campaigns = [
@@ -16,6 +19,7 @@ function memberMenu(p: TeamPerms): MenuItem[] {
     ...(campaigns.length ? [{ label: 'Campaigns', icon: 'ri-megaphone-line', children: campaigns }] : []),
     ...(p.inbox !== 'none' ? [{ label: 'Inbox', icon: 'ri-chat-3-line', href: '/chat' }] : []),
     { label: 'My Account', icon: 'ri-user-settings-line', href: '/team/account' },
+    ...(p.template === 'edit' || p.campaignCreate || p.inbox !== 'none' ? [GUIDE_MENU] : []),
   ];
 }
 
@@ -95,6 +99,7 @@ export default async function UserLayout({ children }: { children: React.ReactNo
     },
     // Shown when the admin gave this account Teams
     ...(Number(user.u_team) === 1 ? [{ label: 'My Team', icon: 'ri-team-line', href: '/team', match: ['/team'] } satisfies MenuItem] : []),
+    GUIDE_MENU,
   ];
 
   return (

@@ -1,0 +1,1790 @@
+{
+  "info": {
+    "_postman_id": "3f1c9d2e-8b7a-4e61-a0d4-2c5b9e7f1a64",
+    "name": "WA Panel - All APIs",
+    "description": "All APIs of the WA Panel (wa.jscoretech.com). Full reference: docs/API.md.\n\nSet the collection variables first: app_url (https://wa.jscoretech.com or http://localhost:3100), api_key (Profile → API Access Key), to (test number with country code), template, and the keys for the folders you use.\n\nFolders:\n1. REST API v2: the recommended API (X-API-Key header, JSON)\n2. Legacy API v1: /api/secure/v1 (access_key or username + password in the body)\n3. Legacy URLs: old file / Laravel URLs that still work\n4. Leads CRM webhook\n5. Webhooks & callbacks called by Meta, Shopify and CCAvenue\n6. Outgoing: the CRM WA API this app calls\n\nRequests that send messages send real WhatsApp messages: use your own test number.",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+  },
+  "item": [
+    {
+      "name": "1. REST API v2",
+      "description": "Send WhatsApp templates, text and attachments, check message status, and list / create templates.\n\nSet the collection variables before sending:\n- base_url: your API base URL\n- api_key: your API key (Profile → API Access Key); it is sent in the X-API-Key header\n- to: a test mobile number with country code, e.g. 919876543210\n\nResponses are {\"success\": true, \"data\": …} or {\"success\": false, \"error\": {\"code\", \"message\", \"field\"}}.\nText and attachment messages need the customer to have written to you in the last 24 hours.\nSending a message saves its id in the message_id variable for \"Message status\".",
+      "auth": {
+        "type": "apikey",
+        "apikey": [
+          {
+            "key": "key",
+            "value": "X-API-Key",
+            "type": "string"
+          },
+          {
+            "key": "value",
+            "value": "{{api_key}}",
+            "type": "string"
+          },
+          {
+            "key": "in",
+            "value": "header",
+            "type": "string"
+          }
+        ]
+      },
+      "item": [
+        {
+          "name": "Templates",
+          "item": [
+            {
+              "name": "List templates",
+              "event": [
+                {
+                  "listen": "test",
+                  "script": {
+                    "type": "text/javascript",
+                    "exec": [
+                      "const j = pm.response.json();",
+                      "pm.test(\"success\", () => pm.expect(j.success).to.eql(true));"
+                    ]
+                  }
+                }
+              ],
+              "request": {
+                "method": "GET",
+                "header": [],
+                "url": {
+                  "raw": "{{base_url}}/templates",
+                  "host": [
+                    "{{base_url}}"
+                  ],
+                  "path": [
+                    "templates"
+                  ],
+                  "query": [
+                    {
+                      "key": "sync",
+                      "value": "1",
+                      "description": "1 = fetch the latest templates from WhatsApp first",
+                      "disabled": true
+                    },
+                    {
+                      "key": "status",
+                      "value": "approved",
+                      "description": "approved (default) or all",
+                      "disabled": true
+                    },
+                    {
+                      "key": "name",
+                      "value": "{{template}}",
+                      "description": "only this template",
+                      "disabled": true
+                    },
+                    {
+                      "key": "category",
+                      "value": "UTILITY",
+                      "description": "MARKETING, UTILITY or AUTHENTICATION",
+                      "disabled": true
+                    }
+                  ]
+                },
+                "description": "Approved templates with body_parameters, header, buttons (dynamic URL buttons and their index), cards and can_send. Enable the query parameters you need."
+              }
+            },
+            {
+              "name": "Create template (text header, URL button)",
+              "event": [
+                {
+                  "listen": "test",
+                  "script": {
+                    "type": "text/javascript",
+                    "exec": [
+                      "const j = pm.response.json();",
+                      "pm.test(\"success\", () => pm.expect(j.success).to.eql(true));"
+                    ]
+                  }
+                }
+              ],
+              "request": {
+                "method": "POST",
+                "header": [
+                  {
+                    "key": "Content-Type",
+                    "value": "application/json"
+                  }
+                ],
+                "url": {
+                  "raw": "{{base_url}}/templates",
+                  "host": [
+                    "{{base_url}}"
+                  ],
+                  "path": [
+                    "templates"
+                  ]
+                },
+                "body": {
+                  "mode": "raw",
+                  "raw": "{\n  \"name\": \"order_update\",\n  \"category\": \"UTILITY\",\n  \"language\": \"en\",\n  \"header_type\": \"TEXT\",\n  \"header_text\": \"Order update\",\n  \"body\": \"Hi {{1}}, your order {{2}} has been shipped.\",\n  \"body_examples\": [\n    \"Ravi\",\n    \"ORD-1001\"\n  ],\n  \"footer\": \"Reply STOP to opt out\",\n  \"buttons\": [\n    {\n      \"type\": \"URL\",\n      \"text\": \"Track order\",\n      \"url\": \"https://example.com/track/{{1}}\",\n      \"example\": \"https://example.com/track/ORD-1001\"\n    },\n    {\n      \"type\": \"QUICK_REPLY\",\n      \"text\": \"Talk to us\"\n    }\n  ]\n}",
+                  "options": {
+                    "raw": {
+                      "language": "json"
+                    }
+                  }
+                },
+                "description": "Submits a standard template to WhatsApp for review. It can be sent once approved (List templates with sync=1). category: MARKETING or UTILITY. header_type: NONE, TEXT, IMAGE, VIDEO or DOCUMENT. Buttons: QUICK_REPLY {text}, URL {text, url, example}, PHONE_NUMBER {text, phone}."
+              }
+            },
+            {
+              "name": "Create template (image header)",
+              "event": [
+                {
+                  "listen": "test",
+                  "script": {
+                    "type": "text/javascript",
+                    "exec": [
+                      "const j = pm.response.json();",
+                      "pm.test(\"success\", () => pm.expect(j.success).to.eql(true));"
+                    ]
+                  }
+                }
+              ],
+              "request": {
+                "method": "POST",
+                "header": [],
+                "url": {
+                  "raw": "{{base_url}}/templates",
+                  "host": [
+                    "{{base_url}}"
+                  ],
+                  "path": [
+                    "templates"
+                  ]
+                },
+                "body": {
+                  "mode": "formdata",
+                  "formdata": [
+                    {
+                      "key": "name",
+                      "value": "festive_offer",
+                      "type": "text"
+                    },
+                    {
+                      "key": "category",
+                      "value": "MARKETING",
+                      "type": "text"
+                    },
+                    {
+                      "key": "language",
+                      "value": "en",
+                      "type": "text"
+                    },
+                    {
+                      "key": "header_type",
+                      "value": "IMAGE",
+                      "type": "text"
+                    },
+                    {
+                      "key": "header_file",
+                      "type": "file",
+                      "src": [],
+                      "description": "Sample image (.jpg / .png, up to 5 MB)"
+                    },
+                    {
+                      "key": "body",
+                      "value": "Hi {{1}}, our festive offer is live! Visit us today.",
+                      "type": "text"
+                    },
+                    {
+                      "key": "body_examples",
+                      "value": "[\"Ravi\"]",
+                      "type": "text",
+                      "description": "JSON array, one sample per body variable"
+                    },
+                    {
+                      "key": "buttons",
+                      "value": "[{\"type\":\"QUICK_REPLY\",\"text\":\"Interested\"}]",
+                      "type": "text",
+                      "description": "JSON array (optional)"
+                    }
+                  ]
+                },
+                "description": "Media headers need a sample file, so this request is multipart/form-data. List fields are sent as JSON strings."
+              }
+            }
+          ]
+        },
+        {
+          "name": "Send messages",
+          "item": [
+            {
+              "name": "Send template",
+              "event": [
+                {
+                  "listen": "test",
+                  "script": {
+                    "type": "text/javascript",
+                    "exec": [
+                      "const j = pm.response.json();",
+                      "pm.test(\"success\", () => pm.expect(j.success).to.eql(true));",
+                      "if (j.success && j.data && j.data.messages && j.data.messages[0]) {",
+                      "  pm.collectionVariables.set(\"message_id\", j.data.messages[0].id);",
+                      "}"
+                    ]
+                  }
+                }
+              ],
+              "request": {
+                "method": "POST",
+                "header": [
+                  {
+                    "key": "Content-Type",
+                    "value": "application/json"
+                  }
+                ],
+                "url": {
+                  "raw": "{{base_url}}/messages/template",
+                  "host": [
+                    "{{base_url}}"
+                  ],
+                  "path": [
+                    "messages",
+                    "template"
+                  ]
+                },
+                "body": {
+                  "mode": "raw",
+                  "raw": "{\n  \"to\": \"{{to}}\",\n  \"template\": \"{{template}}\",\n  \"parameters\": [\n    \"Ravi\",\n    \"ORD-1001\"\n  ]\n}",
+                  "options": {
+                    "raw": {
+                      "language": "json"
+                    }
+                  }
+                },
+                "description": "parameters: body values for {{1}}, {{2}}, … in order. to may also be an array or comma-separated list (up to 100 numbers; then the response is 202 and messages are sent in the background)."
+              }
+            },
+            {
+              "name": "Send template (media header + URL button)",
+              "event": [
+                {
+                  "listen": "test",
+                  "script": {
+                    "type": "text/javascript",
+                    "exec": [
+                      "const j = pm.response.json();",
+                      "pm.test(\"success\", () => pm.expect(j.success).to.eql(true));",
+                      "if (j.success && j.data && j.data.messages && j.data.messages[0]) {",
+                      "  pm.collectionVariables.set(\"message_id\", j.data.messages[0].id);",
+                      "}"
+                    ]
+                  }
+                }
+              ],
+              "request": {
+                "method": "POST",
+                "header": [
+                  {
+                    "key": "Content-Type",
+                    "value": "application/json"
+                  }
+                ],
+                "url": {
+                  "raw": "{{base_url}}/messages/template",
+                  "host": [
+                    "{{base_url}}"
+                  ],
+                  "path": [
+                    "messages",
+                    "template"
+                  ]
+                },
+                "body": {
+                  "mode": "raw",
+                  "raw": "{\n  \"to\": \"{{to}}\",\n  \"template\": \"{{template}}\",\n  \"language\": \"en\",\n  \"parameters\": [\n    \"Ravi\",\n    \"ORD-1001\"\n  ],\n  \"header_url\": \"https://example.com/invoice.pdf\",\n  \"header_parameter\": \"Ravi\",\n  \"button_parameters\": {\n    \"0\": \"ORD-1001\"\n  }\n}",
+                  "options": {
+                    "raw": {
+                      "language": "json"
+                    }
+                  }
+                },
+                "description": "header_url: for image / video / document templates (public URL ending in .jpg/.png, .mp4 or .pdf). header_parameter: value for {{1}} in a text header. button_parameters: dynamic URL button values by button index. Remove the fields your template does not use."
+              }
+            },
+            {
+              "name": "Send template (upload header file)",
+              "event": [
+                {
+                  "listen": "test",
+                  "script": {
+                    "type": "text/javascript",
+                    "exec": [
+                      "const j = pm.response.json();",
+                      "pm.test(\"success\", () => pm.expect(j.success).to.eql(true));",
+                      "if (j.success && j.data && j.data.messages && j.data.messages[0]) {",
+                      "  pm.collectionVariables.set(\"message_id\", j.data.messages[0].id);",
+                      "}"
+                    ]
+                  }
+                }
+              ],
+              "request": {
+                "method": "POST",
+                "header": [],
+                "url": {
+                  "raw": "{{base_url}}/messages/template",
+                  "host": [
+                    "{{base_url}}"
+                  ],
+                  "path": [
+                    "messages",
+                    "template"
+                  ]
+                },
+                "body": {
+                  "mode": "formdata",
+                  "formdata": [
+                    {
+                      "key": "to",
+                      "value": "{{to}}",
+                      "type": "text"
+                    },
+                    {
+                      "key": "template",
+                      "value": "{{template}}",
+                      "type": "text"
+                    },
+                    {
+                      "key": "parameters[]",
+                      "value": "Ravi",
+                      "type": "text",
+                      "description": "{{1}}"
+                    },
+                    {
+                      "key": "parameters[]",
+                      "value": "ORD-1001",
+                      "type": "text",
+                      "description": "{{2}}"
+                    },
+                    {
+                      "key": "header_file",
+                      "type": "file",
+                      "src": [],
+                      "description": "Header image / video / document"
+                    }
+                  ]
+                },
+                "description": "Uploads the header media instead of a URL. Repeat parameters[] for each body value."
+              }
+            },
+            {
+              "name": "Send carousel template",
+              "event": [
+                {
+                  "listen": "test",
+                  "script": {
+                    "type": "text/javascript",
+                    "exec": [
+                      "const j = pm.response.json();",
+                      "pm.test(\"success\", () => pm.expect(j.success).to.eql(true));",
+                      "if (j.success && j.data && j.data.messages && j.data.messages[0]) {",
+                      "  pm.collectionVariables.set(\"message_id\", j.data.messages[0].id);",
+                      "}"
+                    ]
+                  }
+                }
+              ],
+              "request": {
+                "method": "POST",
+                "header": [
+                  {
+                    "key": "Content-Type",
+                    "value": "application/json"
+                  }
+                ],
+                "url": {
+                  "raw": "{{base_url}}/messages/template",
+                  "host": [
+                    "{{base_url}}"
+                  ],
+                  "path": [
+                    "messages",
+                    "template"
+                  ]
+                },
+                "body": {
+                  "mode": "raw",
+                  "raw": "{\n  \"to\": \"{{to}}\",\n  \"template\": \"product_carousel\",\n  \"parameters\": [\n    \"Ravi\"\n  ],\n  \"cards\": [\n    {\n      \"media_url\": \"https://example.com/car-1.jpg\",\n      \"parameters\": [\n        \"Nexon\"\n      ],\n      \"button_parameters\": {\n        \"0\": \"nexon\"\n      }\n    },\n    {\n      \"media_url\": \"https://example.com/car-2.jpg\",\n      \"parameters\": [\n        \"Punch\"\n      ],\n      \"button_parameters\": {\n        \"0\": \"punch\"\n      }\n    }\n  ]\n}",
+                  "options": {
+                    "raw": {
+                      "language": "json"
+                    }
+                  }
+                },
+                "description": "One entry in cards per card of the template: media_url (.jpg/.png, or .mp4 for video cards), parameters for the card body, button_parameters for dynamic URL buttons."
+              }
+            },
+            {
+              "name": "Send text",
+              "event": [
+                {
+                  "listen": "test",
+                  "script": {
+                    "type": "text/javascript",
+                    "exec": [
+                      "const j = pm.response.json();",
+                      "pm.test(\"success\", () => pm.expect(j.success).to.eql(true));",
+                      "if (j.success && j.data && j.data.messages && j.data.messages[0]) {",
+                      "  pm.collectionVariables.set(\"message_id\", j.data.messages[0].id);",
+                      "}"
+                    ]
+                  }
+                }
+              ],
+              "request": {
+                "method": "POST",
+                "header": [
+                  {
+                    "key": "Content-Type",
+                    "value": "application/json"
+                  }
+                ],
+                "url": {
+                  "raw": "{{base_url}}/messages/text",
+                  "host": [
+                    "{{base_url}}"
+                  ],
+                  "path": [
+                    "messages",
+                    "text"
+                  ]
+                },
+                "body": {
+                  "mode": "raw",
+                  "raw": "{\n  \"to\": \"{{to}}\",\n  \"text\": \"Hello! Your order is out for delivery 🚚\"\n}",
+                  "options": {
+                    "raw": {
+                      "language": "json"
+                    }
+                  }
+                },
+                "description": "Only within 24 hours of the customer's last message (otherwise error window_closed: send a template). Up to 4096 characters; WhatsApp formatting such as *bold* works."
+              }
+            },
+            {
+              "name": "Send text with reply buttons",
+              "event": [
+                {
+                  "listen": "test",
+                  "script": {
+                    "type": "text/javascript",
+                    "exec": [
+                      "const j = pm.response.json();",
+                      "pm.test(\"success\", () => pm.expect(j.success).to.eql(true));",
+                      "if (j.success && j.data && j.data.messages && j.data.messages[0]) {",
+                      "  pm.collectionVariables.set(\"message_id\", j.data.messages[0].id);",
+                      "}"
+                    ]
+                  }
+                }
+              ],
+              "request": {
+                "method": "POST",
+                "header": [
+                  {
+                    "key": "Content-Type",
+                    "value": "application/json"
+                  }
+                ],
+                "url": {
+                  "raw": "{{base_url}}/messages/text",
+                  "host": [
+                    "{{base_url}}"
+                  ],
+                  "path": [
+                    "messages",
+                    "text"
+                  ]
+                },
+                "body": {
+                  "mode": "raw",
+                  "raw": "{\n  \"to\": \"{{to}}\",\n  \"text\": \"Would you like a call back?\",\n  \"buttons\": [\n    \"Yes\",\n    \"No\"\n  ]\n}",
+                  "options": {
+                    "raw": {
+                      "language": "json"
+                    }
+                  }
+                },
+                "description": "Up to 3 buttons show as buttons (20 characters each); up to 10 show as a list (24 characters). Titles must not contain commas."
+              }
+            },
+            {
+              "name": "Send attachment (URL)",
+              "event": [
+                {
+                  "listen": "test",
+                  "script": {
+                    "type": "text/javascript",
+                    "exec": [
+                      "const j = pm.response.json();",
+                      "pm.test(\"success\", () => pm.expect(j.success).to.eql(true));",
+                      "if (j.success && j.data && j.data.messages && j.data.messages[0]) {",
+                      "  pm.collectionVariables.set(\"message_id\", j.data.messages[0].id);",
+                      "}"
+                    ]
+                  }
+                }
+              ],
+              "request": {
+                "method": "POST",
+                "header": [
+                  {
+                    "key": "Content-Type",
+                    "value": "application/json"
+                  }
+                ],
+                "url": {
+                  "raw": "{{base_url}}/messages/media",
+                  "host": [
+                    "{{base_url}}"
+                  ],
+                  "path": [
+                    "messages",
+                    "media"
+                  ]
+                },
+                "body": {
+                  "mode": "raw",
+                  "raw": "{\n  \"to\": \"{{to}}\",\n  \"url\": \"https://example.com/brochure.pdf\",\n  \"caption\": \"Our new brochure\"\n}",
+                  "options": {
+                    "raw": {
+                      "language": "json"
+                    }
+                  }
+                },
+                "description": "Within the 24-hour window. Images (.jpg, .png, .webp), videos (.mp4, .3gp), documents (.pdf, .doc(x), .xls(x), .ppt(x), .txt, .csv), up to 16 MB. The URL must end in the file extension."
+              }
+            },
+            {
+              "name": "Send attachment (upload)",
+              "event": [
+                {
+                  "listen": "test",
+                  "script": {
+                    "type": "text/javascript",
+                    "exec": [
+                      "const j = pm.response.json();",
+                      "pm.test(\"success\", () => pm.expect(j.success).to.eql(true));",
+                      "if (j.success && j.data && j.data.messages && j.data.messages[0]) {",
+                      "  pm.collectionVariables.set(\"message_id\", j.data.messages[0].id);",
+                      "}"
+                    ]
+                  }
+                }
+              ],
+              "request": {
+                "method": "POST",
+                "header": [],
+                "url": {
+                  "raw": "{{base_url}}/messages/media",
+                  "host": [
+                    "{{base_url}}"
+                  ],
+                  "path": [
+                    "messages",
+                    "media"
+                  ]
+                },
+                "body": {
+                  "mode": "formdata",
+                  "formdata": [
+                    {
+                      "key": "to",
+                      "value": "{{to}}",
+                      "type": "text"
+                    },
+                    {
+                      "key": "caption",
+                      "value": "Your invoice",
+                      "type": "text"
+                    },
+                    {
+                      "key": "file",
+                      "type": "file",
+                      "src": [],
+                      "description": "The attachment"
+                    }
+                  ]
+                },
+                "description": "Same as Send attachment, uploading the file (multipart/form-data)."
+              }
+            },
+            {
+              "name": "Message status",
+              "event": [
+                {
+                  "listen": "test",
+                  "script": {
+                    "type": "text/javascript",
+                    "exec": [
+                      "const j = pm.response.json();",
+                      "pm.test(\"success\", () => pm.expect(j.success).to.eql(true));"
+                    ]
+                  }
+                }
+              ],
+              "request": {
+                "method": "GET",
+                "header": [],
+                "url": {
+                  "raw": "{{base_url}}/messages/{{message_id}}",
+                  "host": [
+                    "{{base_url}}"
+                  ],
+                  "path": [
+                    "messages",
+                    "{{message_id}}"
+                  ]
+                },
+                "description": "status: processing, queued, sent, delivered, read, failed (see error), opted_out or cancelled. message_id is filled in by the last send request."
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "2. Legacy API v1 (/api/secure/v1)",
+      "description": "POST JSON (or form fields / query string). Responses are {\"status\": \"...\", \"message\": \"...\", \"result\": {...}}. status \"200\" = queued / sent, \"202\" Invalid Username (wrong access_key or username/password), \"207\" User WA Plan Expired, \"208\" Template Message Limit Reached, \"209\" Template Category Not Allowed. Unknown action: {\"status\": 0, \"message\": \"Invalid Request\"}.",
+      "item": [
+        {
+          "name": "Send message (text / attachment)",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{app_url}}/api/secure/v1/send_message/",
+              "host": [
+                "{{app_url}}"
+              ],
+              "path": [
+                "api",
+                "secure",
+                "v1",
+                "send_message"
+              ]
+            },
+            "description": "Legacy API (old waapi/api.php). Authenticate with access_key (Profile → API Access Key) or username + password in the body. receiverMobileNo: one number, comma-separated numbers or an array. filePathUrl: array of public file links. bot \"1\" (or opt \"1\") = send at once; otherwise the message waits for the sender queue. messageButtons: [\"Yes,No\"] reply buttons with title. type / opt \"1\" can switch the message type (opt \"1\" = Authentication). Returns result.id = message id for Message status. Alias action: create_wa.\n\nResponses are {\"status\": \"...\", \"message\": \"...\", \"result\": {...}}. status \"200\" = queued / sent, \"202\" Invalid Username (wrong access_key or username/password), \"207\" User WA Plan Expired, \"208\" Template Message Limit Reached, \"209\" Template Category Not Allowed. Unknown action: {\"status\": 0, \"message\": \"Invalid Request\"}.",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"access_key\": \"{{api_key}}\",\n  \"receiverMobileNo\": \"{{to}}\",\n  \"message\": \"Hello from WA Panel\",\n  \"filePathUrl\": [],\n  \"bot\": \"1\",\n  \"base64File\": [],\n  \"sheet_id\": \"\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "auth": {
+              "type": "noauth"
+            }
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "const j = pm.response.json();",
+                  "if (j && j.result && j.result.id && j.result.id !== '0') pm.collectionVariables.set('v1_message_id', j.result.id);"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Send message (username + password, buttons)",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{app_url}}/api/secure/v1/send_message/",
+              "host": [
+                "{{app_url}}"
+              ],
+              "path": [
+                "api",
+                "secure",
+                "v1",
+                "send_message"
+              ]
+            },
+            "description": "Same endpoint, authenticated with the panel username and password instead of access_key, with reply buttons.\n\nResponses are {\"status\": \"...\", \"message\": \"...\", \"result\": {...}}. status \"200\" = queued / sent, \"202\" Invalid Username (wrong access_key or username/password), \"207\" User WA Plan Expired, \"208\" Template Message Limit Reached, \"209\" Template Category Not Allowed. Unknown action: {\"status\": 0, \"message\": \"Invalid Request\"}.",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"username\": \"{{username}}\",\n  \"password\": \"{{password}}\",\n  \"receiverMobileNo\": \"{{to}}\",\n  \"message\": \"Would you like a call back?\",\n  \"title\": \"Call back\",\n  \"messageButtons\": [\n    \"Yes,No\"\n  ],\n  \"bot\": \"1\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "auth": {
+              "type": "noauth"
+            }
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "const j = pm.response.json();",
+                  "if (j && j.result && j.result.id && j.result.id !== '0') pm.collectionVariables.set('v1_message_id', j.result.id);"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Send template",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{app_url}}/api/secure/v1/send_template/",
+              "host": [
+                "{{app_url}}"
+              ],
+              "path": [
+                "api",
+                "secure",
+                "v1",
+                "send_template"
+              ]
+            },
+            "description": "Send an approved template. template = template name, template_parameters = body values ({{1}}, {{2}} …) as an array or comma-separated string, attachment = header media URL, urlButtons = dynamic URL button value. The message is grouped into the campaign named after the template. result.id is always \"0\" on this endpoint.\n\nResponses are {\"status\": \"...\", \"message\": \"...\", \"result\": {...}}. status \"200\" = queued / sent, \"202\" Invalid Username (wrong access_key or username/password), \"207\" User WA Plan Expired, \"208\" Template Message Limit Reached, \"209\" Template Category Not Allowed. Unknown action: {\"status\": 0, \"message\": \"Invalid Request\"}.",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"access_key\": \"{{api_key}}\",\n  \"receiverMobileNo\": \"{{to}}\",\n  \"template\": \"{{template}}\",\n  \"template_parameters\": [\n    \"Ravi\",\n    \"ORD-1001\"\n  ],\n  \"attachment\": \"\",\n  \"urlButtons\": \"\",\n  \"bot\": \"1\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "auth": {
+              "type": "noauth"
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Message status",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{app_url}}/api/secure/v1/status_wa/",
+              "host": [
+                "{{app_url}}"
+              ],
+              "path": [
+                "api",
+                "secure",
+                "v1",
+                "status_wa"
+              ]
+            },
+            "description": "Delivery status of a message sent with send_message: result = sent, delivered, read, error … (null when unknown). No authentication (by message id).",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"message_id\": \"{{v1_message_id}}\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "auth": {
+              "type": "noauth"
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Create log",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "Api-Key",
+                "value": "{{client_api_key}}"
+              }
+            ],
+            "url": {
+              "raw": "{{app_url}}/api/secure/v1/create_log/",
+              "host": [
+                "{{app_url}}"
+              ],
+              "path": [
+                "api",
+                "secure",
+                "v1",
+                "create_log"
+              ]
+            },
+            "description": "Stores the request (body + query) in js_api_data_log (Google Sheet add-on logging). Optional Api-Key header and userEmail. Returns {\"status\":1,\"message\":\"Success\"}.",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"userEmail\": \"user@example.com\",\n  \"event\": \"test\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "auth": {
+              "type": "noauth"
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Sheet activate",
+          "request": {
+            "method": "POST",
+            "header": [],
+            "url": {
+              "raw": "{{app_url}}/api/secure/v1/sheet_activate/",
+              "host": [
+                "{{app_url}}"
+              ],
+              "path": [
+                "api",
+                "secure",
+                "v1",
+                "sheet_activate"
+              ]
+            },
+            "description": "Google Sheet add-on: activate sheetId for a registered user email (valid 365 days). Form or JSON fields userEmail, sheetId, sheetType. status 1 = Sheet Successfully Activated / Sheet Already Active, 0 / 1001 = Invalid Email ID.",
+            "body": {
+              "mode": "urlencoded",
+              "urlencoded": [
+                {
+                  "key": "userEmail",
+                  "value": "user@example.com"
+                },
+                {
+                  "key": "sheetId",
+                  "value": "1AbCdEfGhIjK"
+                },
+                {
+                  "key": "sheetType",
+                  "value": "1"
+                }
+              ]
+            },
+            "auth": {
+              "type": "noauth"
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Sheet status",
+          "request": {
+            "method": "POST",
+            "header": [],
+            "url": {
+              "raw": "{{app_url}}/api/secure/v1/sheet_status/",
+              "host": [
+                "{{app_url}}"
+              ],
+              "path": [
+                "api",
+                "secure",
+                "v1",
+                "sheet_status"
+              ]
+            },
+            "description": "Google Sheet add-on: is sheetId active? status 1 \"Sheet is Active\" with result.user_email, 0 \"Sheet Not Active\".",
+            "body": {
+              "mode": "urlencoded",
+              "urlencoded": [
+                {
+                  "key": "userEmail",
+                  "value": "user@example.com"
+                },
+                {
+                  "key": "sheetId",
+                  "value": "1AbCdEfGhIjK"
+                }
+              ]
+            },
+            "auth": {
+              "type": "noauth"
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Data extractor: check key",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{app_url}}/api/secure/v1/check_js_de/?key={{extractor_key}}",
+              "host": [
+                "{{app_url}}"
+              ],
+              "path": [
+                "api",
+                "secure",
+                "v1",
+                "check_js_de"
+              ],
+              "query": [
+                {
+                  "key": "key",
+                  "value": "{{extractor_key}}"
+                }
+              ]
+            },
+            "description": "Data Extractor desktop tool. Plain-text answer: OK or Invalid Activation Key.",
+            "auth": {
+              "type": "noauth"
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Data extractor: activate (login)",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{app_url}}/api/secure/v1/activate_js_de/?key={{extractor_key}}",
+              "host": [
+                "{{app_url}}"
+              ],
+              "path": [
+                "api",
+                "secure",
+                "v1",
+                "activate_js_de"
+              ],
+              "query": [
+                {
+                  "key": "key",
+                  "value": "{{extractor_key}}"
+                }
+              ]
+            },
+            "description": "Marks the key as logged in. Plain text: OK, Invalid Activation Key or Activation Key Already Login.",
+            "auth": {
+              "type": "noauth"
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Data extractor: deactivate (logout)",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{app_url}}/api/secure/v1/deactivate_js_de/?key={{extractor_key}}",
+              "host": [
+                "{{app_url}}"
+              ],
+              "path": [
+                "api",
+                "secure",
+                "v1",
+                "deactivate_js_de"
+              ],
+              "query": [
+                {
+                  "key": "key",
+                  "value": "{{extractor_key}}"
+                }
+              ]
+            },
+            "description": "Logs the key out. Plain text: OK or Invalid Activation Key.",
+            "auth": {
+              "type": "noauth"
+            }
+          },
+          "response": []
+        }
+      ]
+    },
+    {
+      "name": "3. Legacy URLs",
+      "description": "Old URLs kept so existing clients keep working.",
+      "item": [
+        {
+          "name": "waapi/api.php?at=send_message",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{app_url}}/waapi/api.php?at=send_message",
+              "host": [
+                "{{app_url}}"
+              ],
+              "path": [
+                "waapi",
+                "api.php"
+              ],
+              "query": [
+                {
+                  "key": "at",
+                  "value": "send_message"
+                }
+              ]
+            },
+            "description": "Old file URL of the same legacy API: at = any action of /api/secure/v1 (send_message, send_template, status_wa, …).\n\nResponses are {\"status\": \"...\", \"message\": \"...\", \"result\": {...}}. status \"200\" = queued / sent, \"202\" Invalid Username (wrong access_key or username/password), \"207\" User WA Plan Expired, \"208\" Template Message Limit Reached, \"209\" Template Category Not Allowed. Unknown action: {\"status\": 0, \"message\": \"Invalid Request\"}.",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"access_key\": \"{{api_key}}\",\n  \"receiverMobileNo\": \"{{to}}\",\n  \"message\": \"Hello\",\n  \"bot\": \"1\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "auth": {
+              "type": "noauth"
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "wa/secure/v1/{action}-{key}",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{app_url}}/wa/secure/v1/send_template-anything",
+              "host": [
+                "{{app_url}}"
+              ],
+              "path": [
+                "wa",
+                "secure",
+                "v1",
+                "send_template-anything"
+              ]
+            },
+            "description": "Old Laravel URL: the part after the first \"-\" is ignored; the action is send_template here.\n\nResponses are {\"status\": \"...\", \"message\": \"...\", \"result\": {...}}. status \"200\" = queued / sent, \"202\" Invalid Username (wrong access_key or username/password), \"207\" User WA Plan Expired, \"208\" Template Message Limit Reached, \"209\" Template Category Not Allowed. Unknown action: {\"status\": 0, \"message\": \"Invalid Request\"}.",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"access_key\": \"{{api_key}}\",\n  \"receiverMobileNo\": \"{{to}}\",\n  \"template\": \"{{template}}\",\n  \"template_parameters\": [\n    \"Ravi\"\n  ],\n  \"bot\": \"1\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "auth": {
+              "type": "noauth"
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "waapi/client_api.php?at=send_wa",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "Api-Key",
+                "value": "{{client_api_key}}"
+              }
+            ],
+            "url": {
+              "raw": "{{app_url}}/waapi/client_api.php?at=send_wa",
+              "host": [
+                "{{app_url}}"
+              ],
+              "path": [
+                "waapi",
+                "client_api.php"
+              ],
+              "query": [
+                {
+                  "key": "at",
+                  "value": "send_wa"
+                }
+              ]
+            },
+            "description": "Client API: sends a template (same fields as send_template). When CLIENT_API_KEY is set on the server, the Api-Key header must match, otherwise {\"status\":\"0\",\"msg\":\"Invalid credential\"}.\n\nResponses are {\"status\": \"...\", \"message\": \"...\", \"result\": {...}}. status \"200\" = queued / sent, \"202\" Invalid Username (wrong access_key or username/password), \"207\" User WA Plan Expired, \"208\" Template Message Limit Reached, \"209\" Template Category Not Allowed. Unknown action: {\"status\": 0, \"message\": \"Invalid Request\"}.",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"access_key\": \"{{api_key}}\",\n  \"receiverMobileNo\": \"{{to}}\",\n  \"template\": \"{{template}}\",\n  \"template_parameters\": [\n    \"Ravi\"\n  ],\n  \"bot\": \"1\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "auth": {
+              "type": "noauth"
+            }
+          },
+          "response": []
+        }
+      ]
+    },
+    {
+      "name": "4. Leads CRM webhook",
+      "description": "https://<app>/api/crm/<key>: the key is shown in CRM → Settings (accounts with CRM switched on).",
+      "item": [
+        {
+          "name": "CRM webhook: status / ready",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{app_url}}/api/crm/{{crm_key}}",
+              "host": [
+                "{{app_url}}"
+              ],
+              "path": [
+                "api",
+                "crm",
+                "{{crm_key}}"
+              ]
+            },
+            "description": "Leads CRM webhook URL from CRM → Settings. Without hub.* parameters: {\"ok\":true,\"message\":\"The CRM webhook is ready…\"}. Unknown key: 404.",
+            "auth": {
+              "type": "noauth"
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "CRM webhook: Facebook verification",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{app_url}}/api/crm/{{crm_key}}?hub.mode=subscribe&hub.verify_token={{crm_verify_token}}&hub.challenge=12345",
+              "host": [
+                "{{app_url}}"
+              ],
+              "path": [
+                "api",
+                "crm",
+                "{{crm_key}}"
+              ],
+              "query": [
+                {
+                  "key": "hub.mode",
+                  "value": "subscribe"
+                },
+                {
+                  "key": "hub.verify_token",
+                  "value": "{{crm_verify_token}}"
+                },
+                {
+                  "key": "hub.challenge",
+                  "value": "12345"
+                }
+              ]
+            },
+            "description": "Facebook subscription handshake: answers the hub.challenge as text when hub.verify_token matches the CRM verify token, else 403.",
+            "auth": {
+              "type": "noauth"
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "CRM webhook: add lead (JSON)",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{app_url}}/api/crm/{{crm_key}}",
+              "host": [
+                "{{app_url}}"
+              ],
+              "path": [
+                "api",
+                "crm",
+                "{{crm_key}}"
+              ]
+            },
+            "description": "Add a lead from a website form, Zapier, Make, Pabbly or Google Ads. JSON, form-urlencoded or multipart. Recognised keys (any case): name / full_name / first_name + last_name, mobile / phone / whatsapp, email, source / utm_source, campaign / utm_campaign / form_name, message / notes / remarks; other keys are kept as extra fields. Body may be one lead, an array, {\"leads\":[…]} (up to 100) or {\"data\":{…}}. Response {\"ok\":true,\"saved\":1,\"duplicates\":0,\"lead_ids\":[…]}; 422 when no name / mobile / email; 413 over 256 KB.",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"name\": \"Ravi Kumar\",\n  \"mobile\": \"919876543210\",\n  \"email\": \"ravi@example.com\",\n  \"source\": \"website\",\n  \"campaign\": \"Diwali Offer\",\n  \"message\": \"Please call me\",\n  \"city\": \"Pune\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "auth": {
+              "type": "noauth"
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "CRM webhook: add lead (form)",
+          "request": {
+            "method": "POST",
+            "header": [],
+            "url": {
+              "raw": "{{app_url}}/api/crm/{{crm_key}}",
+              "host": [
+                "{{app_url}}"
+              ],
+              "path": [
+                "api",
+                "crm",
+                "{{crm_key}}"
+              ]
+            },
+            "description": "Same as above with form fields.",
+            "body": {
+              "mode": "urlencoded",
+              "urlencoded": [
+                {
+                  "key": "full_name",
+                  "value": "Ravi Kumar"
+                },
+                {
+                  "key": "phone",
+                  "value": "9876543210"
+                },
+                {
+                  "key": "utm_source",
+                  "value": "google"
+                }
+              ]
+            },
+            "auth": {
+              "type": "noauth"
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "CRM webhook: Facebook leadgen notification",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "X-Hub-Signature-256",
+                "value": "sha256=<hmac of raw body>"
+              }
+            ],
+            "url": {
+              "raw": "{{app_url}}/api/crm/{{crm_key}}",
+              "host": [
+                "{{app_url}}"
+              ],
+              "path": [
+                "api",
+                "crm",
+                "{{crm_key}}"
+              ]
+            },
+            "description": "Facebook Lead Ads page notification. When a Facebook app secret is saved, X-Hub-Signature-256 (sha256 HMAC of the raw body) is required, else 403 Invalid signature. The lead answers are read from the Graph API with the saved Page token.",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"object\": \"page\",\n  \"entry\": [\n    {\n      \"id\": \"1234567890\",\n      \"time\": 1732430000,\n      \"changes\": [\n        {\n          \"field\": \"leadgen\",\n          \"value\": {\n            \"leadgen_id\": \"444444444\",\n            \"page_id\": \"1234567890\",\n            \"form_id\": \"555555555\",\n            \"created_time\": 1732430000\n          }\n        }\n      ]\n    }\n  ]\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "auth": {
+              "type": "noauth"
+            }
+          },
+          "response": []
+        }
+      ]
+    },
+    {
+      "name": "5. Webhooks & callbacks",
+      "description": "Called by Meta, Shopify and CCAvenue. Signatures are checked, so most of these only succeed with a valid signature.",
+      "item": [
+        {
+          "name": "Meta WhatsApp webhook: verify",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{app_url}}/waapi/webhook?hub.mode=subscribe&hub.verify_token={{meta_verify_token}}&hub.challenge=12345",
+              "host": [
+                "{{app_url}}"
+              ],
+              "path": [
+                "waapi",
+                "webhook"
+              ],
+              "query": [
+                {
+                  "key": "hub.mode",
+                  "value": "subscribe"
+                },
+                {
+                  "key": "hub.verify_token",
+                  "value": "{{meta_verify_token}}"
+                },
+                {
+                  "key": "hub.challenge",
+                  "value": "12345"
+                }
+              ]
+            },
+            "description": "Callback URL of the Meta app (also /waapi/webhook.php and /waapi/wawebhook.php). Echoes hub.challenge when hub.verify_token equals META_WEBHOOK_VERIFY_TOKEN or any account API key; 403 otherwise.",
+            "auth": {
+              "type": "noauth"
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Meta WhatsApp webhook: receive",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "X-Hub-Signature-256",
+                "value": "sha256=<hmac of raw body>"
+              }
+            ],
+            "url": {
+              "raw": "{{app_url}}/waapi/webhook",
+              "host": [
+                "{{app_url}}"
+              ],
+              "path": [
+                "waapi",
+                "webhook"
+              ]
+            },
+            "description": "Incoming messages and delivery statuses from WhatsApp Cloud API. Signed by Meta (X-Hub-Signature-256 with META_APP_SECRET; 401 if wrong). Always answers {\"status\":\"200\",\"msg\":\"1\"}; inbox, auto-replies, bot flows and forwarding to the account's webhook URL run after the response. Do not send test payloads to production: they create real inbox messages.",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"object\": \"whatsapp_business_account\",\n  \"entry\": [\n    {\n      \"id\": \"<WABA_ID>\",\n      \"changes\": [\n        {\n          \"field\": \"messages\",\n          \"value\": {\n            \"messaging_product\": \"whatsapp\",\n            \"metadata\": {\n              \"display_phone_number\": \"919999999999\",\n              \"phone_number_id\": \"<PHONE_NUMBER_ID>\"\n            },\n            \"contacts\": [\n              {\n                \"profile\": {\n                  \"name\": \"Ravi\"\n                },\n                \"wa_id\": \"919876543210\"\n              }\n            ],\n            \"messages\": [\n              {\n                \"from\": \"919876543210\",\n                \"id\": \"wamid.TEST\",\n                \"timestamp\": \"1732430000\",\n                \"type\": \"text\",\n                \"text\": {\n                  \"body\": \"Hi\"\n                }\n              }\n            ]\n          }\n        }\n      ]\n    }\n  ]\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "auth": {
+              "type": "noauth"
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Meta Lead Ads webhook: verify",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{app_url}}/integrations/meta/webhook?hub.mode=subscribe&hub.verify_token={{meta_leads_verify_token}}&hub.challenge=12345",
+              "host": [
+                "{{app_url}}"
+              ],
+              "path": [
+                "integrations",
+                "meta",
+                "webhook"
+              ],
+              "query": [
+                {
+                  "key": "hub.mode",
+                  "value": "subscribe"
+                },
+                {
+                  "key": "hub.verify_token",
+                  "value": "{{meta_leads_verify_token}}"
+                },
+                {
+                  "key": "hub.challenge",
+                  "value": "12345"
+                }
+              ]
+            },
+            "description": "Agency Meta app (Page object, field leadgen). Token from Settings → Meta Lead Ads Keys.",
+            "auth": {
+              "type": "noauth"
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Meta Lead Ads webhook: receive",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "X-Hub-Signature-256",
+                "value": "sha256=<hmac of raw body>"
+              }
+            ],
+            "url": {
+              "raw": "{{app_url}}/integrations/meta/webhook",
+              "host": [
+                "{{app_url}}"
+              ],
+              "path": [
+                "integrations",
+                "meta",
+                "webhook"
+              ]
+            },
+            "description": "leadgen notifications. X-Hub-Signature-256 is required (401 Invalid signature); answers EVENT_RECEIVED and reads the lead afterwards (retried by the meta-leads job).",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"object\": \"page\",\n  \"entry\": [\n    {\n      \"id\": \"1234567890\",\n      \"time\": 1732430000,\n      \"changes\": [\n        {\n          \"field\": \"leadgen\",\n          \"value\": {\n            \"leadgen_id\": \"444444444\",\n            \"page_id\": \"1234567890\",\n            \"form_id\": \"555555555\"\n          }\n        }\n      ]\n    }\n  ]\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "auth": {
+              "type": "noauth"
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Instagram webhook",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{app_url}}/waapi/igwebhook.php",
+              "host": [
+                "{{app_url}}"
+              ],
+              "path": [
+                "waapi",
+                "igwebhook.php"
+              ]
+            },
+            "description": "Logs the payload and echoes hub.challenge (GET or POST). /waapi/newwebhook.php behaves the same.",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"object\": \"instagram\",\n  \"entry\": []\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "auth": {
+              "type": "noauth"
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Shopify: new order",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "X-Shopify-Hmac-Sha256",
+                "value": "<base64 hmac>"
+              }
+            ],
+            "url": {
+              "raw": "{{app_url}}/api/shopify/v1/new_order/",
+              "host": [
+                "{{app_url}}"
+              ],
+              "path": [
+                "api",
+                "shopify",
+                "v1",
+                "new_order"
+              ]
+            },
+            "description": "Shopify \"Order creation\" webhook → sends the order confirmation template (SHOPIFY_ORDER_TEMPLATE) with parameters name, order number. X-Shopify-Hmac-Sha256 is checked when SHOPIFY_WEBHOOK_SECRET is set. Old URL: /waapi/shopify.php?at=new_order. Response {\"data\":{\"id\":\"0\",\"status\":\"Success\"},\"msg\":\"Success\",\"status\":\"200\"}; \"201\" when the phone is missing.",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"name\": \"#1001\",\n  \"phone\": \"+919876543210\",\n  \"billing_address\": {\n    \"name\": \"Ravi Kumar\",\n    \"phone\": \"+919876543210\"\n  }\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "auth": {
+              "type": "noauth"
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Shopify: abandoned cart",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "X-Shopify-Hmac-Sha256",
+                "value": "<base64 hmac>"
+              }
+            ],
+            "url": {
+              "raw": "{{app_url}}/api/shopify/v1/abandoned_cart/",
+              "host": [
+                "{{app_url}}"
+              ],
+              "path": [
+                "api",
+                "shopify",
+                "v1",
+                "abandoned_cart"
+              ]
+            },
+            "description": "Shopify checkout webhook → abandoned checkout template (SHOPIFY_CART_TEMPLATE); the URL button gets the path + query of abandoned_checkout_url.",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"phone\": \"+919876543210\",\n  \"billing_address\": {\n    \"name\": \"Ravi Kumar\"\n  },\n  \"abandoned_checkout_url\": \"https://store.example.com/checkouts/abc123/recover?key=xyz\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "auth": {
+              "type": "noauth"
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "CCAvenue payment callback",
+          "request": {
+            "method": "POST",
+            "header": [],
+            "url": {
+              "raw": "{{app_url}}/payment/ccavenue/callback",
+              "host": [
+                "{{app_url}}"
+              ],
+              "path": [
+                "payment",
+                "ccavenue",
+                "callback"
+              ]
+            },
+            "description": "CCAvenue return / cancel URL. Form field encResp (encrypted with the CCAvenue working key). Records the payment and answers 303 → /payment/result. Only CCAvenue can build a valid encResp.",
+            "body": {
+              "mode": "urlencoded",
+              "urlencoded": [
+                {
+                  "key": "encResp",
+                  "value": "<encrypted response from CCAvenue>"
+                }
+              ]
+            },
+            "auth": {
+              "type": "noauth"
+            }
+          },
+          "response": []
+        }
+      ]
+    },
+    {
+      "name": "6. Outgoing: CRM WA API",
+      "description": "APIs this app calls (for testing the configuration).",
+      "item": [
+        {
+          "name": "CRM WA: send_message (daily report)",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "x-api-key",
+                "value": "{{crm_wa_api_key}}"
+              }
+            ],
+            "url": {
+              "raw": "{{crm_wa_url}}",
+              "host": [
+                "{{crm_wa_url}}"
+              ],
+              "path": []
+            },
+            "description": "Outgoing call made by the app, not an endpoint of this project: the daily 11:00 report (Settings → CRM WA) posts one message per page of expiring / low-limit users. The image is a PNG under {{app_url}}/media/reports/… passed as filePathUrl. Use this request to test the CRM WA key and group.",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"receiverMobileNo\": \"\",\n  \"recipientGroupIds\": \"{{crm_wa_group}}\",\n  \"message\": \"*WA Panel*\\nUsers Expiring in Next 7 Days\\n\\n1. Ravi Kumar (Acme) - 28-11-2026\",\n  \"filePathUrl\": \"\",\n  \"bot\": \"1\",\n  \"base64File\": [],\n  \"sheetid\": \"\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "auth": {
+              "type": "noauth"
+            }
+          },
+          "response": []
+        }
+      ]
+    }
+  ],
+  "variable": [
+    {
+      "key": "app_url",
+      "value": "https://wa.jscoretech.com"
+    },
+    {
+      "key": "base_url",
+      "value": "{{app_url}}/api/v2"
+    },
+    {
+      "key": "api_key",
+      "value": "YOUR_API_KEY"
+    },
+    {
+      "key": "username",
+      "value": "YOUR_USERNAME"
+    },
+    {
+      "key": "password",
+      "value": "YOUR_PASSWORD"
+    },
+    {
+      "key": "to",
+      "value": "919876543210"
+    },
+    {
+      "key": "template",
+      "value": "order_update"
+    },
+    {
+      "key": "message_id",
+      "value": ""
+    },
+    {
+      "key": "v1_message_id",
+      "value": ""
+    },
+    {
+      "key": "client_api_key",
+      "value": ""
+    },
+    {
+      "key": "extractor_key",
+      "value": "YOUR_ACTIVATION_KEY"
+    },
+    {
+      "key": "crm_key",
+      "value": "YOUR_CRM_WEBHOOK_KEY"
+    },
+    {
+      "key": "crm_verify_token",
+      "value": "YOUR_CRM_VERIFY_TOKEN"
+    },
+    {
+      "key": "meta_verify_token",
+      "value": "YOUR_META_VERIFY_TOKEN"
+    },
+    {
+      "key": "meta_leads_verify_token",
+      "value": "YOUR_META_LEADS_VERIFY_TOKEN"
+    },
+    {
+      "key": "crm_wa_url",
+      "value": "https://crm.jscoretech.com/api/secure/v1/send_message/"
+    },
+    {
+      "key": "crm_wa_api_key",
+      "value": "YOUR_CRM_WA_API_KEY"
+    },
+    {
+      "key": "crm_wa_group",
+      "value": "120363431942002851@g.us"
+    }
+  ]
+}

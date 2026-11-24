@@ -15,6 +15,7 @@ import { checkDiskSpace } from '@/lib/services/disk-alert';
 import { resumeBotSessions } from '@/lib/services/bot-flows';
 import { sendCrmReminders } from '@/lib/services/crm';
 import { publishDuePosts } from '@/lib/services/fb-posts';
+import { sendExpiryReport } from '@/lib/services/expiry-report';
 import { backfillLeads, processPendingEvents, runProvisioning } from '@/lib/services/meta-leads';
 import { cleanup, dispatchCampaigns, emailReports, expireMessages, expirePlans, processWebhooks, sendQueue } from './jobs';
 
@@ -45,6 +46,8 @@ export const JOBS: Job[] = [
   { name: 'meta-leads', schedule: { everySeconds: 30 }, run: (log) => processPendingEvents(log) },
   { name: 'meta-leads-backfill', schedule: { everySeconds: 1800 }, run: (log) => backfillLeads(log) },
   { name: 'expire-plans', schedule: { hourly: true }, run: (log) => expirePlans(log) },
+  // Settings → CRM WA: accounts expiring in the next N days → image + text to the CRM WhatsApp group / numbers (only when any is due)
+  { name: 'expiry-report', schedule: { dailyAt: '11:00' }, run: (log) => sendExpiryReport({}, log) },
   { name: 'cleanup', schedule: { dailyAt: '02:30' }, run: (log) => cleanup(log) },
   // Email DISK_ALERT_EMAIL when the disk is DISK_ALERT_PERCENT (90) % full — once a day while it stays full
   { name: 'disk-alert', schedule: { hourly: true }, run: (log) => checkDiskSpace(log) },

@@ -74,6 +74,7 @@ export default async function AdminLayout({ children }: { children: React.ReactN
         { label: 'WhatsApp Token', href: '/wamaster/settings/whatsapp' },
         { label: 'Graph API', href: '/wamaster/settings/graph' },
         { label: 'Meta Lead Ads Keys', href: '/wamaster/settings/meta' },
+        { label: 'CRM WA (Expiry Report)', href: '/wamaster/settings/crm_wa' },
         { label: 'Database Backups', href: '/wamaster/backups' },
         { label: 'Activity Log', href: '/wamaster/activity' },
       ],

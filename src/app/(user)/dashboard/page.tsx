@@ -17,6 +17,7 @@ import { WhatsAppSignup } from './WhatsAppSignup';
 import { MetaLimitCard, MetaLimitLoading } from './MetaLimitCard';
 import { signupIds } from '@/lib/services/meta';
 import { sdkVersion } from '@/lib/services/graph-version';
+import { USER_TYPE } from '@/lib/types';
 
 export const metadata: Metadata = { title: 'Dashboard' };
 
@@ -89,6 +90,8 @@ export default async function DashboardPage({ searchParams }: { searchParams: Pa
   const templateReport = buildMatrix(data, ['Que', 'Error']);
   const messagesLeft = msgLimit > 0 ? Math.max(0, msgLimit - (sentTotal ?? 0)) : null;
   const activePlan = Number(user.u_wa_plan_status) === 1;
+  // WhatsApp user (account type 2) with "Coexistence (Mobile & Web)" on: only the Coexistence enroll; others: normal signup
+  const coexistence = Number(user.u_type) === USER_TYPE.WHATSAPP && Number(user.u_wa_coexistence) === 1;
   const signup = !user.u_wa_phone_id || !user.u_wa_b_id ? { ...(await signupIds()), sdk: await sdkVersion() } : null;
 
   return (
@@ -123,7 +126,7 @@ export default async function DashboardPage({ searchParams }: { searchParams: Pa
                       <div>WABA ID: <b>{user.u_wa_b_id || <span className="text-danger">missing</span>}</b></div>
                     </div>
                   )}
-                  <WhatsAppSignup appId={signup.appId} configId={signup.configId} version={signup.sdk} coexistence={Number(user.u_wa_coexistence) === 1} />
+                  <WhatsAppSignup appId={signup.appId} configId={signup.configId} version={signup.sdk} coexistence={coexistence} />
                 </>
               ) : (
                 <div className="small lh-lg">

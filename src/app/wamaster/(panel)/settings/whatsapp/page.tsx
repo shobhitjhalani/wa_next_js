@@ -51,7 +51,8 @@ export default async function WaTokenPage() {
               <p className="small text-muted">
                 Users whose Phone ID or WABA ID is missing see “Login with Facebook” on their dashboard. Meta&apos;s signup popup connects their
                 WhatsApp Business number; the ids are saved on their account, the number is registered and the webhook subscribed.
-                Accounts with Coexistence switched on get the flow for an existing WhatsApp Business App number.
+                WhatsApp users with Coexistence (Mobile &amp; Web) switched on see only “Coexistence Enroll” (an existing WhatsApp Business
+                App number that stays on the phone); everyone else sees only the normal “Login with Facebook”.
               </p>
               <SignupIdsForm appId={signup.appId} configId={signup.configId} defaults={SIGNUP_DEFAULTS} />
             </div>

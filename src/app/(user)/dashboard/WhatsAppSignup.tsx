@@ -15,9 +15,10 @@ type State = { kind: 'idle' | 'open' | 'saving' | 'error' | 'cancel'; text?: str
 /**
  * WhatsApp Embedded Signup ("Login with Facebook"): loads the Facebook SDK, opens Meta's signup popup and, when it
  * finishes, stores the phone number / WABA / business ids via POST /user_update (which registers the number and
- * subscribes the app), then reloads the dashboard. `coexistence` onboards an existing WhatsApp Business App number.
+ * subscribes the app), then reloads the dashboard. Shows one flow: `coexistence` (WhatsApp users with Coexistence
+ * switched on by the admin) enrolls an existing WhatsApp Business App number; otherwise the normal new-number signup.
  */
-export function WhatsAppSignup({ appId, configId, version = 'v27.0', coexistence: preferCoexistence }: { appId: string; configId: string; version?: string; coexistence: boolean }) {
+export function WhatsAppSignup({ appId, configId, version = 'v27.0', coexistence }: { appId: string; configId: string; version?: string; coexistence: boolean }) {
   const [ready, setReady] = useState(false);
   const [state, setState] = useState<State>({ kind: 'idle' });
   // Which flow was opened last (the FINISH message does not always say)
@@ -83,19 +84,20 @@ export function WhatsAppSignup({ appId, configId, version = 'v27.0', coexistence
       <Script src="https://connect.facebook.net/en_US/sdk.js" strategy="afterInteractive" crossOrigin="anonymous" />
       {state.kind === 'saving' ? (
         <button type="button" className="btn btn-primary btn-sm" disabled><span className="spinner-border spinner-border-sm me-1" />Saving…</button>
-      ) : (
+      ) : coexistence ? (
         <div className="d-flex flex-column gap-2">
-          <button type="button" className={`btn btn-sm ${preferCoexistence ? 'btn-soft-primary' : 'btn-primary'}`} onClick={() => launch(false)} disabled={!ready}
-            title="A number that is not used on the WhatsApp app">
-            <i className="ri-facebook-fill" /> {ready ? 'Login with Facebook' : 'Loading Facebook…'}
-            <div className="small fw-normal opacity-75">New number</div>
-          </button>
-          <button type="button" className={`btn btn-sm ${preferCoexistence ? 'btn-primary' : 'btn-soft-success'}`} onClick={() => launch(true)} disabled={!ready}
+          <span className="badge bg-success-subtle text-success align-self-start"><i className="ri-smartphone-line me-1" />Coexistence (Mobile &amp; Web)</span>
+          <button type="button" className="btn btn-success btn-sm" onClick={() => launch(true)} disabled={!ready}
             title="Keep using this number in the WhatsApp Business app on your phone">
-            <i className="ri-whatsapp-line" /> Connect my WhatsApp Business App number
-            <div className="small fw-normal opacity-75">Coexistence: keep using the app on your phone</div>
+            <i className="ri-whatsapp-line" /> {ready ? 'Coexistence Enroll' : 'Loading Facebook…'}
+            <div className="small fw-normal opacity-75">Connect your WhatsApp Business App number and keep using the app on your phone</div>
           </button>
         </div>
+      ) : (
+        <button type="button" className="btn btn-primary btn-sm" onClick={() => launch(false)} disabled={!ready}
+          title="A number that is not used on the WhatsApp app">
+          <i className="ri-facebook-fill" /> {ready ? 'Login with Facebook' : 'Loading Facebook…'}
+        </button>
       )}
       {state.text && <div className={`small mt-2 ${state.kind === 'error' ? 'text-danger' : 'text-muted'}`}>{state.text}</div>}
     </>

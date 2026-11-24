@@ -271,7 +271,8 @@ export async function sendExpiryReport(opts: { force?: boolean } = {}, log: (m: 
         const png = await tableImage(sec.title, sec.subtitle + (pages > 1 ? `  |  Page ${p + 1} of ${pages}` : ''), sec.columns, sec.rows.slice(from, from + ROWS_PER_IMAGE), from);
         const fileUrl = await storeBytes(png, 'reports', `${sec.key}-${stamp}-${token}-${p + 1}.png`);
         const lines = sec.textLines.slice(from, from + ROWS_PER_IMAGE).map((l, i) => `${from + i + 1}. ${l}`);
-        const message = [sec.heading + (pages > 1 ? ` (${p + 1}/${pages})` : ''), '', ...lines].join('\n');
+        // 'WA Panel' first so the group sees where the report comes from
+        const message = ['*WA Panel*', sec.heading + (pages > 1 ? ` (${p + 1}/${pages})` : ''), '', ...lines].join('\n');
         await postMessage(s, message, fileUrl);
         result.sent++;
       } catch (e) {

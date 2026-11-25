@@ -87,7 +87,6 @@ export default async function UserLayout({ children }: { children: React.ReactNo
         { label: 'Reports Failed', href: '/reports_failed' },
         { label: 'Reports Error', href: '/reports_error' },
         { label: 'Campaign Summary', href: '/reports_templates' },
-        { label: 'Campaign Total Summary', href: '/reports_templates_summary' },
       ],
     },
     ...(API_DOCS_VISIBLE ? [{ label: 'API', icon: 'ri-code-s-slash-line', href: '/api_docs' } satisfies MenuItem] : []),

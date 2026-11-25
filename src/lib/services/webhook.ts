@@ -8,6 +8,7 @@ import { insertMessage, storeIncoming } from './messages';
 import { LIMITED_TYPES } from './template-limit';
 import { sendPending } from './sender';
 import { botIncoming } from './bot-flows';
+import { quickReplyIncoming } from './quick-replies';
 
 /**
  * Meta webhook payloads (port of waapi/webhook.php) and the delivery-status
@@ -177,7 +178,7 @@ async function incomingMessage(user: HookUser, msg: Record<string, any>, contact
     await storeFlowResponse(user, message, response, formJson, msg.context?.id);
   }
 
-  // Chatbot flows answer first; the catalogue auto-reply only when no flow took the message
+  // Chatbot flows answer first, then quick replies; the catalogue auto-reply only when neither took the message
   const name = message.m_sender_name ?? null;
   defer(async () => {
     let handled = false;
@@ -185,6 +186,15 @@ async function incomingMessage(user: HookUser, msg: Record<string, any>, contact
       handled = await botIncoming(user.u_id, mobile, name, msg);
     } catch (e) {
       console.error('[webhook] chatbot flow failed', e);
+    }
+    // Quick replies: typed text, a tapped button / list item (its title) or a template quick-reply button
+    const replyable = type === 'text' || type === 'button' || (type === 'interactive' && (msg.interactive?.button_reply || msg.interactive?.list_reply));
+    if (!handled && replyable) {
+      try {
+        handled = await quickReplyIncoming(user.u_id, mobile, name, content);
+      } catch (e) {
+        console.error('[webhook] quick reply failed', e);
+      }
     }
     if (!handled) await catalogueAutoReply(user, mobile, content, runInline);
   });

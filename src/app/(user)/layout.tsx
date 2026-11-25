@@ -52,6 +52,7 @@ export default async function UserLayout({ children }: { children: React.ReactNo
         { label: 'Add / Upload Contacts', href: '/contacts/upload', match: ['/contacts/upload'] },
       ],
     },
+    { label: 'Quick Replies', icon: 'ri-reply-all-line', href: '/quick_replies', match: ['/quick_replies'] },
     // Shown when the admin switched Chatbot Flows on for this account
     ...(Number(user.u_bot_flow) === 1 ? [{ label: 'Chatbot Flows', icon: 'ri-flow-chart', href: '/bot_flows' } satisfies MenuItem] : []),
     // Shown when the admin switched the Leads CRM on for this account

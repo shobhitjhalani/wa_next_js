@@ -107,7 +107,7 @@ export function TemplateInputs({ template, columns, mapping, onMap }: {
       {columns && count > 0 && (
         <div className="alert alert-info small py-2 mb-3">
           <i className="ri-file-excel-2-line me-1" />Each variable takes its value from a column of your Excel file, so every message gets its own row&apos;s value.
-          The columns are matched in order (the first column after the mobile number → {'{{1}}'}, the next → {'{{2}}'}…): change any of them below, or choose “Same for everyone” to type one value.
+          Pick the column for each variable below (or “Same for everyone” to type one value for all).
         </div>
       )}
       {Array.from({ length: count }, (_, k) => k + 1).map((i) => {

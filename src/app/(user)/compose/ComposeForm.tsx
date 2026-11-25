@@ -58,12 +58,12 @@ function headingVariable(h: string): number | null {
  * when no heading names a variable, {{1}}, {{2}}… take the columns after the mobile number in order
  * (Mobile, Name, Amount… → {{1}} = Name, {{2}} = Amount). Variables left over are typed.
  */
-function autoMap(count: number, cols: FileColumns): (number | null)[] {
+function autoMap(count: number, cols: FileColumns, byOrder = true): (number | null)[] {
   const named = Array.from({ length: count }, (_, k) => {
     const c = cols.headings.findIndex((h, i) => i !== cols.mobileColumn && headingVariable(h) === k + 1);
     return c >= 0 ? c : null;
   });
-  if (named.some((c) => c !== null)) return named;
+  if (named.some((c) => c !== null) || !byOrder) return named;
   const others = cols.headings.map((_, i) => i).filter((i) => i !== cols.mobileColumn);
   return Array.from({ length: count }, (_, k) => others[k] ?? null);
 }
@@ -120,7 +120,8 @@ export function ComposeForm({ action, templates, selected, groups, preselectedGr
   const paramCount = template ? templateParameterCount(template) : 0;
   // A new template or file: map the variables whose heading names them
   useEffect(() => {
-    setMapping(columns ? autoMap(paramCount, columns) : []);
+    // Groups / typed numbers already chosen: the file only adds numbers, so variables stay typed (unless a heading names them)
+    setMapping(columns ? autoMap(paramCount, columns, !checked.size && !pastedNumbers(numbers)) : []);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [template, fileInfo]);
   const fromFileVars = !!columns && mapping.some((c) => c !== null);
@@ -220,6 +221,18 @@ export function ComposeForm({ action, templates, selected, groups, preselectedGr
                 )}
               </div>
               <div id="header_div" ref={inputsRef} onInput={refreshFill} onChange={refreshFill}>
+                {template && columns && paramCount > 0 && (
+                  <div className="d-flex flex-wrap align-items-center gap-2 mb-2">
+                    <span className="small fw-medium">Variable values:</span>
+                    <div className="btn-group btn-group-sm" role="group" aria-label="Variable values">
+                      <button type="button" className={`btn ${fromFileVars ? 'btn-primary' : 'btn-outline-primary'}`}
+                        onClick={() => setMapping(autoMap(paramCount, columns))}><i className="ri-file-excel-2-line me-1" />From Excel columns</button>
+                      <button type="button" className={`btn ${!fromFileVars ? 'btn-primary' : 'btn-outline-primary'}`}
+                        onClick={() => { setMapping(Array(paramCount).fill(null)); requestAnimationFrame(() => document.getElementById('body_parameters_1')?.focus()); }}>
+                        <i className="ri-text me-1" />Same for everyone</button>
+                    </div>
+                  </div>
+                )}
                 {template && (
                   <TemplateInputs key={template.ut_id} template={template} columns={columns} mapping={mapping}
                     onMap={(i, c) => setMapping((m) => { const n = [...m]; n[i] = c; return n; })} />
@@ -341,7 +354,8 @@ export function ComposeForm({ action, templates, selected, groups, preselectedGr
                 <div className="alert alert-warning small py-2 mt-3 mb-0">
                   <i className="ri-error-warning-line me-1" />Variables come from the Excel file, so the campaign goes to the file&apos;s numbers only.
                   Untick the contact groups and clear the typed numbers{' '}
-                  <button type="button" className="btn btn-link btn-sm p-0 align-baseline" onClick={() => { setChecked(new Set()); setNumbers(''); }}>(clear them)</button>.
+                  <button type="button" className="btn btn-link btn-sm p-0 align-baseline" onClick={() => { setChecked(new Set()); setNumbers(''); }}>(clear them)</button>,
+                  or <button type="button" className="btn btn-link btn-sm p-0 align-baseline" onClick={() => setMapping(Array(paramCount).fill(null))}>use the same values for everyone</button>.
                 </div>
               )}
               <div className="form-text mt-3 mb-0">{fromFileVars

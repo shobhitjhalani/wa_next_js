@@ -53,12 +53,19 @@ function headingVariable(h: string): number | null {
   return m ? Number(m[1]) : null;
 }
 
-/** Variables a file's headings name ({{n}} ← the column called "{{n}}" / "Var n" …); the others are typed. */
+/**
+ * Columns for the template variables of an uploaded file: a column headed "{{n}}" / "Var n" … goes to {{n}};
+ * when no heading names a variable, {{1}}, {{2}}… take the columns after the mobile number in order
+ * (Mobile, Name, Amount… → {{1}} = Name, {{2}} = Amount). Variables left over are typed.
+ */
 function autoMap(count: number, cols: FileColumns): (number | null)[] {
-  return Array.from({ length: count }, (_, k) => {
+  const named = Array.from({ length: count }, (_, k) => {
     const c = cols.headings.findIndex((h, i) => i !== cols.mobileColumn && headingVariable(h) === k + 1);
     return c >= 0 ? c : null;
   });
+  if (named.some((c) => c !== null)) return named;
+  const others = cols.headings.map((_, i) => i).filter((i) => i !== cols.mobileColumn);
+  return Array.from({ length: count }, (_, k) => others[k] ?? null);
 }
 
 function pastedNumbers(text: string): number {

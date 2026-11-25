@@ -2,12 +2,13 @@ import type { Metadata } from 'next';
 import Link from 'next/link';
 import { notFound } from 'next/navigation';
 import { PageTitle } from '@/components/PageTitle';
+import { DateRangeInput } from '@/components/ui';
 import { Pagination, pageParam } from '@/components/Pagination';
 import { requireBotUser } from '@/lib/auth';
 import { NODE_INFO, type FlowGraph } from '@/lib/bot-flow';
 import { one, query, value } from '@/lib/db';
 import { sp } from '@/lib/http';
-import { phpDate } from '@/lib/time';
+import { parseDateRange, phpDate } from '@/lib/time';
 
 export const metadata: Metadata = { title: 'Flow Conversations' };
 
@@ -35,15 +36,20 @@ export default async function FlowSessionsPage({ params, searchParams }: {
 
   const status = Number(sp(sParams, 'status')) || 0;
   const mobile = (sp(sParams, 'mobile') ?? '').replace(/\D/g, '');
+  // Started date range ("d-m-Y to d-m-Y"; end day included)
+  const started = (sp(sParams, 'started') ?? '').trim();
+  const range = parseDateRange(started);
   const page = pageParam(sParams.page);
-  const where = 'bs_flow_id = $1 AND bs_user_id = $2 AND ($3 = 0 OR bs_status = $3) AND ($4 = \'\' OR bs_mobile LIKE \'%\' || $4 || \'%\')';
-  const args = [flow.bf_id, user.u_id, status, mobile];
+  const where = `bs_flow_id = $1 AND bs_user_id = $2 AND ($3 = 0 OR bs_status = $3) AND ($4 = '' OR bs_mobile LIKE '%' || $4 || '%')
+    AND bs_created_on >= $5 AND bs_created_on < $6`;
+  const args = [flow.bf_id, user.u_id, status, mobile, range?.[0] ?? 0, range?.[1] ?? 2147483647];
   const [rows, total] = await Promise.all([
     query<Session>(`SELECT * FROM js_bot_session WHERE ${where} ORDER BY bs_id DESC LIMIT ${PER_PAGE} OFFSET ${(page - 1) * PER_PAGE}`, args),
     value<number>(`SELECT COUNT(*)::int FROM js_bot_session WHERE ${where}`, args),
   ]);
   const nodes = new Map((flow.bf_graph.nodes ?? []).map((n) => [n.id, n]));
-  const exportQs = new URLSearchParams({ ...(status ? { status: String(status) } : {}), ...(mobile ? { mobile } : {}) }).toString();
+  const exportQs = new URLSearchParams({ ...(status ? { status: String(status) } : {}), ...(mobile ? { mobile } : {}), ...(range ? { started } : {}) }).toString();
+  const filtered = !!(status || mobile || range);
 
   return (
     <>
@@ -66,7 +72,12 @@ export default async function FlowSessionsPage({ params, searchParams }: {
               </select>
             </div>
             <div className="col-auto"><input name="mobile" className="form-control form-control-sm" placeholder="Mobile number" defaultValue={mobile} /></div>
+            <div className="col-auto" style={{ minWidth: 230 }}>
+              <DateRangeInput name="started" defaultValue={range ? started : ''} className="form-control form-control-sm" placeholder="Started date range" aria-label="Started date range" />
+            </div>
             <div className="col-auto"><button type="submit" className="btn btn-sm btn-primary"><i className="ri-search-line" /> Filter</button></div>
+            {filtered && <div className="col-auto"><Link href={`/bot_flows/${flow.bf_id}/sessions`} className="btn btn-sm btn-light">Clear</Link></div>}
+            <div className="col-auto small text-muted">{(total ?? 0).toLocaleString('en-IN')} conversation{total === 1 ? '' : 's'}</div>
           </form>
         </div>
         <div className="table-responsive">
@@ -104,7 +115,7 @@ export default async function FlowSessionsPage({ params, searchParams }: {
                   </tr>
                 );
               }) : (
-                <tr><td colSpan={6} className="text-center text-muted py-4">No conversations yet. Activate the flow and send one of its keywords to your WhatsApp number to try it.</td></tr>
+                <tr><td colSpan={6} className="text-center text-muted py-4">{filtered ? 'No conversations match these filters.' : 'No conversations yet. Activate the flow and send one of its keywords to your WhatsApp number to try it.'}</td></tr>
               )}
             </tbody>
           </table>

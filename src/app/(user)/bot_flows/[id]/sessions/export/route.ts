@@ -1,7 +1,7 @@
 import { requireBotUser } from '@/lib/auth';
 import { one, query } from '@/lib/db';
 import { csvFromRows } from '@/lib/http';
-import { phpDate } from '@/lib/time';
+import { parseDateRange, phpDate } from '@/lib/time';
 
 const STATUS: Record<number, string> = { 1: 'Running', 2: 'Completed', 3: 'Expired', 4: 'Stopped' };
 
@@ -16,10 +16,12 @@ export async function GET(req: Request, { params }: { params: Promise<{ id: stri
   const url = new URL(req.url);
   const status = Number(url.searchParams.get('status')) || 0;
   const mobile = (url.searchParams.get('mobile') ?? '').replace(/\D/g, '');
+  const range = parseDateRange(url.searchParams.get('started'));
   const rows = await query<{ bs_mobile: string; bs_name: string | null; bs_status: number; bs_vars: Record<string, string>; bs_created_on: number; bs_updated_on: number }>(
     `SELECT bs_mobile, bs_name, bs_status, bs_vars, bs_created_on, bs_updated_on FROM js_bot_session
       WHERE bs_flow_id = $1 AND bs_user_id = $2 AND ($3 = 0 OR bs_status = $3) AND ($4 = '' OR bs_mobile LIKE '%' || $4 || '%')
-      ORDER BY bs_id DESC LIMIT 100000`, [flow.bf_id, user.u_id, status, mobile]);
+        AND bs_created_on >= $5 AND bs_created_on < $6
+      ORDER BY bs_id DESC LIMIT 100000`, [flow.bf_id, user.u_id, status, mobile, range?.[0] ?? 0, range?.[1] ?? 2147483647]);
 
   const vars = [...new Set(rows.flatMap((r) => Object.keys(r.bs_vars ?? {})))].filter((k) => k !== 'last_reply');
   const header = ['Mobile', 'Name', 'Status', 'Started', 'Last activity', ...vars];

@@ -16,7 +16,7 @@ import {
 } from '@/lib/bot-flow';
 import { saveFlow, stopSessions } from '../actions';
 import { TestChat } from './TestChat';
-import { CopyFlowButton } from '../FlowCode';
+import { CopyFlowButton, ReplaceFlowButton } from '../FlowCode';
 
 export interface BuilderTemplate { name: string; language: string; header: string; params: number }
 /** A team member for the Assign to team step; eligible = active with inbox access (reason says why not). */
@@ -190,6 +190,19 @@ function Builder({ id, initialName, initialStatus, initialGraph, templates, runn
     setTesting(false);
   }, [setNodes]);
 
+  /** "Paste code": the pasted flow replaces the canvas (saved with Save). */
+  const replaceGraph = useCallback((g: FlowGraph, newName: string | null) => {
+    const f = toFlow(g);
+    setNodes(f.nodes);
+    setEdges(f.edges);
+    setSelected(null);
+    setEditing(null);
+    if (newName) setName(newName);
+    setDirty(true);
+    setNotice({ kind: 'info', text: `Pasted ${f.nodes.length - 1} step(s). Check them, then click Save to update the flow.` });
+    requestAnimationFrame(() => flow.fitView({ padding: 0.3, maxZoom: 1, duration: 300 }));
+  }, [flow, setNodes, setEdges]);
+
   const cardContext = useMemo(() => ({ edit: editNode, duplicate: duplicateNode, remove: removeNode, members }), [editNode, duplicateNode, removeNode, members]);
 
   const save = (activate: boolean) => {
@@ -249,6 +262,7 @@ function Builder({ id, initialName, initialStatus, initialGraph, templates, runn
           </button>
           <CopyFlowButton id={id} className="btn btn-light" label="Copy"
             title={dirty ? 'Copies the last saved version — save first to include your changes' : 'Copy flow — paste it into another account with “Paste flow”'} />
+          <ReplaceFlowButton className="btn btn-light" onApply={replaceGraph} />
           <Link href={`/bot_flows/${id}/sessions`} className="btn btn-light"><i className="ri-chat-history-line" /> Conversations{running ? ` (${running} running)` : ''}</Link>
           {running > 0 && <button type="button" className="btn btn-light" onClick={stop} disabled={saving} title="Stop running conversations"><i className="ri-stop-circle-line" /></button>}
           {active ? (

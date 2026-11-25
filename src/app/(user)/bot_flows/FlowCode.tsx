@@ -3,6 +3,7 @@
 import { useRouter } from 'next/navigation';
 import { useEffect, useRef, useState, useTransition } from 'react';
 import { createPortal } from 'react-dom';
+import { sanitizeGraph, type FlowGraph } from '@/lib/bot-flow';
 import { copyFlowCode, pasteFlowCode } from './actions';
 
 /**
@@ -123,6 +124,83 @@ export function PasteFlowButton() {
               <div className="form-text mt-2">Templates belong to each WhatsApp account: template steps are checked against this account's approved templates.</div>
             </>
           )}
+        </Modal>
+      )}
+    </>
+  );
+}
+
+/**
+ * Flow Builder → "Paste code": replace the steps of the open flow with a pasted flow code
+ * (from “Copy flow”, or plain {"nodes": […], "edges": […]} JSON). Only the canvas changes;
+ * the flow is updated when it is saved.
+ */
+export function ReplaceFlowButton({ className, onApply }: { className?: string; onApply: (graph: FlowGraph, name: string | null) => void }) {
+  const [open, setOpen] = useState(false);
+  const [code, setCode] = useState('');
+  const [error, setError] = useState('');
+  const [useName, setUseName] = useState(false);
+  const close = () => { setOpen(false); setCode(''); setError(''); setUseName(false); };
+
+  let pastedName = '';
+  try { const p = JSON.parse(code); pastedName = typeof p?.name === 'string' ? p.name.trim().slice(0, 150) : ''; } catch { /* not JSON yet */ }
+
+  const apply = () => {
+    let parsed: unknown;
+    try { parsed = JSON.parse(code.trim()); } catch (e) {
+      setError(`This is not valid JSON${e instanceof Error ? `: ${e.message}` : ''}.`);
+      return;
+    }
+    const raw = parsed && typeof parsed === 'object' && 'graph' in parsed ? (parsed as { graph: unknown }).graph : parsed;
+    if (!raw || typeof raw !== 'object' || !Array.isArray((raw as { nodes?: unknown }).nodes)) {
+      setError('The code has no steps. Paste the whole code from “Copy flow” (or JSON with "nodes" and "edges").');
+      return;
+    }
+    const graph = sanitizeGraph(raw);
+    if (!graph.nodes.length) { setError('No valid steps were found in this code.'); return; }
+    if (!graph.nodes.some((n) => n.type === 'trigger')) {
+      graph.nodes.unshift({ id: 'trigger', type: 'trigger', position: { x: -340, y: 0 }, data: { keywords: '', match: 'exact' } });
+    }
+    onApply(graph, useName && pastedName ? pastedName : null);
+    close();
+  };
+  const readFile = async (file: File | undefined) => {
+    if (!file) return;
+    if (file.size > 1_000_000) { setError('This file is too large.'); return; }
+    setCode(await file.text());
+    setError('');
+  };
+
+  return (
+    <>
+      <button type="button" className={className} onClick={() => setOpen(true)} title="Replace this flow's steps with pasted JSON code">
+        <i className="ri-clipboard-fill" /> Paste code
+      </button>
+      {open && (
+        <Modal title="Paste code into this flow" onClose={close} footer={(
+          <>
+            <button type="button" className="btn btn-light" onClick={close}>Cancel</button>
+            <button type="button" className="btn btn-success" onClick={apply} disabled={!code.trim()}><i className="ri-refresh-line" /> Replace steps</button>
+          </>
+        )}>
+          <div className="alert alert-warning small py-2">
+            <i className="ri-error-warning-line me-1" />All steps and connections on the canvas are <b>replaced</b> by the pasted flow.
+            Nothing is saved until you click <b>Save</b> — reload the page without saving to undo.
+          </div>
+          <textarea className="form-control font-monospace small" rows={12} value={code} autoFocus spellCheck={false}
+            placeholder={'{\n  "type": "wa-chatbot-flow",\n  "name": "…",\n  "graph": { "nodes": […], "edges": […] }\n}'}
+            onChange={(e) => { setCode(e.target.value); setError(''); }} />
+          <div className="d-flex align-items-center gap-2 mt-2">
+            <span className="small text-muted">or</span>
+            <input type="file" accept=".json,application/json,text/plain" className="form-control form-control-sm" onChange={(e) => readFile(e.target.files?.[0])} />
+          </div>
+          {pastedName && (
+            <div className="form-check mt-2">
+              <input className="form-check-input" type="checkbox" id="use_pasted_name" checked={useName} onChange={(e) => setUseName(e.target.checked)} />
+              <label className="form-check-label small" htmlFor="use_pasted_name">Also rename the flow to “{pastedName}”</label>
+            </div>
+          )}
+          {error && <div className="alert alert-danger small py-2 mt-2 mb-0">{error}</div>}
         </Modal>
       )}
     </>

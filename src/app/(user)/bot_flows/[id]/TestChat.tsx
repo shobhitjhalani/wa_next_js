@@ -30,9 +30,7 @@ export function TestChat({ flowId, name, getGraph, onClose }: {
   const keywords = parseKeywords((getGraph().nodes.find((n) => n.type === 'trigger')?.data as TriggerData | undefined)?.keywords ?? '');
   const running = state?.status === 1;
   const waiting = running && !!state?.waitUntil;
-  // Only the newest buttons / list can be answered
-  const lastPrompt = items.findLastIndex((m) => m.kind === 'buttons' || m.kind === 'list');
-  const answeredAfter = items.slice(lastPrompt + 1).some((m) => m.kind === 'customer');
+  // Every buttons / list message can be answered: an earlier one makes the flow continue from that choice
 
   const send = (message: TestInput, shown?: string) => {
     if (busy) return;
@@ -92,7 +90,7 @@ export function TestChat({ flowId, name, getGraph, onClose }: {
             <div className="mt-2 small">Webhooks are called for real.</div>
           </div>
         )}
-        {items.map((m, i) => <Bubble key={i} m={m} active={i === lastPrompt && !answeredAfter && running && !busy}
+        {items.map((m, i) => <Bubble key={i} m={m} active={!!state && !busy}
           listOpen={openList === i} onToggleList={() => setOpenList(openList === i ? null : i)}
           onPick={(id, title) => send({ replyId: id, text: title }, title)} />)}
         {busy && <div className="fb-msg fb-bot fb-typing"><span /><span /><span /></div>}

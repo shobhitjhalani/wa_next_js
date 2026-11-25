@@ -149,6 +149,8 @@ export async function botIncoming(userId: number, mobile: string, name: string |
     if (row && flow) {
       const s = fromRow(row);
       if (name) s.name = name;
+      // An option of another flow's earlier message: that flow takes over
+      if (incoming.replyId && !choiceOf(flow.bf_graph, incoming) && await resumeChoice(db, userId, mobile, name, incoming, row.bs_id, outbox)) return true;
       const run: Run = { host: liveHost(db, userId, mobile, flow.bf_name, outbox), mobile, flow, s };
       const result = await respond(run, incoming, (exactOnly) => startLive(exactOnly));
       if (result === 'restarted') return true;
@@ -159,10 +161,37 @@ export async function botIncoming(userId: number, mobile: string, name: string |
     } else if (row) {
       await exec(`UPDATE js_bot_session SET bs_status = ${STATUS.STOPPED}, bs_updated_on = $2 WHERE bs_id = $1`, [row.bs_id, now()], db);
     }
+    if (await resumeChoice(db, userId, mobile, name, incoming, row?.bs_id ?? null, outbox)) return true;
     return startLive(false);
   });
   await sendOutbox(outbox);
   return handled;
+}
+
+/**
+ * A tap on an option of an earlier conversation's message (finished, or another flow than the
+ * running one): that flow continues from the choice in a new conversation that keeps the
+ * earlier answers. Only active flows; the conversations of the last 30 days are looked at.
+ */
+async function resumeChoice(db: pg.PoolClient, userId: number, mobile: string, name: string | null, incoming: Incoming, runningId: number | null, outbox: Outbox): Promise<boolean> {
+  const nodeId = /^(.+):\d{1,2}$/.exec(incoming.replyId ?? '')?.[1];
+  if (!nodeId) return false;
+  const past = await query<{ bs_id: number; bs_name: string | null; bs_vars: Record<string, string> } & FlowRow>(
+    `SELECT s.bs_id, s.bs_name, s.bs_vars, f.bf_id, f.bf_name, f.bf_keywords, f.bf_match, f.bf_graph
+       FROM js_bot_session s JOIN js_bot_flow f ON f.bf_id = s.bs_flow_id AND f.bf_user_id = s.bs_user_id AND f.bf_status = 1
+      WHERE s.bs_user_id = $1 AND s.bs_mobile = $2 AND s.bs_created_on > $3
+      ORDER BY s.bs_id DESC LIMIT 20`, [userId, mobile, now() - 30 * 86400], db);
+  const hit = past.find((p) => choiceOf(p.bf_graph, incoming));
+  if (!hit) return false;
+  const t = now();
+  if (runningId) await exec(`UPDATE js_bot_session SET bs_status = ${STATUS.STOPPED}, bs_updated_on = $2 WHERE bs_id = $1`, [runningId, t], db);
+  const s: SessionState = { ...newState(name ?? hit.bs_name, incoming.text), vars: { ...(hit.bs_vars ?? {}), trigger: hit.bs_vars?.trigger ?? '' } };
+  const id = (await one<{ bs_id: number }>(
+    `INSERT INTO js_bot_session (bs_user_id, bs_flow_id, bs_mobile, bs_name, bs_vars, bs_created_on, bs_updated_on)
+     VALUES ($1, $2, $3, $4, $5::jsonb, $6, $6) RETURNING bs_id`, [userId, hit.bf_id, mobile, s.name, JSON.stringify(s.vars), t], db))!.bs_id;
+  await jumpBack({ host: liveHost(db, userId, mobile, hit.bf_name, outbox), mobile, flow: hit, s }, choiceOf(hit.bf_graph, incoming)!, incoming);
+  await saveSession(db, id, s);
+  return true;
 }
 
 /** Worker: continue conversations whose wait is over; expire ones nobody answered. */
@@ -347,7 +376,8 @@ export async function testFlow(
   if (input.skipWait) {
     if (s?.status === STATUS.RUNNING && s.waitUntil) await afterWait({ host, mobile: who.mobile, flow, s });
   } else {
-    const run = s?.status === STATUS.RUNNING ? { host, mobile: who.mobile, flow, s } : null;
+    // A finished test conversation still takes taps on earlier options
+    const run = s && (s.status === STATUS.RUNNING || choiceOf(graph, { text, replyId: input.replyId ?? null })) ? { host, mobile: who.mobile, flow, s } : null;
     const result = run ? await respond(run, { text, replyId: input.replyId ?? null }, startTest) : 'idle';
     if (result === 'idle' && !(await startTest(false))) {
       const keywords = parseKeywords((graph.nodes.find((n) => n.type === 'trigger')?.data as TriggerData | undefined)?.keywords ?? '');
@@ -404,6 +434,12 @@ async function testMessage(userId: number, row: Out): Promise<TestMessage> {
 async function respond(run: Run, incoming: Incoming, restart: (exactOnly: boolean) => Promise<boolean>): Promise<'answered' | 'restarted' | 'idle'> {
   const { s, flow } = run;
   const node = s.node ? flow.bf_graph.nodes?.find((n) => n.id === s.node) : null;
+  // A tap on a button / list option of an earlier message: the flow goes on from that choice
+  const earlier = choiceOf(flow.bf_graph, incoming);
+  if (earlier && !(node && !s.waitUntil && earlier.id === node.id)) {
+    await jumpBack(run, earlier, incoming);
+    return 'answered';
+  }
   if (!node || s.waitUntil) return 'idle';
   // A trigger keyword (whole message) restarts, unless it is a tap on one of this step's own buttons
   const tapped = !!incoming.replyId?.startsWith(node.id + ':');
@@ -415,6 +451,25 @@ async function respond(run: Run, incoming: Incoming, restart: (exactOnly: boolea
   if (await restart(false)) return 'restarted';
   await reprompt(run, node);
   return 'answered';
+}
+
+/** The buttons / list step (in this graph) a tapped option belongs to, when the option still exists. */
+function choiceOf(graph: FlowGraph, incoming: Incoming): FlowNode | null {
+  const m = /^(.+):(\d{1,2})$/.exec(incoming.replyId ?? '');
+  if (!m) return null;
+  const node = graph.nodes?.find((n) => n.id === m[1]);
+  if (!node || !CHOICE_KINDS.has(node.type)) return null;
+  const count = node.type === 'list' ? (node.data as ListData).rows.length : (node.data as ButtonsData).buttons.length;
+  return Number(m[2]) < count ? node : null;
+}
+const CHOICE_KINDS = new Set<string>(['buttons', 'mediabuttons', 'list']);
+
+/** Continue from an earlier step's option (any wait is dropped, a finished conversation runs again). */
+async function jumpBack(run: Run, node: FlowNode, incoming: Incoming): Promise<void> {
+  Object.assign(run.s, { status: STATUS.RUNNING, node: node.id, waitUntil: 0, retries: 0 });
+  run.s.vars.last_reply = clip(incoming.text.trim());
+  run.host.note(`“${clip(incoming.text.trim()).slice(0, 60)}” was picked on an earlier message — the flow continues from that choice.`);
+  await answer(run, node, incoming);
 }
 
 async function begin(run: Run): Promise<void> {

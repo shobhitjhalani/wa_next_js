@@ -15,7 +15,7 @@ import { now, phpDate } from '@/lib/time';
 import type { CampaignRow, MessageRow } from '@/lib/types';
 import { barSegments, DeliveryBar, errorText, EtaNote, pct, recipientStatus, recipientWhere, StatusBadge } from '../shared';
 import { cancelCampaignAction, resendFailedAction } from './actions';
-import { AutoReload } from './AutoReload';
+import { RefreshButton } from './RefreshButton';
 import { CAMPAIGN_OWNER_SQL } from '@/lib/types';
 import { refreshSendSettings } from '@/lib/services/settings';
 import { templateValues } from '@/lib/services/sender';
@@ -100,7 +100,6 @@ export default async function CampaignPage({ params, searchParams }: { params: P
   return (
     <>
       <PageTitle title="Campaign" home="/dashboard" />
-      {(status === 'Sending' || status === 'In Queue' || status === 'Scheduled') && <AutoReload />}
 
       <div className="card">
         <div className="card-body d-flex flex-wrap gap-3 align-items-start">
@@ -121,6 +120,7 @@ export default async function CampaignPage({ params, searchParams }: { params: P
             </div>
           </div>
           <div className="d-flex flex-wrap gap-2">
+            <RefreshButton />
             {sent && (
               <TemplateViewButton id={campaign.uc_id} name={campaignTitle(campaign)} category={campaign.uc_template !== campaignTitle(campaign) ? campaign.uc_template : null} language="As sent in this campaign" sendHref={null} label="View Message">
                 {sent.template ? <TemplatePreview template={sent.template} fill={sent.fill} /> : (
@@ -189,7 +189,7 @@ export default async function CampaignPage({ params, searchParams }: { params: P
                     ))}
                   </div>
                   {stats.pending > 0 && (
-                    <p className="small text-muted mt-3 mb-0"><i className="ri-loader-4-line" /> {numberFormat(stats.pending)} message(s) still queued. This page refreshes every 30 seconds.</p>
+                    <p className="small text-muted mt-3 mb-0"><i className="ri-loader-4-line" /> {numberFormat(stats.pending)} message(s) still queued. Click <b>Refresh</b> to update the figures.</p>
                   )}
                 </div>
               </div>

@@ -23,8 +23,8 @@ export interface BuilderTemplate { name: string; language: string; header: strin
 export interface BuilderMember { id: number; name: string; eligible: boolean; reason: string }
 
 /** What the canvas cards need from the builder: step actions and the team. */
-const BuilderContext = createContext<{ duplicate: (id: string) => void; remove: (id: string) => void; members: BuilderMember[] }>({
-  duplicate: () => {}, remove: () => {}, members: [],
+const BuilderContext = createContext<{ edit: (id: string) => void; duplicate: (id: string) => void; remove: (id: string) => void; members: BuilderMember[] }>({
+  edit: () => {}, duplicate: () => {}, remove: () => {}, members: [],
 });
 
 const STATUS_LABEL: Record<number, string> = { [FLOW_STATUS.ACTIVE]: 'Active', [FLOW_STATUS.PAUSED]: 'Paused', [FLOW_STATUS.DRAFT]: 'Draft' };
@@ -64,6 +64,8 @@ function Builder({ id, initialName, initialStatus, initialGraph, templates, runn
   const [status, setStatus] = useState(initialStatus);
   const active = status === FLOW_STATUS.ACTIVE;
   const [selected, setSelected] = useState<string | null>(null);
+  // The step edit panel opens only from the step's Edit button (or a double-click), not on selection
+  const [editing, setEditing] = useState<string | null>(null);
   const [dirty, setDirty] = useState(false);
   const [notice, setNotice] = useState<{ kind: 'success' | 'danger' | 'info'; text: string; problems?: string[] } | null>(null);
   const [saving, startSaving] = useTransition();
@@ -142,6 +144,7 @@ function Builder({ id, initialName, initialStatus, initialGraph, templates, runn
   const removeNode = useCallback((nodeId: string) => {
     flow.deleteElements({ nodes: [{ id: nodeId }] });
     setSelected(null);
+    setEditing(null);
     setDirty(true);
   }, [flow]);
 
@@ -179,7 +182,15 @@ function Builder({ id, initialName, initialStatus, initialGraph, templates, runn
     return () => window.removeEventListener('keydown', onKey);
   }, [selected, duplicateNode]);
 
-  const cardContext = useMemo(() => ({ duplicate: duplicateNode, remove: removeNode, members }), [duplicateNode, removeNode, members]);
+  /** Open the edit panel for a step (selecting it too). */
+  const editNode = useCallback((nodeId: string) => {
+    setNodes((ns) => ns.map((n) => (n.selected === (n.id === nodeId) ? n : { ...n, selected: n.id === nodeId })));
+    setSelected(nodeId);
+    setEditing(nodeId);
+    setTesting(false);
+  }, [setNodes]);
+
+  const cardContext = useMemo(() => ({ edit: editNode, duplicate: duplicateNode, remove: removeNode, members }), [editNode, duplicateNode, removeNode, members]);
 
   const save = (activate: boolean) => {
     setNotice(null);
@@ -212,7 +223,7 @@ function Builder({ id, initialName, initialStatus, initialGraph, templates, runn
     addNode(kind, flow.screenToFlowPosition({ x: e.clientX - 140, y: e.clientY - 30 }));
   };
 
-  const selectedNode = nodes.find((n) => n.id === selected) ?? null;
+  const editingNode = nodes.find((n) => n.id === editing) ?? null;
   const q = search.trim().toLowerCase();
   const groups = (['Send', 'Listen', 'Logic'] as const).map((g) => ({
     group: g,
@@ -304,7 +315,14 @@ function Builder({ id, initialName, initialStatus, initialGraph, templates, runn
             onNodesChange={(c) => { onNodesChange(c); if (c.some((x) => x.type !== 'select' && x.type !== 'dimensions')) setDirty(true); }}
             onEdgesChange={(c) => { onEdgesChange(c); if (c.some((x) => x.type === 'remove')) setDirty(true); }}
             onConnect={onConnect}
-            onSelectionChange={({ nodes: sel }) => setSelected(sel.length === 1 ? sel[0].id : null)}
+            onSelectionChange={({ nodes: sel }) => {
+              const id1 = sel.length === 1 ? sel[0].id : null;
+              setSelected(id1);
+              // Selecting another step (or none) closes the edit panel
+              setEditing((cur) => (cur && cur === id1 ? cur : null));
+            }}
+            onNodeDoubleClick={(_e, n) => editNode(n.id)}
+            zoomOnDoubleClick={false}
             isValidConnection={(c) => c.source !== c.target && nodes.find((n) => n.id === c.target)?.type !== 'trigger'}
             defaultEdgeOptions={{ type: 'flow', markerEnd: { type: MarkerType.ArrowClosed, width: 16, height: 16 } }}
             deleteKeyCode={['Backspace', 'Delete']}
@@ -318,8 +336,8 @@ function Builder({ id, initialName, initialStatus, initialGraph, templates, runn
             <MiniMap position="top-right" pannable zoomable className="fb-minimap" nodeColor="var(--vz-success)" style={{ width: 160, height: 100 }} />
           </ReactFlow>
           </BuilderContext.Provider>
-          <div className="fb-hint">Scroll to pan · pinch or Ctrl + scroll to zoom · Ctrl + D duplicates the selected step · select a connection and press Delete to remove it</div>
-          {!selectedNode && problems.length > 0 && !notice && (
+          <div className="fb-hint">Scroll to pan · pinch or Ctrl + scroll to zoom · select a step and click Edit (or double-click it) to change it · Ctrl + D duplicates · select a connection and press Delete to remove it</div>
+          {!editingNode && problems.length > 0 && !notice && (
             <div className="fb-checklist small">
               <i className="ri-error-warning-line text-warning me-1" />{problems.length} thing{problems.length === 1 ? '' : 's'} to finish before activating: {problems[0]}
             </div>
@@ -329,18 +347,18 @@ function Builder({ id, initialName, initialStatus, initialGraph, templates, runn
         {testing && (
           <TestChat flowId={id} name={name} getGraph={() => toGraph(flow.getNodes(), flow.getEdges())} onClose={() => setTesting(false)} />
         )}
-        {!testing && selectedNode && (
+        {!testing && editingNode && (
           <Inspector
-            key={selectedNode.id}
-            node={selectedNode}
+            key={editingNode.id}
+            node={editingNode}
             templates={templates}
             members={members}
             crm={crm}
             variables={variables}
-            onChange={(patch) => updateData(selectedNode.id, patch)}
-            onDuplicate={() => duplicateNode(selectedNode.id)}
-            onDelete={() => removeNode(selectedNode.id)}
-            onClose={() => { setSelected(null); setNodes((ns) => ns.map((n) => ({ ...n, selected: false }))); }}
+            onChange={(patch) => updateData(editingNode.id, patch)}
+            onDuplicate={() => duplicateNode(editingNode.id)}
+            onDelete={() => removeNode(editingNode.id)}
+            onClose={() => setEditing(null)}
           />
         )}
       </div>
@@ -450,14 +468,15 @@ const NodeCard = memo(function NodeCard({ id, type, data, selected }: NodeProps<
 
   return (
     <div className={`fb-node${selected ? ' selected' : ''}`}>
-      {kind !== 'trigger' && (
-        <NodeToolbar position={Position.Top} align="end" offset={6}>
-          <div className="btn-group btn-group-sm shadow-sm fb-node-tools">
+      <NodeToolbar position={Position.Top} align="end" offset={6}>
+        <div className="btn-group btn-group-sm shadow-sm fb-node-tools">
+          <button type="button" className="btn btn-light border text-primary" onClick={() => ctx.edit(id)} title="Edit step (or double-click)"><i className="ri-pencil-line" /> Edit</button>
+          {kind !== 'trigger' && <>
             <button type="button" className="btn btn-light border" onClick={() => ctx.duplicate(id)} title="Duplicate step (Ctrl + D)"><i className="ri-file-copy-line" /> Duplicate</button>
             <button type="button" className="btn btn-light border text-danger" onClick={() => ctx.remove(id)} title="Delete step"><i className="ri-delete-bin-line" /></button>
-          </div>
-        </NodeToolbar>
-      )}
+          </>}
+        </div>
+      </NodeToolbar>
       {kind === 'trigger' && <span className="fb-start">START</span>}
       {kind !== 'trigger' && <Handle type="target" position={Position.Left} className="fb-handle" />}
       <div className="fb-node-head">

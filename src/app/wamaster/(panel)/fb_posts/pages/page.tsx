@@ -125,6 +125,11 @@ export default async function FbPagesPage({ searchParams }: { searchParams: Prom
                 {lastCheck > 0 && <div className="small text-muted">Last checked {phpDate('d M Y, h:i A', lastCheck)}</div>}
               </div>
               {pages.length > 0 && <BulkDeletePages action={deletePages} tagAction={tagPages} tags={allTags.map((t) => t.label)} />}
+              {pages.length > 0 && (
+                <a href={`/wamaster/fb_posts/pages/export${tagFilter ? `?${new URLSearchParams({ tag: tagFilter })}` : ''}`} className="btn btn-sm btn-soft-success" title="Excel of these Pages with their Page IDs, for the page column of the posts CSV">
+                  <i className="ri-file-excel-2-line" /> Export Pages
+                </a>
+              )}
               {pages.length + tokens.length > 0 && (
                 <form action={refreshPagesAction}>
                   <PendingButton className="btn btn-sm btn-primary" pendingText="Checking with Facebook…"><i className="ri-refresh-line" /> Refresh Pages</PendingButton>

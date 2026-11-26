@@ -6,7 +6,7 @@ import { fail, fFile, fInt, flash, fStr, invalid, ok, type ActionResult } from '
 import { logActivity } from '@/lib/activity';
 import { requireRight, requireSuperAdmin } from '@/lib/admin-access';
 import { exec, insertMany, one, query, tx } from '@/lib/db';
-import { MAX_PAGE_TAGS, MAX_UPLOAD_POSTS, cleanTags, pagesForToken, postsFromCsv, refreshPages, saveTokenPages } from '@/lib/services/fb-posts';
+import { MAX_PAGE_TAGS, MAX_UPLOAD_POSTS, cleanTags, pagesForToken, postsFromCsv, refreshPages, resolvePages, saveTokenPages, type PageRef } from '@/lib/services/fb-posts';
 import { now, parseDate } from '@/lib/time';
 
 /** Connect Facebook Pages: a Page token connects its Page, a user / System User token every Page it manages. */
@@ -136,17 +136,18 @@ export async function tagPages(fd: FormData): Promise<void> {
   revalidatePath('/wamaster/fb_posts');
 }
 
-/** Upload a CSV of posts for one or more Pages: each valid row is queued once per Page, skipped rows are listed. */
+/**
+ * Upload a CSV of posts: a row with a `page` cell goes to those Pages (name, Facebook Page ID or tag),
+ * a row without one to every ticked Page. Skipped rows are listed.
+ */
 export async function uploadPosts(_prev: ActionResult | null, fd: FormData): Promise<ActionResult> {
   const { admin } = await requireRight('fb_posts', 'add');
   const wanted = [...new Set(fd.getAll('page_ids').map(Number).filter((n) => Number.isInteger(n) && n > 0))];
   const file = fFile(fd, 'csv');
   const startRaw = fStr(fd, 'start');
   const errors: Record<string, string> = {};
-  const pageIds = wanted.length
-    ? (await query<{ fp_id: number }>('SELECT fp_id FROM js_fb_page WHERE fp_id = ANY($1::int[]) ORDER BY lower(fp_name)', [wanted])).map((r) => r.fp_id)
-    : [];
-  if (!pageIds.length) errors.page_ids = 'Tick at least one Facebook Page to post to.';
+  const all = await query<PageRef>('SELECT fp_id, fp_page_id, fp_name, fp_tags FROM js_fb_page ORDER BY lower(fp_name)');
+  const pageIds = all.filter((p) => wanted.includes(p.fp_id)).map((p) => p.fp_id);
   if (!file) errors.csv = 'Choose the CSV file.';
   else if (!/\.csv$/i.test(file.name)) errors.csv = 'Upload a .csv file (in Excel: File → Save As → CSV UTF-8).';
   else if (file.size > 5 * 1048576) errors.csv = 'The CSV may be at most 5 MB.';
@@ -158,25 +159,44 @@ export async function uploadPosts(_prev: ActionResult | null, fd: FormData): Pro
   }
   if (Object.keys(errors).length) return invalid(errors);
 
-  const { posts, errors: skipped } = postsFromCsv(await file!.text(), start);
-  if (!posts.length) return fail(['No post could be queued.', ...skipped.slice(0, 15)].join('\n'));
-  const total = posts.length * pageIds.length;
+  const parsed = postsFromCsv(await file!.text(), start);
+  const skipped = [...parsed.errors];
+  // Each row's Pages: its own `page` cell, else the ticked ones
+  const rows: { post: (typeof parsed.posts)[number]; ids: number[] }[] = [];
+  const unassigned: number[] = [];
+  for (const post of parsed.posts) {
+    if (!post.page) {
+      if (pageIds.length) rows.push({ post, ids: pageIds }); else unassigned.push(post.line);
+      continue;
+    }
+    const r = resolvePages(post.page, all);
+    if (r.error) skipped.push(`Line ${post.line}: ${r.error}`);
+    else rows.push({ post, ids: r.ids });
+  }
+  if (unassigned.length) {
+    return invalid({ page_ids: unassigned.length === parsed.posts.length
+      ? 'Tick at least one Facebook Page to post to, or fill the page column of the CSV.'
+      : `Line(s) ${unassigned.slice(0, 20).join(', ')}${unassigned.length > 20 ? '…' : ''} have no page: tick the Pages for them, or fill their page column.` });
+  }
+  if (!rows.length) return fail(['No post could be queued.', ...skipped.slice(0, 15)].join('\n'));
+  const total = rows.reduce((n, r) => n + r.ids.length, 0);
+  const usedPages = new Set(rows.flatMap((r) => r.ids)).size;
   if (total > MAX_UPLOAD_POSTS) {
-    return fail(`${posts.length} post(s) × ${pageIds.length} Page(s) = ${total} posts; one upload may queue at most ${MAX_UPLOAD_POSTS}. Tick fewer Pages or split the file.`);
+    return fail(`${rows.length} row(s) make ${total} posts on ${usedPages} Page(s); one upload may queue at most ${MAX_UPLOAD_POSTS}. Use fewer Pages or split the file.`);
   }
   const batchId = await tx(async (db) => {
     const b = await one<{ pb_id: number }>(
       'INSERT INTO js_fb_post_batch (pb_page_id, pb_file, pb_total, pb_emp_id, pb_created_on, pb_status) VALUES (NULL, $1, $2, $3, $4, 0) RETURNING pb_id',
       [file!.name.slice(0, 200), total, admin.emp_id, now()], db);
     // Row by row, each to every Page: the same post reaches all Pages close together
-    await insertMany('js_fb_post', posts.flatMap((p) => pageIds.map((pageId) => ({
+    await insertMany('js_fb_post', rows.flatMap(({ post: p, ids }) => ids.map((pageId) => ({
       po_batch_id: b!.pb_id, po_page_id: pageId, po_line: p.line, po_message: p.message, po_link: p.link, po_image_url: p.image, po_scheduled_at: p.scheduledAt, po_status: 0,
     }))), { db });
     return b!.pb_id;
   });
   await logActivity({ module: 'fb_posts', action: 'Uploaded posts (draft)', target: file!.name, targetId: batchId,
-    details: [`${posts.length} post(s) × ${pageIds.length} Page(s) = ${total}`, ...(skipped.length ? [`${skipped.length} row(s) skipped`] : [])] });
-  const ready = pageIds.length > 1 ? `${posts.length} post(s) × ${pageIds.length} Pages = ${total} posts ready` : `${posts.length} post(s) ready`;
+    details: [`${rows.length} row(s) → ${total} post(s) on ${usedPages} Page(s)`, ...(skipped.length ? [`${skipped.length} row(s) skipped`] : [])] });
+  const ready = usedPages > 1 ? `${rows.length} row(s) → ${total} posts on ${usedPages} Pages ready` : `${total} post(s) ready`;
   await flash(skipped.length ? 'error' : 'success', skipped.length
     ? `${ready}; ${skipped.length} row(s) skipped:\n${skipped.slice(0, 15).join('\n')}\nCheck the preview, then Confirm & queue.`
     : `${ready}. Check the preview, then Confirm & queue: nothing is posted before that.`);

@@ -56,7 +56,7 @@ export async function Preview({ batch, canAdd }: { batch: { pb_id: number; pb_fi
           <div className="me-auto">
             <h5 className="card-title mb-1"><span className="badge bg-warning-subtle text-warning me-2">Preview</span>#{batch.pb_id} · {batch.pb_file}</h5>
             <div className="small text-muted">
-              {list.length} post(s) × {allPages.size} Page(s) = <b>{rows.length}</b> posts · uploaded {phpDate('d M Y, h:i A', batch.pb_created_on)} · nothing is posted until you confirm
+              {rows.length === list.length * allPages.size ? <>{list.length} post(s) × {allPages.size} Page(s) = <b>{rows.length}</b> posts</> : <>{list.length} row(s) → <b>{rows.length}</b> posts on {allPages.size} Page(s)</>} · uploaded {phpDate('d M Y, h:i A', batch.pb_created_on)} · nothing is posted until you confirm
             </div>
           </div>
           {actions}

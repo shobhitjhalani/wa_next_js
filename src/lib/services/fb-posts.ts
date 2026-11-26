@@ -229,7 +229,8 @@ export async function refreshPages(empId = 0): Promise<{ tokens: number; tokenPr
 
 // ------------------------------------------------------------------ CSV
 
-export interface CsvPost { line: number; message: string; link: string; image: string; scheduledAt: number }
+/** `page` = the row's own Pages as written in the CSV (names, Facebook Page IDs or tags, split by ;), empty = the ticked Pages. */
+export interface CsvPost { line: number; message: string; link: string; image: string; scheduledAt: number; page: string }
 
 /** RFC 4180 CSV: quoted fields may hold commas, quotes ("") and new lines. */
 export function parseCsv(text: string): string[][] {
@@ -254,6 +255,7 @@ export function parseCsv(text: string): string[][] {
 }
 
 const COLUMNS: Record<keyof Omit<CsvPost, 'line' | 'scheduledAt'> | 'schedule', string[]> = {
+  page: ['page', 'pages', 'page_name', 'page_id', 'facebook_page', 'facebook_page_id', 'fb_page', 'fb_page_id'],
   message: ['message', 'text', 'caption', 'post', 'content'],
   link: ['link', 'url', 'link_url', 'website'],
   image: ['image', 'image_url', 'photo', 'photo_url', 'picture', 'media_url'],
@@ -270,7 +272,7 @@ export function postsFromCsv(text: string, start: number): { posts: CsvPost[]; e
     const exact = head.findIndex((h) => COLUMNS[k].includes(h));
     return exact >= 0 ? exact : head.findIndex((h) => COLUMNS[k].some((c) => h.split('_').includes(c)));
   };
-  const idx = { message: col('message'), link: col('link'), image: col('image'), schedule: col('schedule') };
+  const idx = { message: col('message'), link: col('link'), image: col('image'), schedule: col('schedule'), page: col('page') };
   if (idx.message < 0 && idx.image < 0) return { posts: [], errors: ['No "message" or "image_url" column found in the first row.'] };
   const posts: CsvPost[] = [];
   const errors: string[] = [];
@@ -282,6 +284,7 @@ export function postsFromCsv(text: string, start: number): { posts: CsvPost[]; e
     const link = get(idx.link);
     const image = get(idx.image);
     const when = get(idx.schedule);
+    const page = get(idx.page);
     if (!message && !image) { errors.push(`Line ${line}: no message and no image.`); return; }
     if (link && !/^https?:\/\/\S+$/i.test(link)) { errors.push(`Line ${line}: the link must start with https://`); return; }
     if (image && !/^https?:\/\/\S+$/i.test(image)) { errors.push(`Line ${line}: the image_url must be a public https:// link (upload images in Media Library to get one).`); return; }
@@ -292,10 +295,38 @@ export function postsFromCsv(text: string, start: number): { posts: CsvPost[]; e
       if (ts < t - 3600) { errors.push(`Line ${line}: ${when} is in the past.`); return; }
       scheduledAt = Math.max(ts, start);
     }
-    posts.push({ line, message, link, image, scheduledAt });
+    posts.push({ line, message, link, image, scheduledAt, page });
   });
   if (rows.length - 1 > MAX_CSV_ROWS) errors.push(`Only the first ${MAX_CSV_ROWS} posts were read; split bigger files.`);
   return { posts, errors };
+}
+
+export interface PageRef { fp_id: number; fp_page_id: string; fp_name: string; fp_tags: string[] }
+
+const norm = (s: string) => s.normalize('NFKC').replace(/\s+/g, ' ').trim().toLowerCase();
+
+/**
+ * A CSV row's `page` cell → the Pages it means. Each part (split by ; or |) is a Facebook Page ID, a Page name
+ * (any case) or a tag (every Page with it). A name two Pages share is an error: the Page ID tells them apart.
+ */
+export function resolvePages(cell: string, pages: PageRef[]): { ids: number[]; error: string } {
+  const ids = new Set<number>();
+  for (const raw of cell.split(/[;|\n]+/)) {
+    const part = raw.trim();
+    if (!part) continue;
+    const key = norm(part);
+    const byId = /^\d{5,25}$/.test(part) ? pages.find((p) => p.fp_page_id === part) : undefined;
+    if (byId) { ids.add(byId.fp_id); continue; }
+    const byName = pages.filter((p) => norm(p.fp_name) === key);
+    if (byName.length > 1) return { ids: [], error: `${byName.length} Pages are named “${part}”; use the Page ID instead (Export Pages lists them).` };
+    if (byName.length) { ids.add(byName[0].fp_id); continue; }
+    const byTag = pages.filter((p) => p.fp_tags.some((t) => norm(t) === key));
+    if (byTag.length) { byTag.forEach((p) => ids.add(p.fp_id)); continue; }
+    return { ids: [], error: /^\d+(\.\d+)?e\+?\d+$/i.test(part)
+      ? `“${part}” is a Page ID Excel shortened; use the Page name, or format the column as Text before pasting the IDs.`
+      : `no connected Page, Page ID or tag “${part}” (Export Pages lists them).` };
+  }
+  return { ids: [...ids], error: '' };
 }
 
 // ------------------------------------------------------------------ publishing (worker)

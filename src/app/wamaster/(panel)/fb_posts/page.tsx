@@ -49,6 +49,7 @@ export default async function FbPostsPage({ searchParams }: { searchParams: Prom
         title={<><i className="ri-facebook-circle-fill text-primary me-1" />Bulk post to Facebook Pages</>}
         actions={<>
           <a href="/wamaster/fb_posts/sample" className="btn btn-sm btn-soft-secondary"><i className="ri-download-2-line" /> Sample CSV</a>
+          {pages.length > 0 && <a href="/wamaster/fb_posts/pages/export" className="btn btn-sm btn-soft-success" title="Excel of the connected Pages with their Page IDs, for the page column"><i className="ri-file-excel-2-line" /> Export Pages</a>}
           {isSuper && <Link href="/wamaster/fb_posts/pages" className="btn btn-sm btn-soft-primary"><i className="ri-pages-line" /> Pages ({pages.length})</Link>}
         </>}
       >
@@ -58,7 +59,8 @@ export default async function FbPostsPage({ searchParams }: { searchParams: Prom
           <div className="small text-muted mt-3">
             CSV columns (first row = headings): <code>message</code>, <code>image_url</code> (optional, a public https link; use the Media Library),
             {' '}<code>link</code> (optional), <code>schedule</code> (optional, e.g. 25-11-2026 10:30; empty = as soon as possible). Up to {MAX_CSV_ROWS} posts per file.
-            Tick several Pages to publish every row on each of them. After uploading you see a preview of every post with its Pages; nothing is posted until you confirm. Posts go out one by one, about one every two seconds.
+            {' '}<code>page</code> (optional): where that row goes, a Page name, Page ID or tag (several split by <code>;</code>); <b>Export Pages</b> lists the names and IDs.
+            Rows without a page go to every ticked Page, so with a filled page column you need not tick any. After uploading you see a preview of every post with its Pages; nothing is posted until you confirm. Posts go out one by one, about one every two seconds.
           </div>
       </AccordionCard>
 

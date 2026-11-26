@@ -9,7 +9,7 @@ const QUALITY: Record<string, [string, string]> = {
 
 function Shell({ children }: { children: React.ReactNode }) {
   return (
-    <div className="card">
+    <div className="card card-animate card-height-100">
       <div className="card-body">
         <p className="text-uppercase fw-medium text-muted mb-2" title="Set by Meta: different people you can message with templates in a rolling 24 hours">
           Meta Daily Limit <i className="ri-information-line" />

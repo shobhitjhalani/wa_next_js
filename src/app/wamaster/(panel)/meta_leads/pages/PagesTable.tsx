@@ -30,7 +30,7 @@ function Row({ p, clients, accounts }: { p: PageRow; clients: SearchOption[]; ac
       <td style={{ minWidth: 220 }}>
         <div className="fw-semibold">{p.name || <span className="text-muted">Unknown Page</span>}</div>
         <div className="small text-muted">
-          {p.id}{p.category ? ` · ${p.category}` : ''}{' '}
+          Page ID {p.id}{p.category ? ` · ${p.category}` : ''}{' '}
           <a href={`https://www.facebook.com/${p.id}`} target="_blank" rel="noreferrer"><i className="ri-external-link-line" /></a>
         </div>
         {!p.inToken && <div className="small text-warning">The Meta token can&apos;t reach this Page</div>}
@@ -89,35 +89,59 @@ function Row({ p, clients, accounts }: { p: PageRow; clients: SearchOption[]; ac
   );
 }
 
-/** Lead Pages table: one row per Page, client picker + connect, with a search box over Page names / clients. */
+/** Status of a Page row, as the Status column shows it (for the Status filter). */
+type StatusKey = 'receiving' | 'unsubscribed' | 'noclient' | 'notconnected' | 'waiting';
+const STATUS_FILTERS: { key: StatusKey; label: string; test: (p: PageRow) => boolean }[] = [
+  { key: 'receiving', label: 'Receiving leads', test: (p) => p.saved && p.subscribed },
+  { key: 'unsubscribed', label: 'Not subscribed', test: (p) => p.saved && !p.subscribed },
+  { key: 'noclient', label: 'No client', test: (p) => p.saved && !p.userId },
+  { key: 'notconnected', label: 'Not connected', test: (p) => !p.saved },
+  { key: 'waiting', label: 'Leads waiting', test: (p) => p.waiting > 0 },
+];
+
+/** Lead Pages table: one row per Page, client picker + connect; search, Client and Status filters. */
 export function PagesTable({ pages, clients, accounts }: { pages: PageRow[]; clients: SearchOption[]; accounts: AdAccountOption[] }) {
   const [q, setQ] = useState('');
-  const [show, setShow] = useState<'all' | 'connected' | 'waiting'>('all');
+  const [status, setStatus] = useState<'' | StatusKey>('');
+  const [client, setClient] = useState('');
+  // Clients that have at least one Page, for the Client filter
+  const clientOptions = useMemo(() => {
+    const ids = new Map<number, string>();
+    for (const p of pages) if (p.saved && p.userId) ids.set(p.userId, p.client || `#${p.userId}`);
+    const named = [...ids].map(([id, name]) => ({ value: String(id), label: `${name} (${pages.filter((p) => p.saved && p.userId === id).length})` }))
+      .sort((a, b) => a.label.localeCompare(b.label));
+    return [{ value: '', label: 'All clients' }, { value: '-', label: `No client (${pages.filter((p) => !p.userId).length})` }, ...named];
+  }, [pages]);
   const shown = useMemo(() => {
     const t = q.trim().toLowerCase();
-    return pages.filter((p) => (show === 'all' || (show === 'connected' ? p.saved : p.waiting > 0))
+    const st = STATUS_FILTERS.find((f) => f.key === status);
+    return pages.filter((p) => (!st || st.test(p))
+      && (client === '' || (client === '-' ? !p.userId : p.saved && String(p.userId) === client))
       && (!t || `${p.name} ${p.id} ${p.client ?? ''}`.toLowerCase().includes(t)));
-  }, [pages, q, show]);
+  }, [pages, q, status, client]);
+  const filtered = !!(q.trim() || status || client);
   return (
     <>
       <div className="card-header d-flex flex-wrap gap-2 align-items-center">
-        <input type="search" className="form-control" style={{ maxWidth: 280 }} placeholder="Search Page or client…" value={q} onChange={(e) => setQ(e.target.value)} aria-label="Search" />
-        <div className="btn-group btn-group-sm" role="group">
-          {(['all', 'connected', 'waiting'] as const).map((k) => (
-            <button key={k} type="button" className={`btn ${show === k ? 'btn-primary' : 'btn-light'}`} onClick={() => setShow(k)}>
-              {k === 'all' ? `All (${pages.length})` : k === 'connected' ? `Connected (${pages.filter((p) => p.saved).length})` : `Leads waiting (${pages.filter((p) => p.waiting > 0).length})`}
-            </button>
-          ))}
+        <input type="search" className="form-control" style={{ maxWidth: 260 }} placeholder="Search Page name, ID or client…" value={q} onChange={(e) => setQ(e.target.value)} aria-label="Search" />
+        <div style={{ minWidth: 240 }}>
+          <SearchSelect value={client} onChange={setClient} options={clientOptions} placeholder="All clients" searchPlaceholder="Search client…" />
         </div>
+        <select className="form-select" style={{ maxWidth: 220 }} value={status} onChange={(e) => setStatus(e.target.value as '' | StatusKey)} aria-label="Status">
+          <option value="">All statuses ({pages.length})</option>
+          {STATUS_FILTERS.map((f) => <option key={f.key} value={f.key}>{f.label} ({pages.filter(f.test).length})</option>)}
+        </select>
+        {filtered && <button type="button" className="btn btn-light" onClick={() => { setQ(''); setStatus(''); setClient(''); }}>Clear</button>}
+        <span className="small text-muted ms-auto">{filtered ? `${shown.length} of ${pages.length} Pages` : `${pages.length} Pages`}</span>
       </div>
       <div className="card-body p-0 table-responsive">
         <table className="table table-sm align-middle mb-0">
           <thead className="table-light">
-            <tr><th>Facebook Page</th><th>Leads go to (client)</th><th>Status</th><th className="text-end">Leads 30 days</th><th className="text-end">Waiting</th><th className="text-end">Skipped 30 days</th><th /></tr>
+            <tr><th>Page Name</th><th>Leads go to (client)</th><th>Status</th><th className="text-end">Leads 30 days</th><th className="text-end">Waiting</th><th className="text-end">Skipped 30 days</th><th /></tr>
           </thead>
           <tbody>
             {shown.map((p) => <Row key={p.id} p={p} clients={clients} accounts={accounts} />)}
-            {!shown.length && <tr><td colSpan={7} className="text-center text-muted py-4">No Pages.</td></tr>}
+            {!shown.length && <tr><td colSpan={7} className="text-center text-muted py-4">{filtered ? 'No Pages match these filters.' : 'No Pages.'}</td></tr>}
           </tbody>
         </table>
       </div>

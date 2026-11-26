@@ -61,7 +61,7 @@ export default async function FlowSessionsPage({ params, searchParams }: {
             <p className="text-muted small mb-0">Each contact's progress through the flow and the answers saved in its variables.</p>
           </div>
           <Link href={`/bot_flows/${flow.bf_id}`} className="btn btn-sm btn-soft-primary"><i className="ri-edit-line" /> Edit flow</Link>
-          <a href={`/bot_flows/${flow.bf_id}/sessions/export${exportQs ? '?' + exportQs : ''}`} className="btn btn-sm btn-soft-success"><i className="ri-file-excel-2-line" /> Export CSV</a>
+          <a href={`/bot_flows/${flow.bf_id}/sessions/export${exportQs ? '?' + exportQs : ''}`} className="btn btn-sm btn-soft-success"><i className="ri-file-excel-2-line" /> Export Excel</a>
         </div>
         <div className="card-body border-bottom">
           <form method="get" className="row g-2 align-items-center">

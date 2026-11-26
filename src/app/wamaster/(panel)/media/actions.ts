@@ -7,7 +7,7 @@ import { fFile, flash, fStr, invalid, ok, type ActionResult } from '@/lib/action
 import { logActivity } from '@/lib/activity';
 import { requireRight } from '@/lib/admin-access';
 import { config, url } from '@/lib/config';
-import { exec, one } from '@/lib/db';
+import { exec, one, query } from '@/lib/db';
 import { mediaDir } from '@/lib/services/media';
 import { now } from '@/lib/time';
 import { LIBRARY_MAX_MB, LIBRARY_TYPES, slug } from './library';
@@ -109,4 +109,29 @@ export async function deleteMedia(id: number): Promise<void> {
     await flash('success', `“${row.mf_name}” deleted. Its URL no longer works.`);
   }
   revalidatePath('/wamaster/media');
+}
+
+/** Delete the ticked library files (their URLs stop working). Returns how many were deleted. */
+export async function deleteMediaMany(ids: number[]): Promise<{ deleted: number }> {
+  await requireRight('media_library', 'delete');
+  const list = [...new Set((Array.isArray(ids) ? ids : []).map(Number).filter((n) => Number.isInteger(n) && n > 0 && n < 2147483648))].slice(0, 1000);
+  if (!list.length) return { deleted: 0 };
+  const rows = await query<{ mf_id: number; mf_path: string; mf_name: string }>(
+    'DELETE FROM js_media_file WHERE mf_id = ANY($1::int[]) RETURNING mf_id, mf_path, mf_name', [list]);
+  const root = path.resolve(config.mediaPath, 'library') + path.sep;
+  for (const r of rows) {
+    const file = path.resolve(config.mediaPath, r.mf_path);
+    if (file.startsWith(root)) await unlink(file).catch(() => undefined);
+  }
+  if (rows.length) {
+    await logActivity({
+      module: 'media', action: `Deleted ${rows.length} file(s)`, target: rows.length === 1 ? rows[0].mf_name : `${rows.length} files`,
+      details: rows.slice(0, 50).map((r) => r.mf_path).concat(rows.length > 50 ? [`… and ${rows.length - 50} more`] : []),
+    });
+  }
+  await flash('success', rows.length
+    ? `${rows.length} file${rows.length === 1 ? '' : 's'} deleted. Their URLs no longer work.`
+    : 'These files no longer exist.');
+  revalidatePath('/wamaster/media');
+  return { deleted: rows.length };
 }

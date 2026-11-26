@@ -12,7 +12,7 @@ import { sp } from '@/lib/http';
 import { numberFormat } from '@/lib/text';
 import { phpDate } from '@/lib/time';
 import { CopyButton } from '../../../(user)/api_docs/CopyButton';
-import { deleteMedia } from './actions';
+import { deleteMedia, deleteMediaMany } from './actions';
 import { fileIcon, LIBRARY_TYPES, sizeLabel } from './library';
 import { EditMedia } from './EditMedia';
 import { UploadForm } from './UploadForm';
@@ -67,7 +67,7 @@ export default async function MediaLibraryPage({ searchParams }: { searchParams:
         </div>
         <div className="card-body">
           <DataTableControls path={PATH} query={queryString(tableParams)} perPage={table.perPage} q={table.q} total={total ?? 0} placeholder="Search name or file…" />
-          <MediaSelection total={total ?? 0} exportHref={`${PATH}/export?${new URLSearchParams({ folder, q: table.q })}`}>
+          <MediaSelection total={total ?? 0} onDelete={canDelete ? deleteMediaMany : undefined} exportHref={`${PATH}/export?${new URLSearchParams({ folder, q: table.q })}`}>
           <div className="table-responsive">
             <table className="table table-hover align-middle mb-0">
               <thead className="table-light">
@@ -81,7 +81,7 @@ export default async function MediaLibraryPage({ searchParams }: { searchParams:
                   const thumb = `${config.mediaUrl}/${f.mf_path}${f.mf_updated_on ? `?v=${f.mf_updated_on}` : ''}`;
                   return (
                     <tr key={f.mf_id}>
-                      <td><input type="checkbox" className="form-check-input" data-url={link} data-name={f.mf_name} data-folder={f.mf_folder} aria-label={`Select ${f.mf_name}`} /></td>
+                      <td><input type="checkbox" className="form-check-input" data-id={f.mf_id} data-url={link} data-name={f.mf_name} data-folder={f.mf_folder} aria-label={`Select ${f.mf_name}`} /></td>
                       <td>
                         {LIBRARY_TYPES[ext]?.kind === 'image'
                           ? <a href={link} target="_blank" rel="noreferrer"><img src={thumb} alt="" width={48} height={48} className="rounded border" style={{ objectFit: 'cover' }} /></a>

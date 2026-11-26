@@ -1,8 +1,8 @@
 'use client';
 
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useRef, useState, useTransition } from 'react';
 
-export interface UrlRow { folder: string; name: string; url: string }
+export interface UrlRow { folder: string; name: string; url: string; id?: number }
 
 function cell(v: string): string {
   return /[",\r\n]/.test(v) ? `"${v.replace(/"/g, '""')}"` : v;
@@ -40,9 +40,16 @@ export function UrlListActions({ rows, filename }: { rows: UrlRow[]; filename: s
  * Tick files in the table below (inputs with data-url / data-name / data-folder) and copy or download
  * their URLs; a header checkbox (data-select-all) ticks every file on the page.
  */
-export function MediaSelection({ exportHref, total, children }: { exportHref: string; total: number; children: React.ReactNode }) {
+export function MediaSelection({ exportHref, total, onDelete, children }: {
+  exportHref: string; total: number;
+  /** Delete the ticked files (rows with data-id); absent without the delete right. */
+  onDelete?: (ids: number[]) => Promise<{ deleted: number }>;
+  children: React.ReactNode;
+}) {
   const box = useRef<HTMLDivElement>(null);
   const [rows, setRows] = useState<UrlRow[]>([]);
+  const [deleting, startDelete] = useTransition();
+  const [error, setError] = useState('');
 
   useEffect(() => {
     const el = box.current;
@@ -51,7 +58,7 @@ export function MediaSelection({ exportHref, total, children }: { exportHref: st
     const read = () => {
       const all = items();
       const ticked = all.filter((i) => i.checked);
-      setRows(ticked.map((i) => ({ folder: i.dataset.folder ?? '', name: i.dataset.name ?? '', url: i.dataset.url ?? '' })));
+      setRows(ticked.map((i) => ({ folder: i.dataset.folder ?? '', name: i.dataset.name ?? '', url: i.dataset.url ?? '', id: Number(i.dataset.id) || undefined })));
       const head = el.querySelector<HTMLInputElement>('input[data-select-all]');
       if (head) { head.checked = all.length > 0 && ticked.length === all.length; head.indeterminate = ticked.length > 0 && ticked.length < all.length; }
     };
@@ -70,6 +77,22 @@ export function MediaSelection({ exportHref, total, children }: { exportHref: st
     setRows([]);
   };
 
+  const ids = rows.map((r) => r.id).filter((n): n is number => !!n);
+  const remove = () => {
+    if (!onDelete || !ids.length) return;
+    const names = rows.slice(0, 5).map((r) => `• ${r.name}`).join('\n') + (rows.length > 5 ? `\n… and ${rows.length - 5} more` : '');
+    if (!window.confirm(`Delete ${ids.length} file${ids.length === 1 ? '' : 's'}? Their public URLs stop working everywhere they were shared.\n\n${names}`)) return;
+    setError('');
+    startDelete(async () => {
+      try {
+        await onDelete(ids);
+        clear();
+      } catch {
+        setError('The files could not be deleted. Reload the page and try again.');
+      }
+    });
+  };
+
   return (
     <div ref={box}>
       <div className="d-flex flex-wrap align-items-center gap-2 mb-2">
@@ -77,11 +100,17 @@ export function MediaSelection({ exportHref, total, children }: { exportHref: st
           <>
             <span className="small fw-semibold">{rows.length} selected</span>
             <UrlListActions rows={rows} filename="media-urls.csv" />
-            <button type="button" className="btn btn-sm btn-light" onClick={clear}>Clear</button>
+            {onDelete && ids.length > 0 && (
+              <button type="button" className="btn btn-sm btn-soft-danger" onClick={remove} disabled={deleting}>
+                <i className={deleting ? 'ri-loader-4-line' : 'ri-delete-bin-line'} /> {deleting ? 'Deleting…' : `Delete ${ids.length} selected`}
+              </button>
+            )}
+            <button type="button" className="btn btn-sm btn-light" onClick={clear} disabled={deleting}>Clear</button>
           </>
-        ) : <span className="small text-muted">Tick files to copy or download their URLs.</span>}
+        ) : <span className="small text-muted">Tick files to copy or download their URLs{onDelete ? ', or delete them' : ''}.</span>}
         <a href={exportHref} className="btn btn-sm btn-soft-secondary ms-auto" aria-disabled={!total}><i className="ri-file-download-line" /> Download all {total} URLs (CSV)</a>
       </div>
+      {error && <div className="alert alert-danger py-2 small">{error}</div>}
       {children}
     </div>
   );

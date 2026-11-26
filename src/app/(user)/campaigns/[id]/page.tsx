@@ -68,6 +68,10 @@ export default async function CampaignPage({ params, searchParams }: { params: P
   ]);
   const stats = statsMap[campaign.uc_id] ?? null;
   const sent = await sentMessage(campaign);
+  // Chatbot Flow replies start, and how many conversations it started
+  const botFlow = Number(campaign.uc_bot_flow_id) > 0 ? await one<{ bf_id: number; bf_name: string; bf_status: number; started: number }>(
+    `SELECT bf_id, bf_name, bf_status, (SELECT COUNT(*)::int FROM js_bot_session WHERE bs_user_id = $2 AND bs_campaign_id = $3) AS started
+       FROM js_bot_flow WHERE bf_id = $1 AND bf_user_id = $2`, [campaign.uc_bot_flow_id, user.u_id, campaign.uc_id]) : null;
   const eta = (stats?.pending ?? 0) > 0 ? (await campaignEtas(user, [campaign])).get(campaign.uc_id) : undefined;
 
   const failureReasons = stats && stats.failed
@@ -116,6 +120,14 @@ export default async function CampaignPage({ params, searchParams }: { params: P
               </span>
               {groupNames.length > 0 && <span><i className="ri-group-line" /> {groupNames.map((g) => g.up_group_name).join(', ')}</span>}
               {pastedNumbers > 0 && <span><i className="ri-phone-line" /> {numberFormat(pastedNumbers)} pasted number(s)</span>}
+              {botFlow && (
+                <span title="Chatbot Flow started by replies to this campaign">
+                  <i className="ri-robot-2-line" /> Flow on reply:{' '}
+                  {member ? botFlow.bf_name : <a href={`/bot_flows/${botFlow.bf_id}/sessions`}>{botFlow.bf_name}</a>}
+                  {Number(botFlow.bf_status) !== 1 && <span className="text-warning"> (not active)</span>}
+                  {' · '}{numberFormat(botFlow.started)} conversation(s)
+                </span>
+              )}
               {Number(campaign.uc_resent_at) > 0 && <span><i className="ri-restart-line" /> Failed messages resent {phpDate('d M Y, H:i', Number(campaign.uc_resent_at))}</span>}
             </div>
           </div>

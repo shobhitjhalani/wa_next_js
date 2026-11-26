@@ -59,7 +59,7 @@ interface Host {
   note(text: string): void;
 }
 
-interface Run { host: Host; mobile: string; flow: Pick<FlowRow, 'bf_name' | 'bf_graph'>; s: SessionState }
+interface Run { host: Host; mobile: string; flow: Pick<FlowRow, 'bf_name' | 'bf_graph'> & { bf_id?: number }; s: SessionState }
 interface Incoming { text: string; replyId: string | null }
 
 const newState = (name: string | null, text: string): SessionState => ({
@@ -132,25 +132,34 @@ export async function botIncoming(userId: number, mobile: string, name: string |
     const flow = row ? await one<FlowRow>(
       'SELECT bf_id, bf_name, bf_keywords, bf_match, bf_graph FROM js_bot_flow WHERE bf_id = $1 AND bf_user_id = $2 AND bf_status = 1', [row.bs_flow_id, userId], db) : null;
 
-    const startLive = async (exactOnly: boolean) => {
-      const found = await findFlow(db, userId, incoming.text, exactOnly);
-      if (!found) return false;
+    const startFlow = async (found: FlowRow, campaignId = 0) => {
       const t = now();
-      if (row) await exec(`UPDATE js_bot_session SET bs_status = ${STATUS.STOPPED}, bs_updated_on = $2 WHERE bs_id = $1`, [row.bs_id, t], db);
+      if (row) await exec(`UPDATE js_bot_session SET bs_status = ${STATUS.STOPPED}, bs_updated_on = $2 WHERE bs_id = $1 AND bs_status = 1`, [row.bs_id, t], db);
       const s = newState(name, incoming.text);
       const id = (await one<{ bs_id: number }>(
-        `INSERT INTO js_bot_session (bs_user_id, bs_flow_id, bs_mobile, bs_name, bs_vars, bs_created_on, bs_updated_on)
-         VALUES ($1, $2, $3, $4, $5::jsonb, $6, $6) RETURNING bs_id`, [userId, found.bf_id, mobile, name, JSON.stringify(s.vars), t], db))!.bs_id;
+        `INSERT INTO js_bot_session (bs_user_id, bs_flow_id, bs_mobile, bs_name, bs_vars, bs_campaign_id, bs_created_on, bs_updated_on)
+         VALUES ($1, $2, $3, $4, $5::jsonb, $6, $7, $7) RETURNING bs_id`, [userId, found.bf_id, mobile, name, JSON.stringify(s.vars), campaignId, t], db))!.bs_id;
       await begin({ host: liveHost(db, userId, mobile, found.bf_name, outbox), mobile, flow: found, s });
       await saveSession(db, id, s);
       return true;
     };
+    const startLive = async (exactOnly: boolean) => {
+      const found = await findFlow(db, userId, incoming.text, exactOnly);
+      return found ? startFlow(found) : false;
+    };
+
+    // A tapped button of a campaign's template: the campaign's Chatbot Flow starts (over)
+    const contextId = typeof message.context?.id === 'string' ? message.context.id : '';
+    if (message.type === 'button' && contextId) {
+      const c = await campaignFlow(db, userId, contextId, null);
+      if (c) return startFlow(c, c.campaign_id);
+    }
 
     if (row && flow) {
       const s = fromRow(row);
       if (name) s.name = name;
       // An option of another flow's earlier message: that flow takes over
-      if (incoming.replyId && !choiceOf(flow.bf_graph, incoming) && await resumeChoice(db, userId, mobile, name, incoming, row.bs_id, outbox)) return true;
+      if (incoming.replyId && !choiceOf(flow, incoming) && await resumeChoice(db, userId, mobile, name, incoming, row.bs_id, outbox)) return true;
       const run: Run = { host: liveHost(db, userId, mobile, flow.bf_name, outbox), mobile, flow, s };
       const result = await respond(run, incoming, (exactOnly) => startLive(exactOnly));
       if (result === 'restarted') return true;
@@ -162,10 +171,41 @@ export async function botIncoming(userId: number, mobile: string, name: string |
       await exec(`UPDATE js_bot_session SET bs_status = ${STATUS.STOPPED}, bs_updated_on = $2 WHERE bs_id = $1`, [row.bs_id, now()], db);
     }
     if (await resumeChoice(db, userId, mobile, name, incoming, row?.bs_id ?? null, outbox)) return true;
-    return startLive(false);
+    if (await startLive(false)) return true;
+    // No conversation going and no keyword: the first reply to a campaign that has a Chatbot Flow starts it
+    // (the message it answers, else the last campaign message of the past days; once per campaign and contact)
+    if (row && flow) return false;
+    const c = await campaignFlow(db, userId, contextId, mobile);
+    if (!c || !incoming.text.trim() || await one(
+      'SELECT 1 FROM js_bot_session WHERE bs_user_id = $1 AND bs_mobile = $2 AND bs_campaign_id = $3 LIMIT 1', [userId, mobile, c.campaign_id], db)) return false;
+    return startFlow(c, c.campaign_id);
   });
   await sendOutbox(outbox);
   return handled;
+}
+
+/** Campaign replies start the campaign's flow when they come within this long. */
+const CAMPAIGN_REPLY_WINDOW = 3 * 86400;
+
+/**
+ * The active Chatbot Flow of the campaign a reply belongs to: the campaign message it quotes (WhatsApp's
+ * context id), or — with `mobile` — the last campaign message sent to the contact in the past days.
+ */
+async function campaignFlow(db: pg.PoolClient, userId: number, contextId: string, mobile: string | null): Promise<(FlowRow & { campaign_id: number }) | null> {
+  const flowOf = (campaignId: number) => one<FlowRow & { campaign_id: number }>(
+    `SELECT f.bf_id, f.bf_name, f.bf_keywords, f.bf_match, f.bf_graph, c.uc_id AS campaign_id
+       FROM js_user_campaign c JOIN js_bot_flow f ON f.bf_id = c.uc_bot_flow_id AND f.bf_user_id = c.uc_user_id AND f.bf_status = 1
+      WHERE c.uc_id = $1 AND c.uc_user_id = $2`, [campaignId, userId], db);
+  if (contextId) {
+    const quoted = await value<number>(
+      'SELECT m_campaign_id FROM js_message WHERE m_message_id = $1 AND m_user_id = $2 AND m_is_incoming = 2 LIMIT 1', [contextId, userId], db);
+    if (quoted !== null) return quoted > 0 ? flowOf(Number(quoted)) : null;
+  }
+  if (!mobile) return null;
+  const last = await value<number>(
+    `SELECT m_campaign_id FROM js_message WHERE m_user_id = $1 AND m_mobile_no = $2 AND m_is_incoming = 2 AND m_campaign_id > 0
+        AND m_created_on > $3 AND COALESCE(m_message_id, '') <> '' ORDER BY m_id DESC LIMIT 1`, [userId, mobile, now() - CAMPAIGN_REPLY_WINDOW], db);
+  return last ? flowOf(Number(last)) : null;
 }
 
 /**
@@ -174,14 +214,14 @@ export async function botIncoming(userId: number, mobile: string, name: string |
  * earlier answers. Only active flows; the conversations of the last 30 days are looked at.
  */
 async function resumeChoice(db: pg.PoolClient, userId: number, mobile: string, name: string | null, incoming: Incoming, runningId: number | null, outbox: Outbox): Promise<boolean> {
-  const nodeId = /^(.+):\d{1,2}$/.exec(incoming.replyId ?? '')?.[1];
-  if (!nodeId) return false;
+  const tap = parseChoice(incoming.replyId);
+  if (!tap) return false;
   const past = await query<{ bs_id: number; bs_name: string | null; bs_vars: Record<string, string> } & FlowRow>(
     `SELECT s.bs_id, s.bs_name, s.bs_vars, f.bf_id, f.bf_name, f.bf_keywords, f.bf_match, f.bf_graph
        FROM js_bot_session s JOIN js_bot_flow f ON f.bf_id = s.bs_flow_id AND f.bf_user_id = s.bs_user_id AND f.bf_status = 1
       WHERE s.bs_user_id = $1 AND s.bs_mobile = $2 AND s.bs_created_on > $3
       ORDER BY s.bs_id DESC LIMIT 20`, [userId, mobile, now() - 30 * 86400], db);
-  const hit = past.find((p) => choiceOf(p.bf_graph, incoming));
+  const hit = past.find((p) => choiceOf(p, incoming));
   if (!hit) return false;
   const t = now();
   if (runningId) await exec(`UPDATE js_bot_session SET bs_status = ${STATUS.STOPPED}, bs_updated_on = $2 WHERE bs_id = $1`, [runningId, t], db);
@@ -189,7 +229,7 @@ async function resumeChoice(db: pg.PoolClient, userId: number, mobile: string, n
   const id = (await one<{ bs_id: number }>(
     `INSERT INTO js_bot_session (bs_user_id, bs_flow_id, bs_mobile, bs_name, bs_vars, bs_created_on, bs_updated_on)
      VALUES ($1, $2, $3, $4, $5::jsonb, $6, $6) RETURNING bs_id`, [userId, hit.bf_id, mobile, s.name, JSON.stringify(s.vars), t], db))!.bs_id;
-  await jumpBack({ host: liveHost(db, userId, mobile, hit.bf_name, outbox), mobile, flow: hit, s }, choiceOf(hit.bf_graph, incoming)!, incoming);
+  await jumpBack({ host: liveHost(db, userId, mobile, hit.bf_name, outbox), mobile, flow: hit, s }, choiceOf(hit, incoming)!, incoming);
   await saveSession(db, id, s);
   return true;
 }
@@ -377,7 +417,7 @@ export async function testFlow(
     if (s?.status === STATUS.RUNNING && s.waitUntil) await afterWait({ host, mobile: who.mobile, flow, s });
   } else {
     // A finished test conversation still takes taps on earlier options
-    const run = s && (s.status === STATUS.RUNNING || choiceOf(graph, { text, replyId: input.replyId ?? null })) ? { host, mobile: who.mobile, flow, s } : null;
+    const run = s && (s.status === STATUS.RUNNING || choiceOf(flow, { text, replyId: input.replyId ?? null })) ? { host, mobile: who.mobile, flow, s } : null;
     const result = run ? await respond(run, { text, replyId: input.replyId ?? null }, startTest) : 'idle';
     if (result === 'idle' && !(await startTest(false))) {
       const keywords = parseKeywords((graph.nodes.find((n) => n.type === 'trigger')?.data as TriggerData | undefined)?.keywords ?? '');
@@ -435,14 +475,14 @@ async function respond(run: Run, incoming: Incoming, restart: (exactOnly: boolea
   const { s, flow } = run;
   const node = s.node ? flow.bf_graph.nodes?.find((n) => n.id === s.node) : null;
   // A tap on a button / list option of an earlier message: the flow goes on from that choice
-  const earlier = choiceOf(flow.bf_graph, incoming);
+  const earlier = choiceOf(flow, incoming);
   if (earlier && !(node && !s.waitUntil && earlier.id === node.id)) {
     await jumpBack(run, earlier, incoming);
     return 'answered';
   }
   if (!node || s.waitUntil) return 'idle';
   // A trigger keyword (whole message) restarts, unless it is a tap on one of this step's own buttons
-  const tapped = !!incoming.replyId?.startsWith(node.id + ':');
+  const tapped = earlier?.id === node.id;
   if (!tapped && await restart(true)) return 'restarted';
   s.vars.last_reply = clip(incoming.text.trim());
   const answered = await answer(run, node, incoming);
@@ -453,14 +493,28 @@ async function respond(run: Run, incoming: Incoming, restart: (exactOnly: boolea
   return 'answered';
 }
 
-/** The buttons / list step (in this graph) a tapped option belongs to, when the option still exists. */
-function choiceOf(graph: FlowGraph, incoming: Incoming): FlowNode | null {
-  const m = /^(.+):(\d{1,2})$/.exec(incoming.replyId ?? '');
-  if (!m) return null;
-  const node = graph.nodes?.find((n) => n.id === m[1]);
+/**
+ * A tapped option's id: "f<flow id>~<step id>:<option>" (live messages; flows copied from one another
+ * share step ids, the flow id keeps them apart) or "<step id>:<option>" (test chat, older messages).
+ */
+function parseChoice(replyId: string | null | undefined): { flowId: number | null; nodeId: string; index: number } | null {
+  const m = /^(?:f(\d+)~)?(.+):(\d{1,2})$/.exec(replyId ?? '');
+  return m ? { flowId: m[1] ? Number(m[1]) : null, nodeId: m[2], index: Number(m[3]) } : null;
+}
+
+/** The id a step's option is sent with. */
+function choiceId(run: Run, node: FlowNode, i: number): string {
+  return `${run.flow.bf_id ? `f${run.flow.bf_id}~` : ''}${node.id}:${i}`;
+}
+
+/** The buttons / list step (of this flow) a tapped option belongs to, when the option still exists. */
+function choiceOf(flow: { bf_id?: number; bf_graph: FlowGraph }, incoming: Incoming): FlowNode | null {
+  const tap = parseChoice(incoming.replyId);
+  if (!tap || (tap.flowId && flow.bf_id && tap.flowId !== flow.bf_id)) return null;
+  const node = flow.bf_graph.nodes?.find((n) => n.id === tap.nodeId);
   if (!node || !CHOICE_KINDS.has(node.type)) return null;
   const count = node.type === 'list' ? (node.data as ListData).rows.length : (node.data as ButtonsData).buttons.length;
-  return Number(m[2]) < count ? node : null;
+  return tap.index < count ? node : null;
 }
 const CHOICE_KINDS = new Set<string>(['buttons', 'mediabuttons', 'list']);
 
@@ -571,7 +625,7 @@ async function prompt(run: Run, node: FlowNode, prefix = ''): Promise<void> {
     const interactive: Record<string, unknown> = {
       type: 'button',
       body: { text: limit(prefix + fill(run, d.text), 1024, '') || ' ' },
-      action: { buttons: d.buttons.map((title, i) => ({ type: 'reply', reply: { id: `${node.id}:${i}`, title: limit(title, 20, '') } })) },
+      action: { buttons: d.buttons.map((title, i) => ({ type: 'reply', reply: { id: choiceId(run, node, i), title: limit(title, 20, '') } })) },
     };
     const media = d.mediaUrl ? fill(run, d.mediaUrl, encodeURI) : '';
     if (media) {
@@ -591,7 +645,7 @@ async function prompt(run: Run, node: FlowNode, prefix = ''): Promise<void> {
       button: limit(d.buttonLabel || 'Choose', 20, ''),
       sections: [{
         title: limit(d.buttonLabel || 'Options', 24, ''),
-        rows: d.rows.map((r, i) => ({ id: `${node.id}:${i}`, title: limit(r.title, 24, ''), ...(r.description ? { description: limit(fill(run, r.description), 72, '') } : {}) })),
+        rows: d.rows.map((r, i) => ({ id: choiceId(run, node, i), title: limit(r.title, 24, ''), ...(r.description ? { description: limit(fill(run, r.description), 72, '') } : {}) })),
       }],
     },
   };
@@ -605,7 +659,7 @@ async function answer(run: Run, node: FlowNode, incoming: Incoming): Promise<'co
   if (node.type === 'buttons' || node.type === 'mediabuttons' || node.type === 'list') {
     const options = node.type !== 'list' ? (node.data as ButtonsData).buttons : (node.data as ListData).rows.map((r) => r.title);
     let index = -1;
-    if (incoming.replyId?.startsWith(node.id + ':')) index = Number(incoming.replyId.slice(node.id.length + 1));
+    if (choiceOf(run.flow, incoming)?.id === node.id) index = parseChoice(incoming.replyId)!.index;
     if (!(index >= 0 && index < options.length)) {
       const t = incoming.text.trim().toLowerCase();
       index = options.findIndex((o) => o.trim().toLowerCase() === t);

@@ -223,6 +223,7 @@ export interface CampaignRow {
   uc_scheduled_at: number;
   uc_started_at: number;
   uc_resent_at: number;
+  uc_bot_flow_id: number; // js_bot_flow a reply starts (0 = none)
   uc_skipped: number;
   uc_created_on: string;
   uc_payload: CampaignPayload | null;

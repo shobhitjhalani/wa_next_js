@@ -72,7 +72,7 @@ function pastedNumbers(text: string): number {
   return new Set(text.split(/[\n,;]+/).map((s) => s.replace(/\D/g, '')).filter((s) => s.length >= 10)).size;
 }
 
-export function ComposeForm({ action, templates, selected, groups, preselectedGroups, mobile, uniqueCode, minSchedule, sendWindow }: {
+export function ComposeForm({ action, templates, selected, groups, preselectedGroups, mobile, uniqueCode, minSchedule, sendWindow, flows }: {
   action: Action;
   templates: { ut_id: number; ut_name: string }[];
   selected: ComposeTemplate | null;
@@ -82,6 +82,8 @@ export function ComposeForm({ action, templates, selected, groups, preselectedGr
   uniqueCode: string;
   minSchedule: string;
   sendWindow: string;
+  /** Active Chatbot Flows a reply can start (null = Chatbot Flows are off for the account). */
+  flows: { id: number; name: string }[] | null;
 }) {
   const [template, setTemplate] = useState<ComposeTemplate | null>(selected);
   const [templateId, setTemplateId] = useState(selected ? String(selected.ut_id) : '');
@@ -92,6 +94,8 @@ export function ComposeForm({ action, templates, selected, groups, preselectedGr
   const [fileInfo, setFileInfo] = useState<FileInfo>({ state: 'none' });
   const [later, setLater] = useState(false);
   const [scheduleAt, setScheduleAt] = useState('');
+  const [flowId, setFlowId] = useState('');
+  const flowName = flows?.find((f) => String(f.id) === flowId)?.name ?? '';
   const [noAudience, setNoAudience] = useState(false);
   const [review, setReview] = useState(false);
   const [fill, setFill] = useState<PreviewFill | null>(null);
@@ -389,6 +393,24 @@ export function ComposeForm({ action, templates, selected, groups, preselectedGr
             </div>
           </div>
 
+          {flows && (
+            <div className="card">
+              <div className="card-header"><h5 className="card-title mb-0"><span className="badge bg-primary-subtle text-primary me-1">4</span> Chatbot Flow on reply <span className="text-muted fw-normal small">(optional)</span></h5></div>
+              <div className="card-body">
+                <select name="bot_flow_id" id="bot_flow_id" className="form-select" style={{ maxWidth: 420 }} value={flowId} onChange={(e) => setFlowId(e.target.value)} aria-label="Chatbot Flow on reply">
+                  <option value="">None</option>
+                  {flows.map((f) => <option key={f.id} value={f.id}>{f.name}</option>)}
+                </select>
+                <FieldError name="bot_flow_id" />
+                <div className="form-text">
+                  {flows.length
+                    ? <>When a customer taps a button of this campaign&apos;s template, or replies to it within 3 days, this flow starts — no trigger keyword needed. The tapped button&apos;s text is saved as <code>{'{{trigger}}'}</code>.</>
+                    : <>No active Chatbot Flow yet. <a href="/bot_flows" target="_blank" rel="noreferrer">Create and activate one</a> to start it from this campaign&apos;s replies.</>}
+                </div>
+              </div>
+            </div>
+          )}
+
           <button type="button" className="btn btn-success btn-lg mb-4" id="review_btn" onClick={openReview} disabled={fileBusy}>
             <i className="ri-eye-line" /> Preview &amp; Send
           </button>
@@ -404,6 +426,7 @@ export function ComposeForm({ action, templates, selected, groups, preselectedGr
             <ul className="list-group list-group-flush small">
               <li className="list-group-item d-flex"><span className="text-muted me-auto">Total data</span><strong>{fmt(total)}</strong></li>
               <li className="list-group-item d-flex"><span className="text-muted me-auto">Schedule</span><strong>{later ? (scheduleAt ? scheduleText : 'Choose a time') : 'Send now'}</strong></li>
+              {flowName && <li className="list-group-item d-flex"><span className="text-muted me-auto">Chatbot Flow on reply</span><strong className="text-end">{flowName}</strong></li>}
             </ul>
           </div>
         </div>
@@ -412,7 +435,7 @@ export function ComposeForm({ action, templates, selected, groups, preselectedGr
       {review && (
         <ReviewModal
           onClose={closeReview} template={template} fill={shownFill} templateName={templateOptions.find((o) => o.value === templateId)?.label ?? ''}
-          total={total} sources={sources} schedule={later ? scheduleText : 'Now'} later={later}
+          total={total} sources={sources} schedule={later ? scheduleText : 'Now'} later={later} flowName={flowName}
         />
       )}
     </ActionForm>
@@ -420,8 +443,8 @@ export function ComposeForm({ action, templates, selected, groups, preselectedGr
 }
 
 /** Review popup: template, total data and send time; "Click to Send" submits the campaign form. */
-function ReviewModal({ onClose, template, fill, templateName, total, sources, schedule, later }: {
-  onClose: () => void; template: ComposeTemplate | null; fill: PreviewFill | null; templateName: string; total: number; sources: string; schedule: string; later: boolean;
+function ReviewModal({ onClose, template, fill, templateName, total, sources, schedule, later, flowName }: {
+  onClose: () => void; template: ComposeTemplate | null; fill: PreviewFill | null; templateName: string; total: number; sources: string; schedule: string; later: boolean; flowName: string;
 }) {
   const { pending } = useActionForm();
   useEffect(() => {
@@ -454,7 +477,8 @@ function ReviewModal({ onClose, template, fill, templateName, total, sources, sc
                     <dd className="mb-3"><span className="fs-3 fw-semibold">{total.toLocaleString('en-US')}</span><div className="small text-muted">{sources}</div>
                       <div className="small text-muted">Up to this many; duplicates and opted-out contacts are skipped.</div></dd>
                     <dt className="text-muted small text-uppercase fw-normal">Schedule time</dt>
-                    <dd className="fs-6 fw-semibold mb-0">{schedule}</dd>
+                    <dd className={`fs-6 fw-semibold ${flowName ? 'mb-3' : 'mb-0'}`}>{schedule}</dd>
+                    {flowName && <><dt className="text-muted small text-uppercase fw-normal">Chatbot Flow on reply</dt><dd className="fs-6 fw-semibold mb-0">{flowName}</dd></>}
                   </dl>
                 </div>
               </div>

@@ -30,6 +30,8 @@ export interface CampaignInput {
   scheduleAt: number | null;
   /** Variables taken from the uploaded file: {{index[k]+1}} = values[mobile][k]; only these numbers are sent. */
   rowVars?: { index: number[]; values: Map<string, string[]> };
+  /** Active Chatbot Flow a reply to the campaign starts (0 / undefined = none). */
+  botFlowId?: number;
 }
 
 export async function createCampaign(
@@ -60,6 +62,7 @@ export async function createCampaign(
     uc_total_contacts: 0,
     uc_status: CAMPAIGN.SCHEDULED,
     uc_scheduled_at: data.scheduleAt || now(),
+    uc_bot_flow_id: data.botFlowId || 0,
     uc_payload: JSON.stringify({
       type,
       fields,

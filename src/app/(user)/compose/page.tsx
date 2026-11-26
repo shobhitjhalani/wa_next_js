@@ -30,7 +30,8 @@ export default async function ComposePage({ searchParams }: { searchParams: Para
   const tm = sp(params, 'tm');
   const tmId = tm === '' ? null : parseInt(tm, 10) || 0;
 
-  const [templates, groups] = await Promise.all([
+  const botFlows = Number(user.u_bot_flow) === 1;
+  const [templates, groups, flows] = await Promise.all([
     query<{ ut_id: number; ut_name: string }>(
       `SELECT ut_id, ut_name FROM js_user_templates
         WHERE ut_user_id = $1 AND ut_dstatus = 0 AND ut_status = 1 AND ($2::int IS NULL OR ut_id = $2)
@@ -47,6 +48,8 @@ export default async function ComposePage({ searchParams }: { searchParams: Para
         ORDER BY g.up_group_name`,
       [user.u_id],
     ),
+    botFlows ? query<{ id: number; name: string }>(
+      'SELECT bf_id AS id, bf_name AS name FROM js_bot_flow WHERE bf_user_id = $1 AND bf_status = 1 ORDER BY lower(bf_name)', [user.u_id]) : null,
   ]);
   const selected = templates.length === 1
     ? await one<ComposeTemplate>(`SELECT ${COMPOSE_TEMPLATE_COLUMNS} FROM js_user_templates WHERE ut_id = $1 AND ut_user_id = $2`, [templates[0].ut_id, user.u_id])
@@ -67,6 +70,7 @@ export default async function ComposePage({ searchParams }: { searchParams: Para
         uniqueCode={`cu_${now()}_${user.u_id}_${random(6)}`}
         minSchedule={phpDate('Y-m-d\\TH:i', now() + 300)}
         sendWindow={sendWindowLabel()}
+        flows={flows}
       />
     </>
   );

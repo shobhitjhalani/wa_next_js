@@ -3,7 +3,7 @@
 import { notFound, redirect } from 'next/navigation';
 import { fail, flash, invalid, type ActionResult } from '@/lib/actions';
 import { requireTeam } from '@/lib/auth';
-import { exec, one, query } from '@/lib/db';
+import { exec, one, query, value } from '@/lib/db';
 import { nestedForm, nFile, nList, nObj, nStr, nStrings } from '@/lib/form-nested';
 import { createCampaign } from '@/lib/services/campaigns';
 import { ImportError, NUMBER_FILE_EXTENSIONS, readNumbersFile } from '@/lib/services/contacts-import';
@@ -120,6 +120,15 @@ export async function storeCampaign(_prev: ActionResult | null, fd: FormData): P
       }
     }
   }
+  // Chatbot Flow started by replies to the campaign (optional; an active flow of the account)
+  const flowRaw = nStr(input, 'bot_flow_id');
+  let botFlowId = 0;
+  if (flowRaw) {
+    const ok = /^\d+$/.test(flowRaw) && Number(user.u_bot_flow) === 1
+      && await value<number>('SELECT bf_id FROM js_bot_flow WHERE bf_id = $1 AND bf_user_id = $2 AND bf_status = 1', [Number(flowRaw), user.u_id]);
+    if (ok) botFlowId = Number(flowRaw);
+    else add('bot_flow_id', 'Choose an active Chatbot Flow.');
+  }
   if (Object.keys(errors).length) return invalid(errors);
 
   const template = await one<Pick<TemplateRow, 'ut_id' | 'ut_name' | 'ut_template_type' | 'ut_template_category' | 'ut_cards'>>(
@@ -139,6 +148,7 @@ export async function storeCampaign(_prev: ActionResult | null, fd: FormData): P
       cards: Array.from(cards, (c) => c ?? {}),
       scheduleAt: sendMode === 'later' ? scheduleAt : null,
       rowVars,
+      botFlowId,
     }, headerFiles, Array.from(cardFiles, (f) => f ?? null));
   } catch (e) {
     if (e instanceof UserError) return fail(e.message);

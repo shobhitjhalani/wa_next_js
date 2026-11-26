@@ -483,6 +483,7 @@ CREATE TABLE IF NOT EXISTS js_user_campaign (
 CREATE INDEX IF NOT EXISTS js_user_campaign_code_idx ON js_user_campaign (uc_unique_code);
 -- Last "Resend failed" (stats keep refreshing for a few days after it)
 ALTER TABLE js_user_campaign ADD COLUMN IF NOT EXISTS uc_resent_at integer NOT NULL DEFAULT 0;
+ALTER TABLE js_user_campaign ADD COLUMN IF NOT EXISTS uc_bot_flow_id integer NOT NULL DEFAULT 0; -- js_bot_flow started by replies to the campaign (0 = none)
 CREATE INDEX IF NOT EXISTS js_user_campaign_user_idx ON js_user_campaign (uc_user_id, uc_created_on DESC);
 CREATE INDEX IF NOT EXISTS js_user_campaign_due_idx ON js_user_campaign (uc_scheduled_at) WHERE uc_status = 1;
 
@@ -866,6 +867,9 @@ CREATE TABLE IF NOT EXISTS js_bot_session (
 CREATE UNIQUE INDEX IF NOT EXISTS js_bot_session_running_idx ON js_bot_session (bs_user_id, bs_mobile) WHERE bs_status = 1;
 CREATE INDEX IF NOT EXISTS js_bot_session_wait_idx ON js_bot_session (bs_wait_until) WHERE bs_status = 1 AND bs_wait_until > 0;
 CREATE INDEX IF NOT EXISTS js_bot_session_flow_idx ON js_bot_session (bs_flow_id, bs_id DESC);
+-- Started by a reply to a campaign that has a Chatbot Flow (js_user_campaign.uc_bot_flow_id); 0 = by a keyword / tap.
+ALTER TABLE js_bot_session ADD COLUMN IF NOT EXISTS bs_campaign_id integer NOT NULL DEFAULT 0;
+CREATE INDEX IF NOT EXISTS js_bot_session_campaign_idx ON js_bot_session (bs_user_id, bs_mobile, bs_campaign_id) WHERE bs_campaign_id > 0;
 
 -- Chatbot "Assign to team" step: the team member who got the last chat, per account (round robin).
 CREATE TABLE IF NOT EXISTS js_bot_round_robin (
